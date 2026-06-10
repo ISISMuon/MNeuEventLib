@@ -2,8 +2,8 @@ use std::path::Path;
 
 use hdf5::{Dataset, Error, File};
 use numpy::{PyArray1, ToPyArray};
-use pyo3::prelude::{pyclass, pymethods};
-use pyo3::prelude::{Bound, PyResult};
+use pyo3::prelude::{pyclass, pymethods, Bound, PyResult};
+use pyo3::exceptions::PyIOError;
 
 /// Class for storing a Nexus event file.
 #[pyclass(from_py_object)]
@@ -24,9 +24,10 @@ pub struct Data {
 impl Data {
     #[new]
     #[pyo3(signature = (filename, n_spec, chunk_size=1048576))]
-    fn new(filename: String, n_spec: usize, chunk_size: usize) -> Self {
+    fn new(filename: String, n_spec: usize, chunk_size: usize) -> PyResult<Self> {
         let path = Path::new(&filename);
-        load_data(path, n_spec, chunk_size).expect("Failed to load data!")
+        load_data(path, n_spec, chunk_size)
+            .map_err(|_| {PyIOError::new_err(format!("Failed to read file {}", filename))})
     }
 
     /// used for testing
