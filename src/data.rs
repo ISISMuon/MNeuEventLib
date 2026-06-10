@@ -62,3 +62,15 @@ pub fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<Da
         chunk_size,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test the program doesn't crash when you load a file.
+    #[test]
+    fn test_file_load() {
+        let path = Path::new("./tests/test_data/HIFI00195790.nxs");
+        let _ = load_data(path, 960, 1048576);
+    }
+}
