@@ -8,7 +8,7 @@ use pyo3::prelude::{pyclass, pymethods, Bound};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
 use crate::data::NexusData;
-use crate::filters::Weights;
+use crate::filters::{get_good_values, get_indices, Filters, Weights};
 
 type PyHist<'py> = Bound<'py, PyArray3<usize>>;
 
@@ -43,12 +43,29 @@ impl Histogram {
         self.n
     }
 
-    fn calculate(&self, data: NexusData) -> (Histogram, u128) {
+    fn calculate(&self, data: NexusData, filters: Filters) -> (Histogram, u128) {
         // todo: add periods
         let periods: Array1<u32> = Array1::zeros(data.n_events);
         let n_periods: usize = *periods.iter().max().unwrap() as usize + 1;
 
-        let weights = Weights::ones(data.n_events);
+        let filter_starts = filters.get_time_filter_starts();
+        let filter_ends = filters.get_time_filter_ends();
+        let start_index: Array1<usize> = data.frames.read_1d().expect("Failed to read frame data!");
+        let frame_start_times: Array1<usize> = data.frame_times.read_1d().unwrap();
+
+        let weights = if filter_starts.is_empty() {
+            Weights::ones(data.n_events)
+        } else {
+            let (start_frames, end_frames) =
+                get_indices(&frame_start_times, filter_starts, filter_ends);
+            get_good_values(
+                start_frames,
+                end_frames,
+                start_index,
+                data.n_events,
+                filters.is_include(),
+            )
+        };
 
         let (result, time) = calculate_histograms(
             data,

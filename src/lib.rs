@@ -6,11 +6,13 @@ use data::NexusData;
 mod stats;
 use stats::Histogram;
 mod filters;
+use filters::Filters;
 
 /// A Python module implemented in Rust.
 #[pymodule]
 fn MNeuEventLib(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NexusData>()?;
     m.add_class::<Histogram>()?;
+    m.add_class::<Filters>()?;
     Ok(())
 }
