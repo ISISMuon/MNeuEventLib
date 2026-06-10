@@ -90,7 +90,7 @@ mod tests {
     #[test]
     fn test_file_load() {
         let path = Path::new("./tests/test_data/HIFI00195790.nxs");
-        let data = load_data(path, 960, 1048576);
+        let data = load_data(path, 64, 1048576);
         assert!(data.is_ok())
     }
 
@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn test_file_not_found() {
         let path = Path::new("./mysterious/unreal/fake_data.nxs");
-        let data = load_data(path, 960, 1048576);
+        let data = load_data(path, 64, 1048576);
         assert!(data.is_err())
     }
 }
