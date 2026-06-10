@@ -1,12 +1,18 @@
 [package]
 name = "MNeuEventLib"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
-name = "MNeuEventLib"
+name = "mneueventlib"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = "0.28.3"
+hdf5 = { package = "hdf5-metno", version = "0.12.4" }
+indicatif = "0.18.4"
+ndarray = "0.16.1"
+rayon = "1.12.0"
+tabled = "0.21.0"
+pyo3 = "0.28.0"
+numpy = "0.28.0"
