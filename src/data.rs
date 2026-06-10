@@ -9,12 +9,13 @@ use pyo3::exceptions::PyIOError;
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct Data {
+    pub file: String,
     pub specs: Dataset,
     pub times: Dataset,
     pub amps: Dataset,
     pub frames: Dataset,
     pub frame_times: Dataset,
-    pub periods: Option<Dataset>,
+    pub periods: Dataset,
     pub n_events: usize,   // the total number of events
     pub n_spec: usize,     // the number of detectors
     pub chunk_size: usize, // the size of the data chunks
@@ -63,11 +64,12 @@ pub fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<Da
 
     let frames = data.dataset("event_index")?;
     let frame_times = data.dataset("event_time_zero")?;
-    let periods = data.dataset("period_number").ok();
+    let periods = data.dataset("period_number")?;
 
     let n_events = specs.size();
 
     Ok(Data {
+        file: filename.to_str().unwrap().to_string(),
         specs,
         times,
         amps,
@@ -84,10 +86,19 @@ pub fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<Da
 mod tests {
     use super::*;
 
-    /// Test the program doesn't crash when you load a file.
+    /// Test the program creates data when you load an existing file.
     #[test]
     fn test_file_load() {
         let path = Path::new("./tests/test_data/HIFI00195790.nxs");
-        let _ = load_data(path, 960, 1048576);
+        let data = load_data(path, 960, 1048576);
+        assert!(data.is_ok())
+    }
+
+    /// Test the program returns an error when the file doesn't exist.
+    #[test]
+    fn test_file_not_found() {
+        let path = Path::new("./mysterious/unreal/fake_data.nxs");
+        let data = load_data(path, 960, 1048576);
+        assert!(data.is_err())
     }
 }
