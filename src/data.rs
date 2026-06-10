@@ -36,6 +36,22 @@ impl Data {
     }
 }
 
+/// Load the data in a Nexus event data file into a Data object.
+///
+/// Parameters
+/// ----------
+/// filename: &Path
+///     The path to the file.
+/// n_spec: usize
+///     The number of detectors used.
+/// chunk_size: usize
+///     The size of the HDF5 chunks in the data (usually 1048576)
+///
+/// Returns
+/// -------
+/// Data
+///     A data object containing the relevant datasets.
+///
 pub fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<Data, Error> {
     let file = File::open(filename)?;
     let data = file.group("raw_data_1")?.group("detector_1_events")?;
