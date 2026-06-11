@@ -7,6 +7,7 @@ mod stats;
 use stats::Histogram;
 mod filters;
 use filters::Filters;
+mod consts;
 mod utils;
 
 /// A Python module implemented in Rust.

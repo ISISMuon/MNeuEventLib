@@ -2,16 +2,17 @@
 use anyhow::{Error, Result};
 use pyo3::prelude::{pyclass, pymethods};
 
+use crate::consts::S_TO_NS;
+
 #[derive(Clone)]
 enum FilterType {
     Include,
     Exclude,
 }
 
-const S_TO_NS: f64 = 1e9;
 
 #[derive(Clone, Debug, PartialEq)]
-struct Filter {
+pub struct Filter {
     name: String,
     start: f64,
     end: f64,
@@ -131,6 +132,13 @@ impl Filters {
     fn set_amp(&mut self, amp: f64) {
         self.amplitudes = amp;
     }
+}
+
+pub struct LogFilter {
+    name: String,
+    log: String,
+    start: f64,
+    end: f64,
 }
 
 #[cfg(test)]
