@@ -45,15 +45,11 @@ impl Histogram {
 
     // todo: change n_filters to a proper Filters object
     fn calculate(&self, data: Data) -> PyResult<(Histogram, u128)> {
-        let periods: Array1<u32> = match &data.periods {
-            // todo: add periods
-            //Some(dataset) => dataset.read_1d().expect("Failed to read period data."),
-            Some(dataset) => Array1::zeros(data.n_events),
-            None => Array1::zeros(data.n_events),
-        };
+        // todo: add periods
+        let periods: Array1<u32> = Array1::zeros(data.n_events);
         let n_periods: usize = *periods.iter().max().unwrap() as usize + 1;
 
-        let weights = Weights::ones(data.n_events); 
+        let weights = Weights::ones(data.n_events);
 
         let (result, time) = calculate_histograms(
             data,
@@ -132,6 +128,7 @@ pub fn calculate_histograms(
 /// Make a histogram for a set of data.
 /// This function is unsafe because we do array indexing without bounds checks!
 #[inline(always)]
+#[allow(clippy::too_many_arguments)]
 unsafe fn make_histogram(
     times: Array1<u32>,
     specs: Array1<u32>,
