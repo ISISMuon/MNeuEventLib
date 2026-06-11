@@ -81,10 +81,9 @@ pub fn get_good_values(
     array_len: usize,
     include: bool,
 ) -> Weights {
-
     let mut result = match include {
         true => Weights::zeros(array_len),
-        false => Weights::ones(array_len)
+        false => Weights::ones(array_len),
     };
 
     f_start

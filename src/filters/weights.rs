@@ -49,7 +49,6 @@ impl Weights {
     // but is not used in the actual code
     #[cfg(test)]
     /// Create a weights array from a raw weight vector.
-    #[allow(dead_code)] // dead code here is used in the time filters
     pub fn from_raw(raw_weights: Vec<u64>) -> Self {
         Weights {
             raw_weights,
@@ -72,7 +71,6 @@ impl Weights {
     }
 
     /// Set a range of weights to a given value.
-    #[allow(dead_code)] // dead code here is used in the time filters
     pub fn set_range(&mut self, start: usize, end: usize, set_to: bool) {
         // the general idea here is that the range will contain partial and full blocks,
         // so something like

@@ -40,7 +40,7 @@ impl Filters {
     pub fn is_include(&self) -> bool {
         match self.time_filter_type {
             FilterType::Include => true,
-            FilterType::Exclude => false
+            FilterType::Exclude => false,
         }
     }
 }
@@ -76,7 +76,7 @@ impl Filters {
     fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> PyResult<()> {
         // check name isn't already in use
         if self.time_filters.iter().any(|f| f.name == name) {
-            return Err(PyValueError::new_err("Name already exists!"))
+            return Err(PyValueError::new_err("Name already exists!"));
         }
         self.time_filters.push(Filter { name, start, end });
         Ok(())
