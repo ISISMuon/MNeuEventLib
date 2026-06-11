@@ -7,20 +7,29 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  lint:
-    name: Lint and format
+  format:
+    name: Check formatting
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: rustfmt 
       - run: cargo fmt --check
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - run: cargo clippy --all-targets --all-features -- -D warnings
 
   linux: 
     name: Run unit tests
-    needs: [lint]
+    needs: [lint, format]
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest, macOS-latest]
