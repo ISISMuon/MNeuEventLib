@@ -46,6 +46,7 @@ impl NexusData {
 
 impl NexusData {
     /// Retreve the data for a sample log.
+    #[allow(dead_code)] // to be implemented by log filters
     fn get_sample_log(&self, log_name: String) -> Result<SampleLog, Error> {
         let log_data = self.sample_logs.group(&log_name)?.group("value_log")?;
         let time: Array1<f64> = log_data.dataset("time")?.read_1d().unwrap();
