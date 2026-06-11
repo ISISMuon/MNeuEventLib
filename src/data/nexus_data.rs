@@ -64,8 +64,9 @@ impl NexusData {
                 time,
                 value: value.read_1d().unwrap(),
             })),
-            _ => Err(Error::Internal(format!(
-                "Sample log type for log {log_name} is not supported."
+            other_type => Err(Error::Internal(format!(
+                "Sample log type {other_type} for log {log_name} is not supported.
+                Supported types are Integer, Float, and Boolean."
             ))),
         }
     }
