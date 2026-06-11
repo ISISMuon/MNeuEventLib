@@ -165,10 +165,7 @@ mod tests {
         assert!(log.is_ok());
 
         let value_log = log.unwrap();
-        assert!(match value_log {
-            SampleLog::Float(_) => true,
-            _ => false,
-        })
+        assert!(matches!(value_log, SampleLog::Float(_)))
     }
 
     /// Test that a non-real sample log throws an error.

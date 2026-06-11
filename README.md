@@ -7,3 +7,23 @@ To compile locally, set up a Python virtual environment with `maturin` installed
 ```
 maturin develop --release
 ```
+
+## CI/testing
+This package does unit testing, linting, and formatting using `cargo`.
+The Github Actions tests check there are no `cargo clippy` suggestions,
+and that the code has had `cargo fmt` applied.
+
+To run the tests:
+```
+cargo test
+```
+
+To lint:
+```
+cargo clippy --all-targets --all-features -- -D warnings
+```
+
+To format:
+```
+cargo fmt
+```
