@@ -7,7 +7,7 @@ use numpy::{PyArray3, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Bound, PyResult};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
-use crate::data::Data;
+use crate::data::NexusData;
 use crate::filters::Weights;
 
 type PyHist<'py> = Bound<'py, PyArray3<usize>>;
@@ -44,7 +44,7 @@ impl Histogram {
     }
 
     // todo: change n_filters to a proper Filters object
-    fn calculate(&self, data: Data) -> PyResult<(Histogram, u128)> {
+    fn calculate(&self, data: NexusData) -> PyResult<(Histogram, u128)> {
         // todo: add periods
         let periods: Array1<u32> = Array1::zeros(data.n_events);
         let n_periods: usize = *periods.iter().max().unwrap() as usize + 1;
@@ -67,7 +67,7 @@ impl Histogram {
 /// Calculate histograms and output the result and time taken.
 #[inline(always)]
 pub fn calculate_histograms(
-    dataset: Data,
+    dataset: NexusData,
     min_time: f32,
     max_time: f32,
     n_bins: usize,

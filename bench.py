@@ -1,6 +1,6 @@
 import time
 
-from mneueventlib import Histogram, Data 
+from mneueventlib import Histogram, NexusData 
 
 files = [f"SIM0000000{n}.nxs" for n in range(1,4)]
 
@@ -10,7 +10,7 @@ n_spec = 960
 for file in files:
     print("\nFile: ", file)
 
-    data = Data(file, 960)
+    data = NexusData(file, 960)
 
     avg_calc_time = 0
     avg_run_time = 0
