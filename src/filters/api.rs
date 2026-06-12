@@ -1,15 +1,17 @@
 /// The user-facing API for the filter objects.
+use std::collections::HashMap;
+
 use anyhow::{Error, Result};
 use pyo3::prelude::{pyclass, pymethods};
 
 use crate::consts::S_TO_NS;
+use crate::data::{NexusData, SampleLog};
 
 #[derive(Clone)]
 enum FilterType {
     Include,
     Exclude,
 }
-
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Filter {
@@ -23,7 +25,7 @@ pub struct Filter {
 pub struct Filters {
     time_filter_type: FilterType,
     time_filters: Vec<Filter>,
-    sample_log_filters: Vec<Filter>,
+    sample_log_filters: Vec<LogFilter>,
     amplitudes: f64,
 }
 
@@ -47,6 +49,32 @@ impl Filters {
         )
     }
 
+    /// Get the start and end times for each log filter.
+    pub fn get_log_filter_times(&self, data: &NexusData) -> (Vec<usize>, Vec<usize>) {
+        // get the value log for each required sample log
+        let logs: HashMap<&String, SampleLog> = self
+            .sample_log_filters
+            .iter()
+            .map(|f| {
+                (
+                    &f.log,
+                    data.get_sample_log(&f.log)
+                        .unwrap_or_else(|_| panic!("Sample log {} not found!", f.log)),
+                )
+            })
+            .collect();
+
+        self.sample_log_filters
+            .iter()
+            .map(|f| logs[&f.log].to_time_ranges(f.start, f.end))
+            .reduce(|(mut acc_a, mut acc_b), (f_a, f_b)| {
+                acc_a.extend(f_a);
+                acc_b.extend(f_b);
+                (acc_a, acc_b)
+            })
+            .unwrap()
+    }
+
     /// Return whether the time filters are include or exclude.
     pub fn is_include(&self) -> bool {
         match self.time_filter_type {
@@ -63,7 +91,7 @@ impl Filters {
         Filters {
             time_filter_type: FilterType::Include,
             time_filters: Vec::<Filter>::new(),
-            sample_log_filters: Vec::<Filter>::new(),
+            sample_log_filters: Vec::<LogFilter>::new(),
             amplitudes: 0.,
         }
     }
@@ -115,8 +143,13 @@ impl Filters {
     }
 
     /// Add a log filter.
-    fn add_log_filter(&mut self, name: String, start: f64, end: f64) {
-        self.sample_log_filters.push(Filter { name, start, end })
+    fn add_log_filter(&mut self, name: String, log: String, start: f64, end: f64) {
+        self.sample_log_filters.push(LogFilter {
+            name,
+            log,
+            start,
+            end,
+        })
     }
 
     fn remove_log_filter(&mut self, name: String) -> Result<()> {
@@ -134,6 +167,7 @@ impl Filters {
     }
 }
 
+#[derive(Clone)]
 pub struct LogFilter {
     name: String,
     log: String,
@@ -167,7 +201,7 @@ mod tests {
                     end: 6.,
                 },
             ],
-            sample_log_filters: Vec::<Filter>::new(),
+            sample_log_filters: Vec::<LogFilter>::new(),
             amplitudes: 0.,
         };
 

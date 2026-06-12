@@ -45,9 +45,9 @@ impl NexusData {
 
 impl NexusData {
     /// Retreve the data for a sample log.
-    #[allow(dead_code)] // to be implemented by log filters
-    fn get_sample_log(&self, log_name: String) -> Result<SampleLog> {
-        let log_data = self.sample_logs.group(&log_name)?.group("value_log")?;
+    pub fn get_sample_log(&self, log_name: &String) -> Result<SampleLog> {
+        let log_data = self.sample_logs.group(log_name)?.group("value_log")?;
+
         let time: Array1<f64> = log_data.dataset("time")?.read_1d().unwrap();
         let value: Dataset = log_data.dataset("value")?;
         match value.dtype()?.to_descriptor()? {
@@ -59,13 +59,9 @@ impl NexusData {
                 time,
                 value: value.read_1d().unwrap(),
             })),
-            TypeDescriptor::Boolean => Ok(SampleLog::Bool(ValueLog::<bool> {
-                time,
-                value: value.read_1d().unwrap(),
-            })),
             other_type => Err(Error::msg(format!(
                 "Sample log type {other_type} for log {log_name} is not supported.
-                Supported types are Integer, Float, and Boolean."
+                Supported types are Integer and Float."
             ))),
         }
     }
@@ -160,7 +156,7 @@ mod tests {
     fn test_load_sample_log() {
         let data = test_data();
 
-        let log = data.get_sample_log("Temp".to_string());
+        let log = data.get_sample_log(&"Temp".to_string());
         assert!(log.is_ok());
 
         let value_log = log.unwrap();
@@ -172,7 +168,7 @@ mod tests {
     fn test_load_sample_log_not_found() {
         let data = test_data();
 
-        let log = data.get_sample_log("Lunch".to_string());
+        let log = data.get_sample_log(&"Lunch".to_string());
         assert!(log.is_err())
     }
 }
