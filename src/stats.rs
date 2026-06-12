@@ -43,7 +43,6 @@ impl Histogram {
         Ok(self.n)
     }
 
-    // todo: change n_filters to a proper Filters object
     fn calculate(&self, data: NexusData) -> PyResult<(Histogram, u128)> {
         // todo: add periods
         let periods: Array1<u32> = Array1::zeros(data.n_events);
@@ -163,6 +162,25 @@ unsafe fn make_histogram(
 mod tests {
     use super::*;
 
+    /// Test Histogram::new creates correct empty histogram.
+    #[test]
+    fn test_histogram_new() {
+        let hist = Histogram::new(0.5, 2.5, 4);
+        assert_eq!(hist.min_time, 0.5);
+        assert_eq!(hist.max_time, 2.5);
+        assert_eq!(hist.n_bins, 4);
+        assert_eq!(hist.n, 0);
+        assert_eq!(hist.hist.dim(), (0, 0, 0));
+    }
+
+    /// Test Histogram::n_events returns correct count.
+    #[test]
+    fn test_histogram_n_events() {
+        let mut hist = Histogram::new(0., 3., 3);
+        hist.n = 42;
+        assert_eq!(hist.n_events().unwrap(), 42);
+    }
+
     /// Test a histogram with no filters is correctly constructed.
     #[test]
     fn test_hist_no_filter() {
@@ -220,6 +238,147 @@ mod tests {
                 Array3::<usize>::from_shape_vec((1, 2, 3), vec![0, 1, 0, 1, 0, 1]).unwrap();
 
             assert_eq!(result.hist, expected)
+        }
+    }
+
+    /// Test a histogram with multiple periods correctly separates data.
+    #[test]
+    fn test_hist_multiple_periods() {
+        let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
+        let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
+        let periods = Array1::from_vec(vec![0, 0, 1, 1, 0, 1]);
+        let weights = Weights::ones(6);
+
+        unsafe {
+            let result = make_histogram(
+                times,
+                specs,
+                2,
+                &periods.slice(s![0..=5]),
+                2,
+                weights,
+                0.,
+                3.,
+                3,
+                1.,
+                1e-3,
+            );
+
+            // period 0: events at indices 0, 1, 4
+            // period 1: events at indices 2, 3, 5
+            let expected = Array3::<usize>::from_shape_vec(
+                (2, 2, 3),
+                vec![
+                    1, 0, 1, 1, 0, 0, // period 0
+                    0, 1, 1, 0, 0, 1, // period 1
+                ],
+            )
+            .unwrap();
+
+            assert_eq!(result.hist, expected)
+        }
+    }
+
+    /// Test a histogram filters out data before the histogram start time.
+    #[test]
+    fn test_hist_data_before_start() {
+        let times = Array1::from_vec(vec![500, 1200, 1800, 2500]);
+        let specs = Array1::from_vec(vec![0, 1, 0, 1]);
+        let periods = Array1::zeros(4);
+        let weights = Weights::ones(4);
+
+        unsafe {
+            let result = make_histogram(
+                times,
+                specs,
+                2,
+                &periods.slice(s![0..=3]),
+                1,
+                weights,
+                1.,
+                3.,
+                2,
+                1.,
+                1e-3,
+            );
+
+            let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 0, 1, 1]).unwrap();
+
+            assert_eq!(result.hist, expected)
+        }
+    }
+
+    /// Test a histogram filters out data after the histogram end time.
+    #[test]
+    fn test_hist_data_after_end() {
+        let times = Array1::from_vec(vec![500, 1200, 1800, 3500]);
+        let specs = Array1::from_vec(vec![0, 1, 0, 1]);
+        let periods = Array1::zeros(4);
+        let weights = Weights::ones(4);
+
+        unsafe {
+            let result = make_histogram(
+                times,
+                specs,
+                2,
+                &periods.slice(s![0..=3]),
+                1,
+                weights,
+                0.,
+                2.,
+                2,
+                1.,
+                1e-3,
+            );
+
+            let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 1, 0, 1]).unwrap();
+
+            assert_eq!(result.hist, expected)
+        }
+    }
+
+    /// Test that the conversion value correctly scales time values.
+    #[test]
+    fn test_hist_conversion_value() {
+        let times = Array1::from_vec(vec![400, 800, 2500]);
+        let specs = Array1::from_vec(vec![0, 0, 0]);
+        let periods = Array1::zeros(3);
+
+        unsafe {
+            let result = make_histogram(
+                times.clone(),
+                specs.clone(),
+                1,
+                &periods.slice(s![0..=2]),
+                1,
+                Weights::ones(3),
+                0.,
+                3.,
+                3,
+                1.,
+                1e-3,
+            );
+
+            let expected = Array3::<usize>::from_shape_vec((1, 1, 3), vec![2, 0, 1]).unwrap();
+            assert_eq!(result.hist, expected);
+
+            // now test with a different conversion factor
+            let result2 = make_histogram(
+                times,
+                specs,
+                1,
+                &periods.slice(s![0..=2]),
+                1,
+                Weights::ones(3),
+                0.,
+                3.,
+                3,
+                1.,
+                2e-3,
+            );
+
+            let expected2 = Array3::<usize>::from_shape_vec((1, 1, 3), vec![1, 1, 0]).unwrap();
+            assert_eq!(result2.hist, expected2)
         }
     }
 }

@@ -162,7 +162,7 @@ impl Weights {
             raw_weights: self.raw_weights
                 [(lower_block_bound / BLOCK_SIZE)..(upper_block_bound / BLOCK_SIZE)]
                 .to_vec(),
-            offset: lower_block_bound - start,
+            offset: start - lower_block_bound,
         }
     }
 }
@@ -245,7 +245,15 @@ mod tests {
         weights.set_weight(100, true);
         weights.set_weight(120, true);
 
-        assert_eq!(weights.raw_weights, vec![32768, 72057662757404672]);
+        assert_eq!(weights.raw_weights, vec![(1 << 15), (1 << 36) | (1 << 56)]);
+    }
+
+    /// Test set_weight works when setting a weight to zero.
+    #[test]
+    fn test_set_weight_unset() {
+        let mut weights = Weights::ones(64);
+        weights.set_weight(32, false);
+        assert_eq!(weights.raw_weights[0], !(1 << 32));
     }
 
     /// Test set_range works within one block.
@@ -269,5 +277,119 @@ mod tests {
             weights.raw_weights,
             vec![18446744072635809792, u64::MAX, 4194303]
         );
+    }
+
+    /// Test indexing gives the expected bools.
+    #[test]
+    fn test_indexing() {
+        let mut weights = Weights::zeros(64);
+        weights.set_weight(10, true);
+        weights.set_weight(32, true);
+
+        assert!(!weights[0]);
+        assert!(weights[10]);
+        assert!(!weights[20]);
+        assert!(weights[32]);
+        assert!(!weights[63]);
+    }
+
+    /// Test indexing correctly gets the expected chunk.
+    #[test]
+    fn test_indexing_across_chunks() {
+        let mut weights = Weights::zeros(128);
+        weights.set_weight(64, true);
+
+        assert!(!weights[0]);
+        assert!(weights[64]);
+    }
+
+    /// Test that we can correctly create a weights array from a vector of booleans.
+    #[test]
+    fn test_from_bool_array() {
+        let bools = vec![true, false, true, false].into_iter();
+        let weights: Weights = bools.collect::<Vec<bool>>().into_iter().into();
+
+        assert_eq!(weights.raw_weights, vec![5])
+    }
+
+    /// Test that bitand works for one chunk.
+    #[test]
+    fn test_bitand_simple() {
+        let weights1 = Weights::from_raw(vec![0b1110]);
+        let weights2 = Weights::from_raw(vec![0b1010]);
+
+        let result = weights1 & weights2;
+        assert_eq!(result.raw_weights, vec![0b1010]);
+    }
+
+    /// Test that bitand works for multiple chunks.
+    #[test]
+    fn test_bitand_multiple_chunks() {
+        let weights1 = Weights::from_raw(vec![u64::MAX, 0]);
+        let weights2 = Weights::from_raw(vec![0, u64::MAX]);
+
+        let result = weights1 & weights2;
+        assert_eq!(result.raw_weights, vec![0, 0]);
+    }
+
+    /// Test that bitand panics if an offset slice is given.
+    #[test]
+    #[should_panic(expected = "Can only combine weights with no offset")]
+    fn test_bitand_with_offset_panics() {
+        let mut weights1 = Weights::from_raw(vec![u64::MAX, u64::MAX]);
+        let weights2 = Weights::from_raw(vec![u64::MAX, u64::MAX]);
+
+        weights1.offset = 5;
+        let _ = weights1 & weights2;
+    }
+
+    /// Test the not operator
+    #[test]
+    fn test_not() {
+        let weights = Weights::from_raw(vec![0b1111_0000, 0b1010]);
+        let result = !weights;
+
+        assert_eq!(result.raw_weights, vec![!0b1111_0000, !0b1010]);
+    }
+
+    /// Test the not operator carries over the offset of the original slice.
+    #[test]
+    fn test_not_preserves_offset() {
+        let mut weights = Weights::from_raw(vec![u64::MAX, u64::MAX]);
+        weights.offset = 10;
+        let result = !weights;
+
+        assert_eq!(result.offset, 10);
+    }
+
+    /// Test slice copies correctly for one chunk.
+    #[test]
+    fn test_slice_same_chunk() {
+        let weights = Weights::from_raw(vec![u64::MAX]);
+        let sliced = weights.slice(10, 30);
+
+        // Slice should contain the full chunk but with offset
+        assert_eq!(sliced.raw_weights, vec![u64::MAX]);
+        assert_eq!(sliced.offset, 10);
+    }
+
+    /// Test slice copies correctly for multiple chunks.
+    #[test]
+    fn test_slice_across_chunks() {
+        let weights = Weights::from_raw(vec![u64::MAX, u64::MAX, u64::MAX]);
+        let sliced = weights.slice(70, 150);
+
+        assert_eq!(sliced.raw_weights.len(), 2);
+        assert_eq!(sliced.offset, 6);
+    }
+
+    /// Test slice copies correctly when a full chunk is given (so no offset)
+    #[test]
+    fn test_slice_at_boundaries() {
+        let weights = Weights::from_raw(vec![u64::MAX, u64::MAX]);
+        let sliced = weights.slice(0, 64);
+
+        assert_eq!(sliced.raw_weights.len(), 1);
+        assert_eq!(sliced.offset, 0);
     }
 }
