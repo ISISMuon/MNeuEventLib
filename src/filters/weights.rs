@@ -282,25 +282,23 @@ mod tests {
     /// Test indexing gives the expected bools.
     #[test]
     fn test_indexing() {
-        let mut weights = Weights::zeros(64);
-        weights.set_weight(10, true);
-        weights.set_weight(32, true);
+        let weights = Weights::from_raw(vec![(1 << 10) | (1 << 32)]);
 
-        assert!(!weights[0]);
-        assert!(weights[10]);
-        assert!(!weights[20]);
-        assert!(weights[32]);
-        assert!(!weights[63]);
+        (0..64).for_each(|i| match i {
+            i if (i == 10) | (i == 32) => assert!(weights[i]),
+            _ => assert!(!weights[i]),
+        })
     }
 
-    /// Test indexing correctly gets the expected chunk.
+    /// Test indexing correctly gets the expected block.
     #[test]
-    fn test_indexing_across_chunks() {
-        let mut weights = Weights::zeros(128);
-        weights.set_weight(64, true);
+    fn test_indexing_across_blocks() {
+        let weights = Weights::from_raw(vec![(1 << 12) | (1 << 20), (1 << 6)]);
 
-        assert!(!weights[0]);
-        assert!(weights[64]);
+        (0..128).for_each(|i| match i {
+            i if (i == 12) | (i == 20) | (i == 70) => assert!(weights[i]),
+            _ => assert!(!weights[i]),
+        })
     }
 
     /// Test that we can correctly create a weights array from a vector of booleans.
@@ -309,27 +307,27 @@ mod tests {
         let bools = vec![true, false, true, false].into_iter();
         let weights: Weights = bools.collect::<Vec<bool>>().into_iter().into();
 
-        assert_eq!(weights.raw_weights, vec![5])
+        assert_eq!(weights.raw_weights, vec![0b101])
     }
 
-    /// Test that bitand works for one chunk.
+    /// Test that bitand works for one block.
     #[test]
     fn test_bitand_simple() {
         let weights1 = Weights::from_raw(vec![0b1110]);
-        let weights2 = Weights::from_raw(vec![0b1010]);
+        let weights2 = Weights::from_raw(vec![0b1011]);
 
         let result = weights1 & weights2;
         assert_eq!(result.raw_weights, vec![0b1010]);
     }
 
-    /// Test that bitand works for multiple chunks.
+    /// Test that bitand works for multiple blocks.
     #[test]
-    fn test_bitand_multiple_chunks() {
-        let weights1 = Weights::from_raw(vec![u64::MAX, 0]);
-        let weights2 = Weights::from_raw(vec![0, u64::MAX]);
+    fn test_bitand_multiple_blocks() {
+        let weights1 = Weights::from_raw(vec![0b1110, 0b1001]);
+        let weights2 = Weights::from_raw(vec![0b0111, 0b1100]);
 
         let result = weights1 & weights2;
-        assert_eq!(result.raw_weights, vec![0, 0]);
+        assert_eq!(result.raw_weights, vec![0b0110, 0b1000]);
     }
 
     /// Test that bitand panics if an offset slice is given.
@@ -362,20 +360,20 @@ mod tests {
         assert_eq!(result.offset, 10);
     }
 
-    /// Test slice copies correctly for one chunk.
+    /// Test slice copies correctly for one block.
     #[test]
-    fn test_slice_same_chunk() {
+    fn test_slice_same_block() {
         let weights = Weights::from_raw(vec![u64::MAX]);
         let sliced = weights.slice(10, 30);
 
-        // Slice should contain the full chunk but with offset
+        // Slice should contain the full block but with offset
         assert_eq!(sliced.raw_weights, vec![u64::MAX]);
         assert_eq!(sliced.offset, 10);
     }
 
-    /// Test slice copies correctly for multiple chunks.
+    /// Test slice copies correctly for multiple blocks.
     #[test]
-    fn test_slice_across_chunks() {
+    fn test_slice_across_blocks() {
         let weights = Weights::from_raw(vec![u64::MAX, u64::MAX, u64::MAX]);
         let sliced = weights.slice(70, 150);
 
@@ -383,7 +381,7 @@ mod tests {
         assert_eq!(sliced.offset, 6);
     }
 
-    /// Test slice copies correctly when a full chunk is given (so no offset)
+    /// Test slice copies correctly when a full block is given (so no offset)
     #[test]
     fn test_slice_at_boundaries() {
         let weights = Weights::from_raw(vec![u64::MAX, u64::MAX]);
