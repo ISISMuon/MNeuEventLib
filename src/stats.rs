@@ -84,7 +84,7 @@ pub fn calculate_histograms(
         .into_par_iter()
         .step_by(dataset.chunk_size)
         .map(|start| {
-            let end = start + min(dataset.chunk_size, dataset.n_events - start);
+            let end = min(start + dataset.chunk_size, dataset.n_events);
             let array_slice = s![start..end];
             unsafe {
                 make_histogram(
@@ -108,12 +108,13 @@ pub fn calculate_histograms(
                 )
             }
         })
+        // accumulate all chunk histograms together
         .reduce(
             || {
-                // rayon's reduce requires to initialise a value...
-                let mut h = Histogram::new(min_time, max_time, n_bins);
-                h.hist = Array3::zeros((n_periods, dataset.n_spec, n_bins));
-                h
+                // rayon's reduce requires to initialise an identity value...
+                let mut empty_hist = Histogram::new(min_time, max_time, n_bins);
+                empty_hist.hist = Array3::zeros((n_periods, dataset.n_spec, n_bins));
+                empty_hist
             },
             |mut acc, r| {
                 acc.hist += &r.hist;
