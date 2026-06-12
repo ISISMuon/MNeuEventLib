@@ -26,5 +26,6 @@ for file in files:
     avg_calc_time /= stats
     print("  Average run time: ", avg_run_time * 1e3, " ms",
           "\n  Average calc time: ", avg_calc_time, " ms",
-          "\n  Number of events:", n)
+          "\n  Number of events:", n,
+          "\n  Millions of events per second:", (n / avg_run_time) * 1e-6)
 
