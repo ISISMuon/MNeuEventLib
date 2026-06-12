@@ -22,7 +22,7 @@ fn binary_search(
         } else {
             binary_search(array, midpoint, stop, target)
         }
-    } else if array[start] < target || array[stop] > target {
+    } else if target < array[start] || array[stop] > target {
         Err(())
     } else {
         Ok(stop)
@@ -99,6 +99,27 @@ pub fn get_good_values(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Test the binary search function.
+    #[test]
+    fn test_binary_search() {
+        let array = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+        let result = binary_search(&array, 0, 6, 25);
+
+        assert_eq!(result, Ok(2))
+    }
+
+    /// Test that get_indices gets the correct indices.
+    #[test]
+    fn test_get_indices() {
+        let filter_starts = vec![15, 22, 35];
+        let filter_ends = vec![20, 25, 41];
+        let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+
+        let (frame_starts, frame_ends) = get_indices(&start_times, filter_starts, filter_ends);
+        assert_eq!(frame_starts, vec![1, 2, 3]);
+        assert_eq!(frame_ends, vec![2, 2, 4])
+    }
 
     /// Test the mask is created correctly for one filter.
     #[test]
