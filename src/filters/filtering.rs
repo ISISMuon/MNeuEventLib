@@ -56,7 +56,6 @@ fn get_indices(
 /// -------
 /// Weights
 ///     An array of the weights corresponding to the filtered frames.
-#[inline(always)]
 fn get_good_values(
     f_start: Vec<usize>,
     f_end: Vec<usize>,

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Error, Result};
@@ -46,7 +47,11 @@ impl NexusData {
 impl NexusData {
     /// Retreve the data for a sample log.
     pub fn get_sample_log(&self, log_name: &String) -> Result<SampleLog> {
-        let log_data = self.sample_logs.group(log_name)?.group("value_log")?;
+        let log = match self.sample_logs.group(log_name) {
+            Ok(group) => group,
+            Err(_) => {return Err(Error::msg(format!("Sample log {} not found!", log_name)))}
+        };
+        let log_data = log.group("value_log")?;
 
         let time: Array1<f64> = log_data.dataset("time")?.read_1d().unwrap();
         let value: Dataset = log_data.dataset("value")?;
@@ -64,6 +69,14 @@ impl NexusData {
                 Supported types are Integer and Float."
             ))),
         }
+    }
+
+    /// Get the value logs associated with a list of sample log names.
+    pub fn get_sample_logs(&self, log_names: Vec<String>) -> Result<HashMap<String, SampleLog>, Error> {
+        log_names
+            .into_iter()
+            .map(|name| self.get_sample_log(&name).map(|log| (name, log)))
+            .collect()
     }
 }
 

@@ -5,7 +5,7 @@ use anyhow::{Error, Result};
 use pyo3::prelude::{pyclass, pymethods};
 
 use crate::consts::S_TO_NS;
-use crate::data::{NexusData, SampleLog};
+use crate::data::SampleLog;
 
 #[derive(Clone)]
 enum FilterType {
@@ -50,20 +50,14 @@ impl Filters {
     }
 
     /// Get the start and end times for each log filter.
-    pub fn get_log_filter_times(&self, data: &NexusData) -> (Vec<usize>, Vec<usize>) {
+    pub fn get_log_filter_times(
+        &self,
+        logs: HashMap<String, SampleLog>,
+    ) -> (Vec<usize>, Vec<usize>) {
         // get the value log for each required sample log
-        let logs: HashMap<&String, SampleLog> = self
-            .sample_log_filters
-            .iter()
-            .map(|f| {
-                (
-                    &f.log,
-                    data.get_sample_log(&f.log)
-                        .unwrap_or_else(|_| panic!("Sample log {} not found!", f.log)),
-                )
-            })
-            .collect();
-
+        if self.sample_log_filters.is_empty() {
+            return (Vec::new(), Vec::new());
+        }
         self.sample_log_filters
             .iter()
             .map(|f| logs[&f.log].to_time_ranges(f.start, f.end))
@@ -73,6 +67,14 @@ impl Filters {
                 (acc_a, acc_b)
             })
             .unwrap()
+    }
+
+    // Get the relevant log for each log filter.
+    pub fn get_log_filter_logs(&self) -> Vec<String> {
+        self.sample_log_filters
+            .iter()
+            .map(|f| f.log.clone())
+            .collect()
     }
 
     /// Return whether the time filters are include or exclude.
