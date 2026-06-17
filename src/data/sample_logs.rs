@@ -62,7 +62,7 @@ mod tests {
         let times = Array1::<f64>::linspace(0., 4., 4001);
         let value_log = ValueLog::<f64> {
             time: times.clone(),
-            value: times.clone() 
+            value: times.clone(),
         };
 
         let (starts, ends) = value_log.to_time_ranges(&1., &2.);
@@ -81,7 +81,7 @@ mod tests {
         let times = Array1::<f64>::linspace(0., 6., 6001);
         let value_log = ValueLog::<f64> {
             time: times.clone(),
-            value: Array1::<f64>::from_iter(times.iter().map(|t| 2. * (t-3.).powi(2)))
+            value: Array1::<f64>::from_iter(times.iter().map(|t| 2. * (t - 3.).powi(2))),
         };
 
         // f(t) is between 2 and 8 for t = 1-2 and 4-5

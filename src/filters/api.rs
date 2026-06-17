@@ -268,8 +268,14 @@ mod tests {
             amplitudes: 0.,
         };
         let logs = filters.get_log_filter_logs();
-        assert_eq!(logs,
-            vec!["temp".to_string(), "pulse_width".to_string(), "pressure".to_string()])
+        assert_eq!(
+            logs,
+            vec![
+                "temp".to_string(),
+                "pulse_width".to_string(),
+                "pressure".to_string()
+            ]
+        )
     }
 
     /// Test log_filter_times correctly gets the times from the log filters.
@@ -298,7 +304,8 @@ mod tests {
                     log: "complex".to_string(),
                     lower: 2.,
                     upper: 8.,
-                }],
+                },
+            ],
             amplitudes: 0.,
         };
 
@@ -306,17 +313,16 @@ mod tests {
         let simple_times = Array1::<f64>::linspace(0., 4., 4001);
         let simple_log = ValueLog::<f64> {
             time: simple_times.clone(),
-            value: simple_times.clone() 
+            value: simple_times.clone(),
         };
 
         // add a sample log: f(t) = 2(t-3)^2 from 0 to 4
         let complex_times = Array1::<f64>::linspace(0., 6., 6001);
         let complex_log = ValueLog::<f64> {
             time: complex_times.clone(),
-            value: Array1::<f64>::from_iter(complex_times.iter().map(|t| 2. * (t-3.).powi(2)))
+            value: Array1::<f64>::from_iter(complex_times.iter().map(|t| 2. * (t - 3.).powi(2))),
         };
 
-        // add a sample log: temp which varies sin(pi * x) from 0 to 4
         let mut logs = HashMap::<String, SampleLog>::new();
         logs.insert("simple".to_string(), SampleLog::Float(simple_log));
         logs.insert("complex".to_string(), SampleLog::Float(complex_log));
@@ -459,7 +465,9 @@ mod tests {
     #[test]
     fn test_add_log_filter() {
         let mut filters = Filters::new();
-        filters.add_log_filter("name".to_string(), "temp".to_string(), 0., 1.).unwrap();
+        filters
+            .add_log_filter("name".to_string(), "temp".to_string(), 0., 1.)
+            .unwrap();
         assert_eq!(
             filters.sample_log_filters,
             vec![LogFilter {
@@ -470,37 +478,45 @@ mod tests {
             }]
         )
     }
-    
+
     /// Test adding multiple log filters.
     #[test]
     fn test_add_multiple_log_filter() {
         let mut filters = Filters::new();
-        filters.add_log_filter("name".to_string(), "temp".to_string(), 0., 1.).unwrap();
-        filters.add_log_filter_above("name2".to_string(), "p".to_string(), 5.).unwrap();
-        filters.add_log_filter_below("name3".to_string(), "temp".to_string(), 8.).unwrap();
+        filters
+            .add_log_filter("name".to_string(), "temp".to_string(), 0., 1.)
+            .unwrap();
+        filters
+            .add_log_filter_above("name2".to_string(), "p".to_string(), 5.)
+            .unwrap();
+        filters
+            .add_log_filter_below("name3".to_string(), "temp".to_string(), 8.)
+            .unwrap();
         assert_eq!(
             filters.sample_log_filters,
-            vec![LogFilter {
-                name: "name".to_string(),
-                log: "temp".to_string(),
-                lower: 0.,
-                upper: 1.
-            },
-            LogFilter {
-                name: "name2".to_string(),
-                log: "p".to_string(),
-                lower: 5.,
-                upper: f64::INFINITY
-            },
-            LogFilter {
-                name: "name3".to_string(),
-                log: "temp".to_string(),
-                lower: -f64::INFINITY,
-                upper: 8.
-            }]
+            vec![
+                LogFilter {
+                    name: "name".to_string(),
+                    log: "temp".to_string(),
+                    lower: 0.,
+                    upper: 1.
+                },
+                LogFilter {
+                    name: "name2".to_string(),
+                    log: "p".to_string(),
+                    lower: 5.,
+                    upper: f64::INFINITY
+                },
+                LogFilter {
+                    name: "name3".to_string(),
+                    log: "temp".to_string(),
+                    lower: -f64::INFINITY,
+                    upper: 8.
+                }
+            ]
         )
     }
-    
+
     /// Test an error is given when a log filter is given a duplicate name.
     #[test]
     fn test_add_log_filter_duplicate_name() {

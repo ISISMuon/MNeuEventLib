@@ -49,7 +49,7 @@ impl NexusData {
     pub fn get_sample_log(&self, log_name: &String) -> Result<SampleLog> {
         let log = match self.sample_logs.group(log_name) {
             Ok(group) => group,
-            Err(_) => {return Err(Error::msg(format!("Sample log {} not found!", log_name)))}
+            Err(_) => return Err(Error::msg(format!("Sample log {} not found!", log_name))),
         };
         let log_data = log.group("value_log")?;
 
@@ -72,7 +72,10 @@ impl NexusData {
     }
 
     /// Get the value logs associated with a list of sample log names.
-    pub fn get_sample_logs(&self, log_names: Vec<String>) -> Result<HashMap<String, SampleLog>, Error> {
+    pub fn get_sample_logs(
+        &self,
+        log_names: Vec<String>,
+    ) -> Result<HashMap<String, SampleLog>, Error> {
         log_names
             .into_iter()
             .map(|name| self.get_sample_log(&name).map(|log| (name, log)))
