@@ -1,27 +1,32 @@
+use std::fs::File;
 /// The user-facing API for the filter objects.
 use std::collections::HashMap;
 
 use anyhow::{Error, Result};
 use ndarray::Array1;
-use pyo3::prelude::{pyclass, pymethods};
+use pyo3::prelude::{pyclass, pymethods, Bound};
+use pyo3::types::PyType;
+use serde::{Deserialize, Serialize};
 
 use crate::consts::S_TO_NS;
 use crate::data::SampleLog;
 
-#[derive(Clone)]
+use std::io::Read;
+
+#[derive(Clone, Serialize, Deserialize)]
 enum FilterType {
     Include,
     Exclude,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Filter {
     name: String,
     start: f64,
     end: f64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LogFilter {
     name: String,
     log: String,
@@ -30,7 +35,7 @@ pub struct LogFilter {
 }
 
 #[pyclass(from_py_object)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Filters {
     time_filter_type: FilterType,
     time_filters: Vec<Filter>,
@@ -216,6 +221,22 @@ impl Filters {
     /// Set the minimum amplitude for all detectors not otherwise specified.
     pub fn set_amps_baseline(&mut self, amp: f64) {
         self.amplitudes.insert(usize::MAX, amp);
+    }
+
+    /// Save the filters to a JSON file.
+    pub fn save(&self, filename: String) -> Result<()> {
+        let file = File::create(&filename)?;
+        Ok(serde_json::to_writer(file, &self)?)
+    }
+
+    /// Load filters from a JSON file.
+    #[classmethod]
+    pub fn load(_cls: &Bound<'_, PyType>, filename: String) -> Result<Filters> {
+        let mut file = File::open(&filename)?;
+
+        let mut contents = String::new();
+        let _ = file.read_to_string(&mut contents);
+        Ok(serde_json::from_str(contents.as_str())?)
     }
 }
 
