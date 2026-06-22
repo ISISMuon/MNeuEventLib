@@ -13,7 +13,7 @@ use crate::data::SampleLog;
 
 use std::io::Read;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 enum FilterType {
     Include,
     Exclude,
@@ -35,7 +35,7 @@ pub struct LogFilter {
 }
 
 #[pyclass(from_py_object)]
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Filters {
     time_filter_type: FilterType,
     time_filters: Vec<Filter>,
@@ -115,6 +115,15 @@ impl Filters {
         }
         Ok(array)
     }
+}
+
+/// Internal of load function so we can call it from Rust.
+fn _load(filename: String) -> Result<Filters> {
+    let mut file = File::open(&filename)?;
+
+    let mut contents = String::new();
+    let _ = file.read_to_string(&mut contents);
+    Ok(serde_json::from_str(contents.as_str())?)
 }
 
 #[pymethods]
@@ -227,23 +236,19 @@ impl Filters {
     pub fn save(&self, filename: String) -> Result<()> {
         let file = File::create(&filename)?;
         Ok(serde_json::to_writer_pretty(file, &self)?)
-
     }
 
     /// Load filters from a JSON file.
     #[classmethod]
     pub fn load(_cls: &Bound<'_, PyType>, filename: String) -> Result<Filters> {
-        let mut file = File::open(&filename)?;
-
-        let mut contents = String::new();
-        let _ = file.read_to_string(&mut contents);
-        Ok(serde_json::from_str(contents.as_str())?)
+        _load(filename)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env::temp_dir;
 
     use ndarray::Array1;
 
@@ -673,5 +678,44 @@ mod tests {
         assert!(result.is_err());
 
         assert_eq!(result.unwrap_err().to_string(), "Attempted to set amplitude filter for detector 20, but instrument only has 6 detectors.".to_string())
+    }
+
+    /// Test that saving a filter and loading it back in works.
+    #[test]
+    fn test_save_load() {
+        let mut filters = Filters {
+            time_filter_type: FilterType::Include,
+            time_filters: vec![
+                Filter {
+                    name: "a".to_string(),
+                    start: 1.,
+                    end: 2.,
+                },
+                Filter {
+                    name: "b".to_string(),
+                    start: 3.,
+                    end: 4.,
+                },
+            ],
+            sample_log_filters: vec![LogFilter {
+                name: "c".to_string(),
+                log: "Temp".to_string(),
+                lower: 5.,
+                upper: 6.,
+            }],
+            amplitudes: HashMap::new(),
+        };
+        filters.amplitudes.insert(3, 5.);
+
+        let mut temp_save_loc = temp_dir();
+        temp_save_loc.push("filters.json");
+
+        // these functions take strings but this is a PathBuf
+        let tmp_path = temp_save_loc.to_string_lossy().to_string();
+
+        let _ = filters.save(tmp_path.clone());
+        let loaded_filters = _load(tmp_path).unwrap();
+
+        assert_eq!(filters, loaded_filters)
     }
 }
