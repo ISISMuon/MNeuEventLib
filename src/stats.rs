@@ -3,12 +3,12 @@ use std::iter::Iterator;
 use std::time::{Duration, Instant};
 
 use anyhow::{Error, Result};
-use ndarray::{s, Array1, Array3, ArrayView1};
+use ndarray::{s, Array1, Array3};
 use numpy::{PyArray3, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Bound};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
-use crate::data::NexusData;
+use crate::data::{NexusData, RLEArray};
 use crate::filters::{get_weights, Filters, Weights};
 
 type PyHist<'py> = Bound<'py, PyArray3<usize>>;
@@ -46,8 +46,11 @@ impl Histogram {
 
     fn calculate(&self, data: NexusData, filters: Filters) -> Result<(Histogram, u128)> {
         // todo: add periods
-        let periods: Array1<u32> = Array1::zeros(data.n_events);
-        let n_periods: usize = *periods.iter().max().unwrap() as usize + 1;
+        let frame_periods: Array1<usize> = data.periods.read_1d()?; 
+        let start_index: Array1<usize> = data.frames.read_1d()?;
+
+        let periods = RLEArray::from_runs(frame_periods, start_index.clone(), data.n_events);
+        let n_periods: usize = periods.values.iter().max().unwrap() + 1;
 
         let start_index: Array1<usize> = data.frames.read_1d()?;
         let (time_starts, time_ends) = filters.get_time_filter_times();
@@ -116,7 +119,7 @@ pub fn calculate_histograms(
     max_time: f32,
     n_bins: usize,
     n_periods: usize,
-    periods: Array1<u32>,
+    periods: RLEArray,
     min_amps: Array1<f64>,
     weights: Weights,
 ) -> (Histogram, Duration) {
@@ -131,32 +134,30 @@ pub fn calculate_histograms(
         .map(|start| {
             let end = min(start + dataset.chunk_size, dataset.n_events);
             let array_slice = s![start..end];
-            unsafe {
-                make_histogram(
-                    dataset
-                        .times
-                        .read_slice_1d(array_slice)
-                        .expect("Failed to read times."),
-                    dataset
-                        .specs
-                        .read_slice_1d(array_slice)
-                        .expect("Failed to read specs."),
-                    dataset
-                        .amps
-                        .read_slice_1d(array_slice)
-                        .expect("Failed to read amplitudes."),
-                    dataset.n_spec,
-                    &periods.slice(array_slice),
-                    n_periods,
-                    &min_amps,
-                    weights.slice(start, end),
-                    min_time,
-                    max_time,
-                    n_bins,
-                    width,
-                    1e-3,
-                )
-            }
+            make_histogram(
+                dataset
+                    .times
+                    .read_slice_1d(array_slice)
+                    .expect("Failed to read times."),
+                dataset
+                    .specs
+                    .read_slice_1d(array_slice)
+                    .expect("Failed to read specs."),
+                dataset
+                    .amps
+                    .read_slice_1d(array_slice)
+                    .expect("Failed to read amplitudes."),
+                dataset.n_spec,
+                periods.slice(start, end),
+                n_periods,
+                &min_amps,
+                weights.slice(start, end),
+                min_time,
+                max_time,
+                n_bins,
+                width,
+                1e-3,
+            )
         })
         // accumulate all chunk histograms together
         .reduce(
@@ -180,12 +181,12 @@ pub fn calculate_histograms(
 /// This function is unsafe because we do array indexing without bounds checks!
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
-unsafe fn make_histogram(
+fn make_histogram(
     times: Array1<u32>,
     specs: Array1<u32>,
     amps: Array1<f64>,
     n_spec: usize,
-    periods: &ArrayView1<u32>,
+    periods: RLEArray,
     n_periods: usize,
     min_amps: &Array1<f64>,
     weights: Weights,
@@ -198,7 +199,7 @@ unsafe fn make_histogram(
     let mut result = Histogram::new(min_time, max_time, n_bins);
     result.hist = Array3::zeros((n_periods, n_spec, n_bins));
 
-    for (k, time) in times.into_iter().enumerate() {
+    for (k, (time, period)) in times.into_iter().zip(periods).enumerate() {
         let t = time as f32 * conversion;
         let w_k = weights[k];
         let amp = amps[k];
@@ -206,7 +207,7 @@ unsafe fn make_histogram(
 
         if w_k && (t >= min_time) && (t <= max_time) && amp > min_amps[spec] {
             let bin = ((t - min_time) / width as f32).floor() as usize;
-            result.hist[[*periods.uget(k) as usize, spec, bin]] += 1;
+            result.hist[[period, spec, bin]] += 1;
             result.n += 1
         }
     }
@@ -242,32 +243,29 @@ mod tests {
         let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
         let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
         let amps = Array1::ones(6);
-        let periods = Array1::zeros(6);
+        let periods = RLEArray::zeros(6);
         let min_amps = Array1::zeros(6);
         let weights = Weights::ones(6);
 
-        unsafe {
-            let result = make_histogram(
-                times,
-                specs,
-                amps,
-                2,
-                &periods.slice(s![0..=5]),
-                1,
-                &min_amps,
-                weights,
-                0.,
-                3.,
-                3,
-                1.,
-                1e-3,
-            );
+        let result = make_histogram(
+            times,
+            specs,
+            amps,
+            2,
+            periods,
+            1,
+            &min_amps,
+            weights,
+            0.,
+            3.,
+            3,
+            1.,
+            1e-3,
+        );
 
-            let expected =
-                Array3::<usize>::from_shape_vec((1, 2, 3), vec![1, 1, 2, 1, 0, 1]).unwrap();
+        let expected = Array3::<usize>::from_shape_vec((1, 2, 3), vec![1, 1, 2, 1, 0, 1]).unwrap();
 
-            assert_eq!(result.hist, expected)
-        }
+        assert_eq!(result.hist, expected)
     }
 
     /// Test a histogram with filters is correctly constructed.
@@ -276,32 +274,29 @@ mod tests {
         let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
         let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
         let amps = Array1::ones(6);
-        let periods = Array1::zeros(6);
+        let periods = RLEArray::zeros(6);
         let min_amps = Array1::zeros(6);
         let weights: [bool; 6] = [false, true, true, false, false, true];
 
-        unsafe {
-            let result = make_histogram(
-                times,
-                specs,
-                amps,
-                2,
-                &periods.slice(s![0..=5]),
-                1,
-                &min_amps,
-                weights.into_iter().into(),
-                0.,
-                3.,
-                3,
-                1.,
-                1e-3,
-            );
+        let result = make_histogram(
+            times,
+            specs,
+            amps,
+            2,
+            periods,
+            1,
+            &min_amps,
+            weights.into_iter().into(),
+            0.,
+            3.,
+            3,
+            1.,
+            1e-3,
+        );
 
-            let expected =
-                Array3::<usize>::from_shape_vec((1, 2, 3), vec![0, 1, 0, 1, 0, 1]).unwrap();
+        let expected = Array3::<usize>::from_shape_vec((1, 2, 3), vec![0, 1, 0, 1, 0, 1]).unwrap();
 
-            assert_eq!(result.hist, expected)
-        }
+        assert_eq!(result.hist, expected)
     }
 
     /// Test a histogram with multiple periods correctly separates data.
@@ -310,40 +305,29 @@ mod tests {
         let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
         let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
         let amps = Array1::ones(6);
-        let periods = Array1::from_vec(vec![0, 0, 1, 1, 0, 1]);
+        // periods are [0, 0, 1, 1, 0, 1]
+        let periods = RLEArray::from_runs(
+            Array1::from_vec(vec![0, 1, 0, 1]),
+            Array1::from_vec(vec![0, 2, 4, 5]),
+            6,
+        );
         let min_amps = Array1::zeros(6);
         let weights = Weights::ones(6);
 
-        unsafe {
-            let result = make_histogram(
-                times,
-                specs,
-                amps,
-                2,
-                &periods.slice(s![0..=5]),
-                2,
-                &min_amps,
-                weights,
-                0.,
-                3.,
-                3,
-                1.,
-                1e-3,
-            );
+        let result = make_histogram(times, specs, amps, 2, periods, 2, &min_amps, weights, 0., 3., 3, 1., 1e-3);
 
-            // period 0: events at indices 0, 1, 4
-            // period 1: events at indices 2, 3, 5
-            let expected = Array3::<usize>::from_shape_vec(
-                (2, 2, 3),
-                vec![
-                    1, 0, 1, 1, 0, 0, // period 0
-                    0, 1, 1, 0, 0, 1, // period 1
-                ],
-            )
-            .unwrap();
+        // period 0: events at indices 0, 1, 4
+        // period 1: events at indices 2, 3, 5
+        let expected = Array3::<usize>::from_shape_vec(
+            (2, 2, 3),
+            vec![
+                1, 0, 1, 1, 0, 0, // period 0
+                0, 1, 1, 0, 0, 1, // period 1
+            ],
+        )
+        .unwrap();
 
-            assert_eq!(result.hist, expected)
-        }
+        assert_eq!(result.hist, expected)
     }
 
     /// Test a histogram filters out data before the histogram start time.
@@ -352,31 +336,15 @@ mod tests {
         let times = Array1::from_vec(vec![500, 1200, 1800, 2500]);
         let specs = Array1::from_vec(vec![0, 1, 0, 1]);
         let amps = Array1::ones(4);
-        let periods = Array1::zeros(4);
+        let periods = RLEArray::zeros(4);
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
-        unsafe {
-            let result = make_histogram(
-                times,
-                specs,
-                amps,
-                2,
-                &periods.slice(s![0..=3]),
-                1,
-                &min_amps,
-                weights,
-                1.,
-                3.,
-                2,
-                1.,
-                1e-3,
-            );
+        let result = make_histogram(times, specs, amps, 2, periods, 1, &min_amps, weights, 1., 3., 2, 1., 1e-3);
 
-            let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 0, 1, 1]).unwrap();
+        let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 0, 1, 1]).unwrap();
 
-            assert_eq!(result.hist, expected)
-        }
+        assert_eq!(result.hist, expected)
     }
 
     /// Test a histogram filters out data after the histogram end time.
@@ -385,31 +353,15 @@ mod tests {
         let times = Array1::from_vec(vec![500, 1200, 1800, 3500]);
         let specs = Array1::from_vec(vec![0, 1, 0, 1]);
         let amps = Array1::ones(4);
-        let periods = Array1::zeros(4);
+        let periods = RLEArray::zeros(4);
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
-        unsafe {
-            let result = make_histogram(
-                times,
-                specs,
-                amps,
-                2,
-                &periods.slice(s![0..=3]),
-                1,
-                &min_amps,
-                weights,
-                0.,
-                2.,
-                2,
-                1.,
-                1e-3,
-            );
+        let result = make_histogram(times, specs, amps, 2, periods, 1, &min_amps, weights, 0., 2., 2, 1., 1e-3);
 
-            let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 1, 0, 1]).unwrap();
+        let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 1, 0, 1]).unwrap();
 
-            assert_eq!(result.hist, expected)
-        }
+        assert_eq!(result.hist, expected)
     }
 
     /// Test a histogram with amplitude filters is correctly constructed.
@@ -452,48 +404,46 @@ mod tests {
         let times = Array1::from_vec(vec![400, 800, 2500]);
         let specs = Array1::from_vec(vec![0, 0, 0]);
         let amps = Array1::ones(3);
-        let periods = Array1::zeros(3);
+        let periods = RLEArray::zeros(3);
         let min_amps = Array1::zeros(3);
 
-        unsafe {
-            let result = make_histogram(
-                times.clone(),
-                specs.clone(),
-                amps.clone(),
-                1,
-                &periods.slice(s![0..=2]),
-                1,
-                &min_amps,
-                Weights::ones(3),
-                0.,
-                3.,
-                3,
-                1.,
-                1e-3,
-            );
+        let result = make_histogram(
+            times.clone(),
+            specs.clone(),
+            amps.clone(),
+            1,
+            periods.clone(),
+            1,
+            &min_amps,
+            Weights::ones(3),
+            0.,
+            3.,
+            3,
+            1.,
+            1e-3,
+        );
 
-            let expected = Array3::<usize>::from_shape_vec((1, 1, 3), vec![2, 0, 1]).unwrap();
-            assert_eq!(result.hist, expected);
+        let expected = Array3::<usize>::from_shape_vec((1, 1, 3), vec![2, 0, 1]).unwrap();
+        assert_eq!(result.hist, expected);
 
-            // now test with a different conversion factor
-            let result2 = make_histogram(
-                times,
-                specs,
-                amps,
-                1,
-                &periods.slice(s![0..=2]),
-                1,
-                &min_amps,
-                Weights::ones(3),
-                0.,
-                3.,
-                3,
-                1.,
-                2e-3,
-            );
+        // now test with a different conversion factor
+        let result2 = make_histogram(
+            times,
+            specs,
+            amps,
+            1,
+            periods,
+            1,
+            &min_amps,
+            Weights::ones(3),
+            0.,
+            3.,
+            3,
+            1.,
+            2e-3,
+        );
 
-            let expected2 = Array3::<usize>::from_shape_vec((1, 1, 3), vec![1, 1, 0]).unwrap();
-            assert_eq!(result2.hist, expected2)
-        }
+        let expected2 = Array3::<usize>::from_shape_vec((1, 1, 3), vec![1, 1, 0]).unwrap();
+        assert_eq!(result2.hist, expected2)
     }
 }
