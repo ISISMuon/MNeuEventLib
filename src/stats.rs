@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use ndarray::{s, Array1, Array3, ArrayView1};
 use numpy::{PyArray3, ToPyArray};
-use pyo3::prelude::{pyclass, pymethods, Bound, PyResult};
+use pyo3::prelude::{pyclass, pymethods, Bound};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
 use crate::data::NexusData;
@@ -34,16 +34,16 @@ impl Histogram {
         }
     }
 
-    fn data<'py>(slf: &Bound<'py, Histogram>) -> PyResult<PyHist<'py>> {
+    fn data<'py>(slf: &Bound<'py, Histogram>) -> PyHist<'py> {
         let py = slf.py();
-        Ok(slf.borrow().hist.to_pyarray(py))
+        slf.borrow().hist.to_pyarray(py)
     }
 
-    fn n_events(&self) -> PyResult<usize> {
-        Ok(self.n)
+    fn n_events(&self) -> usize {
+        self.n
     }
 
-    fn calculate(&self, data: NexusData) -> PyResult<(Histogram, u128)> {
+    fn calculate(&self, data: NexusData) -> (Histogram, u128) {
         // todo: add periods
         let periods: Array1<u32> = Array1::zeros(data.n_events);
         let n_periods: usize = *periods.iter().max().unwrap() as usize + 1;
@@ -59,7 +59,7 @@ impl Histogram {
             periods,
             weights,
         );
-        Ok((result, time.as_millis()))
+        (result, time.as_millis())
     }
 }
 
@@ -178,7 +178,7 @@ mod tests {
     fn test_histogram_n_events() {
         let mut hist = Histogram::new(0., 3., 3);
         hist.n = 42;
-        assert_eq!(hist.n_events().unwrap(), 42);
+        assert_eq!(hist.n_events(), 42);
     }
 
     /// Test a histogram with no filters is correctly constructed.
