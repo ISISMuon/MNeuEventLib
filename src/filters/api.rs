@@ -226,7 +226,8 @@ impl Filters {
     /// Save the filters to a JSON file.
     pub fn save(&self, filename: String) -> Result<()> {
         let file = File::create(&filename)?;
-        Ok(serde_json::to_writer(file, &self)?)
+        Ok(serde_json::to_writer_pretty(file, &self)?)
+
     }
 
     /// Load filters from a JSON file.
