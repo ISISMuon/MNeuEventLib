@@ -1,11 +1,11 @@
 use std::path::Path;
 
+use anyhow::{Error, Result};
 use hdf5::types::TypeDescriptor;
-use hdf5::{Dataset, Error, File, Group};
+use hdf5::{Dataset, File, Group};
 use ndarray::Array1;
 use numpy::{PyArray1, ToPyArray};
-use pyo3::exceptions::PyIOError;
-use pyo3::prelude::{pyclass, pymethods, Bound, PyResult};
+use pyo3::prelude::{pyclass, pymethods, Bound};
 
 use crate::data::{SampleLog, ValueLog};
 
@@ -31,23 +31,22 @@ pub struct NexusData {
 impl NexusData {
     #[new]
     #[pyo3(signature = (filename, n_spec, chunk_size=1048576))]
-    fn new(filename: String, n_spec: usize, chunk_size: usize) -> PyResult<Self> {
+    fn new(filename: String, n_spec: usize, chunk_size: usize) -> Result<Self> {
         let path = Path::new(&filename);
         load_data(path, n_spec, chunk_size)
-            .map_err(|_| PyIOError::new_err(format!("Failed to read file {}", filename)))
     }
 
     /// used for testing
-    fn get_frame_times<'py>(slf: &Bound<'py, NexusData>) -> PyResult<Bound<'py, PyArray1<u32>>> {
+    fn get_frame_times<'py>(slf: &Bound<'py, NexusData>) -> Bound<'py, PyArray1<u32>> {
         let py = slf.py();
-        Ok(slf.borrow().frame_times.read_1d().unwrap().to_pyarray(py))
+        slf.borrow().frame_times.read_1d().unwrap().to_pyarray(py)
     }
 }
 
 impl NexusData {
     /// Retreve the data for a sample log.
     #[allow(dead_code)] // to be implemented by log filters
-    fn get_sample_log(&self, log_name: String) -> Result<SampleLog, Error> {
+    fn get_sample_log(&self, log_name: String) -> Result<SampleLog> {
         let log_data = self.sample_logs.group(&log_name)?.group("value_log")?;
         let time: Array1<f64> = log_data.dataset("time")?.read_1d().unwrap();
         let value: Dataset = log_data.dataset("value")?;
@@ -64,7 +63,7 @@ impl NexusData {
                 time,
                 value: value.read_1d().unwrap(),
             })),
-            other_type => Err(Error::Internal(format!(
+            other_type => Err(Error::msg(format!(
                 "Sample log type {other_type} for log {log_name} is not supported.
                 Supported types are Integer, Float, and Boolean."
             ))),
