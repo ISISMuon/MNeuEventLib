@@ -1,6 +1,6 @@
-use pyo3::exceptions::PyValueError;
 /// The user-facing API for the filter objects.
-use pyo3::prelude::{pyclass, pymethods, PyResult};
+use anyhow::{Error, Result};
+use pyo3::prelude::{pyclass, pymethods};
 
 #[derive(Clone)]
 enum FilterType {
@@ -48,17 +48,17 @@ impl Filters {
 #[pymethods]
 impl Filters {
     #[new]
-    fn new() -> PyResult<Filters> {
-        Ok(Filters {
+    fn new() -> Filters {
+        Filters {
             time_filter_type: FilterType::Include,
             time_filters: Vec::<Filter>::new(),
             sample_log_filters: Vec::<Filter>::new(),
             amplitudes: 0.,
-        })
+        }
     }
 
     /// Set the time filter type.
-    fn set_time_type(&mut self, filter_type: String) -> PyResult<()> {
+    fn set_time_type(&mut self, filter_type: String) -> Result<()> {
         match filter_type.to_lowercase().as_str() {
             "include" => {
                 self.time_filter_type = FilterType::Include;
@@ -68,49 +68,47 @@ impl Filters {
                 self.time_filter_type = FilterType::Exclude;
                 Ok(())
             }
-            _ => Err(PyValueError::new_err("Type must be 'include' or 'exclude'")),
+            _ => Err(Error::msg("Type must be 'include' or 'exclude'")),
         }
     }
 
     /// Add a time filter.
-    fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> PyResult<()> {
+    fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> Result<()> {
         // check name isn't already in use
         if self.time_filters.iter().any(|f| f.name == name) {
-            return Err(PyValueError::new_err("Name already exists!"));
+            return Err(Error::msg("Name already exists!"));
         }
         self.time_filters.push(Filter { name, start, end });
         Ok(())
     }
 
-    fn remove_time_filter(&mut self, name: String) -> PyResult<()> {
+    fn remove_time_filter(&mut self, name: String) -> Result<()> {
         match self.time_filters.iter().position(|f| f.name == name) {
             Some(i) => {
                 self.time_filters.swap_remove(i);
                 Ok(())
             }
-            None => Err(PyValueError::new_err("No such name in time filters.")),
+            None => Err(Error::msg("No such name in time filters.")),
         }
     }
 
     /// Add a log filter.
-    fn add_log_filter(&mut self, name: String, start: f64, end: f64) -> PyResult<()> {
-        self.sample_log_filters.push(Filter { name, start, end });
-        Ok(())
+    fn add_log_filter(&mut self, name: String, start: f64, end: f64) {
+        self.sample_log_filters.push(Filter { name, start, end })
     }
 
-    fn remove_log_filter(&mut self, name: String) -> PyResult<()> {
+    fn remove_log_filter(&mut self, name: String) -> Result<()> {
         match self.sample_log_filters.iter().position(|f| f.name == name) {
             Some(i) => {
                 self.sample_log_filters.swap_remove(i);
                 Ok(())
             }
-            None => Err(PyValueError::new_err("No such name in log filters.")),
+            None => Err(Error::msg("No such name in log filters.")),
         }
     }
 
-    fn set_amp(&mut self, amp: f64) -> PyResult<()> {
+    fn set_amp(&mut self, amp: f64) {
         self.amplitudes = amp;
-        Ok(())
     }
 }
 
@@ -161,7 +159,7 @@ mod tests {
     /// Test filters objects are initialised correctly.
     #[test]
     fn test_new_filters_creates_empty_filters() {
-        let filters = Filters::new().unwrap();
+        let filters = Filters::new();
         assert_eq!(filters.get_time_filter_starts().len(), 0);
         assert_eq!(filters.get_time_filter_ends().len(), 0);
         assert!(filters.is_include()); // default is include
@@ -170,7 +168,7 @@ mod tests {
     /// Test time filter type can correctly be set.
     #[test]
     fn test_set_time_type() {
-        let mut filters = Filters::new().unwrap();
+        let mut filters = Filters::new();
         filters.set_time_type("include".to_string()).unwrap();
         assert!(filters.is_include());
         filters.set_time_type("exclude".to_string()).unwrap();
@@ -180,7 +178,7 @@ mod tests {
     /// Test set_time_type gives an error when the type is not valid.
     #[test]
     fn test_set_time_type_invalid_type() {
-        let mut filters = Filters::new().unwrap();
+        let mut filters = Filters::new();
         let result = filters.set_time_type("invalid".to_string());
         assert!(result.is_err());
         let result = filters.set_time_type("".to_string());
@@ -190,7 +188,7 @@ mod tests {
     /// Test adding a time filter and converting it to filter starts and ends.
     #[test]
     fn test_add_single_time_filter() {
-        let mut filters = Filters::new().unwrap();
+        let mut filters = Filters::new();
         filters
             .add_time_filter("filter1".to_string(), 1.0, 2.0)
             .unwrap();
@@ -208,7 +206,7 @@ mod tests {
     /// Test adding multiple time filters.
     #[test]
     fn test_add_multiple_time_filters() {
-        let mut filters = Filters::new().unwrap();
+        let mut filters = Filters::new();
         filters
             .add_time_filter("filter1".to_string(), 1.0, 2.0)
             .unwrap();
@@ -244,7 +242,7 @@ mod tests {
     /// Test an error is given when a time filter is given a duplicate name.
     #[test]
     fn test_add_time_filter_duplicate_name() {
-        let mut filters = Filters::new().unwrap();
+        let mut filters = Filters::new();
         filters
             .add_time_filter("filter1".to_string(), 1.0, 2.0)
             .unwrap();
@@ -256,7 +254,7 @@ mod tests {
     /// Test time filters can be removed correctly.
     #[test]
     fn test_remove_time_filter() {
-        let mut filters = Filters::new().unwrap();
+        let mut filters = Filters::new();
         filters
             .add_time_filter("filter1".to_string(), 1.0, 2.0)
             .unwrap();
@@ -279,7 +277,7 @@ mod tests {
     /// Test removing a time filter that doesn't exist throws an error.
     #[test]
     fn test_remove_time_filter_nonexistent() {
-        let mut filters = Filters::new().unwrap();
+        let mut filters = Filters::new();
         let result = filters.remove_time_filter("nonexistent".to_string());
         assert!(result.is_err());
     }
