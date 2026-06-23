@@ -1,4 +1,4 @@
-use ndarray::{s, Array1};
+use ndarray::{s, Array1, ArrayView1};
 
 use crate::utils::binary_search;
 
@@ -7,53 +7,47 @@ use crate::utils::binary_search;
 /// values = [1, 2, 3, 6], run_length = [3, 2, 4, 4].
 /// Note we don't implement a way to perform this compression; this class exists
 /// as a nicer way to deal with the per-frame compression already included in the Nexus data.
-#[derive(Clone)]
 pub struct RLEArray {
     pub values: Array1<usize>,
     pub start_index: Array1<usize>,
+}
+
+/// Struct for a slice of an RLEArray.
+pub struct RLEArraySlice<'a> {
+    pub values: ArrayView1<'a, usize>,
+    pub start_index: Array1<usize>,
     pub array_len: usize,
-    current_index: usize,  // used for iterator impl
-    remaining_vals: usize, // used for iterator impl
+    current_index: usize,      // used for iterator impl
+    pub remaining_vals: usize, // used for iterator impl
 }
 
 impl RLEArray {
     /// Construct a new RLEArray from the values for each frame
     /// and the start index of each frame.
-    pub fn from_runs(
-        frame_values: Array1<usize>,
-        start_index: Array1<usize>,
-        array_len: usize,
-    ) -> RLEArray {
-        let remaining_vals = start_index[1];
+    pub fn new(values: Array1<usize>, start_index: Array1<usize>) -> RLEArray {
         RLEArray {
-            values: frame_values,
+            values,
             start_index,
-            array_len,
-            current_index: 0,
-            remaining_vals,
         }
     }
 
     /// Create an array of all-zero periods. Used for testing.
     #[cfg(test)]
-    pub fn zeros(n: usize) -> RLEArray {
+    pub fn zeros() -> RLEArray {
         RLEArray {
             values: Array1::zeros(1),
             start_index: Array1::zeros(1),
-            array_len: n,
-            current_index: 0,
-            remaining_vals: n,
         }
     }
 
     /// Get a smaller array from a contiguous slice of this one.
-    pub fn slice(&self, lower: usize, upper: usize) -> RLEArray {
+    pub fn slice(&self, lower: usize, upper: usize) -> RLEArraySlice<'_> {
         // find the frames which bound the range
         let n_runs = self.start_index.len();
         let lower_index = binary_search(&self.start_index, 0, n_runs, lower).unwrap();
         let upper_index = binary_search(&self.start_index, 0, n_runs, upper).unwrap();
 
-        let new_starts = (lower_index..=upper_index)
+        let new_starts: Array1<usize> = (lower_index..=upper_index)
             .map(|i| {
                 if i == lower_index {
                     0
@@ -64,17 +58,23 @@ impl RLEArray {
             .collect();
 
         // copy the relevant indices
-        RLEArray {
-            values: self.values.slice(s![lower_index..=upper_index]).to_owned(),
+        let array_len = upper - lower;
+        let remaining_vals = match new_starts.len() {
+            1 => array_len,
+            _ => new_starts[1],
+        };
+
+        RLEArraySlice {
+            values: self.values.slice(s![lower_index..=upper_index]),
             start_index: new_starts,
-            array_len: upper - lower,
+            array_len,
             current_index: 0,
-            remaining_vals: self.start_index[lower_index],
+            remaining_vals,
         }
     }
 }
 
-impl Iterator for RLEArray {
+impl Iterator for RLEArraySlice<'_> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -106,11 +106,9 @@ mod tests {
         let values = Array1::<usize>::from_vec(vec![1, 2, 3, 4]);
         let start_index = Array1::<usize>::from_vec(vec![0, 4, 9, 16]);
 
-        let arr = RLEArray::from_runs(values.clone(), start_index.clone(), 25);
+        let arr = RLEArray::new(values.clone(), start_index.clone());
         assert_eq!(arr.values, values);
         assert_eq!(arr.start_index, start_index);
-        assert_eq!(arr.current_index, 0);
-        assert_eq!(arr.remaining_vals, 4);
     }
 
     /// Test iterating over an RLE array correctly decompresses the values.
@@ -119,8 +117,8 @@ mod tests {
         let values = Array1::<usize>::from_vec(vec![1, 2, 3, 4]);
         let start_index = Array1::<usize>::from_vec(vec![0, 2, 8, 9]);
 
-        let arr = RLEArray {
-            values,
+        let arr = RLEArraySlice {
+            values: values.view(),
             start_index,
             array_len: 12,
             current_index: 0,
@@ -146,9 +144,6 @@ mod tests {
         let array = RLEArray {
             values,
             start_index,
-            array_len: 12,
-            current_index: 0,
-            remaining_vals: 4,
         };
         let slice = array.slice(5, 10);
 
@@ -156,5 +151,6 @@ mod tests {
         let expected_idx = Array1::<usize>::from_vec(vec![0, 2, 4]);
         assert_eq!(slice.values, expected_values);
         assert_eq!(slice.start_index, expected_idx);
+        assert_eq!(slice.array_len, 5);
     }
 }

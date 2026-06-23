@@ -8,7 +8,7 @@ use numpy::{PyArray3, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Bound};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
-use crate::data::{NexusData, RLEArray};
+use crate::data::{NexusData, RLEArray, RLEArraySlice};
 use crate::filters::{get_weights, Filters, Weights};
 
 type PyHist<'py> = Bound<'py, PyArray3<usize>>;
@@ -49,8 +49,8 @@ impl Histogram {
         let frame_periods: Array1<usize> = data.periods.read_1d()?; 
         let start_index: Array1<usize> = data.frames.read_1d()?;
 
-        let periods = RLEArray::from_runs(frame_periods, start_index.clone(), data.n_events);
-        let n_periods: usize = periods.values.iter().max().unwrap() + 1;
+        let periods = RLEArray::new(frame_periods, start_index.clone());
+        let n_periods = periods.values.iter().max().unwrap() + 1;
 
         let start_index: Array1<usize> = data.frames.read_1d()?;
         let (time_starts, time_ends) = filters.get_time_filter_times();
@@ -186,7 +186,7 @@ fn make_histogram(
     specs: Array1<u32>,
     amps: Array1<f64>,
     n_spec: usize,
-    periods: RLEArray,
+    periods: RLEArraySlice,
     n_periods: usize,
     min_amps: &Array1<f64>,
     weights: Weights,
@@ -243,7 +243,7 @@ mod tests {
         let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
         let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
         let amps = Array1::ones(6);
-        let periods = RLEArray::zeros(6);
+        let periods = RLEArray::zeros();
         let min_amps = Array1::zeros(6);
         let weights = Weights::ones(6);
 
@@ -252,7 +252,7 @@ mod tests {
             specs,
             amps,
             2,
-            periods,
+            periods.slice(0, 6),
             1,
             &min_amps,
             weights,
@@ -274,16 +274,22 @@ mod tests {
         let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
         let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
         let amps = Array1::ones(6);
-        let periods = RLEArray::zeros(6);
+        let periods = RLEArray::zeros();
         let min_amps = Array1::zeros(6);
         let weights: [bool; 6] = [false, true, true, false, false, true];
+
+        let slice = periods.slice(0, 6);
+        println!("{}", slice.array_len);
+        println!("{}", slice.values);
+        println!("{}", slice.start_index);
+        println!("{:?}", slice.collect::<Vec<usize>>());
 
         let result = make_histogram(
             times,
             specs,
             amps,
             2,
-            periods,
+            periods.slice(0, 6),
             1,
             &min_amps,
             weights.into_iter().into(),
@@ -306,15 +312,28 @@ mod tests {
         let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
         let amps = Array1::ones(6);
         // periods are [0, 0, 1, 1, 0, 1]
-        let periods = RLEArray::from_runs(
+        let periods = RLEArray::new(
             Array1::from_vec(vec![0, 1, 0, 1]),
             Array1::from_vec(vec![0, 2, 4, 5]),
-            6,
         );
         let min_amps = Array1::zeros(6);
         let weights = Weights::ones(6);
 
-        let result = make_histogram(times, specs, amps, 2, periods, 2, &min_amps, weights, 0., 3., 3, 1., 1e-3);
+        let result = make_histogram(
+            times,
+            specs,
+            amps,
+            2,
+            periods.slice(0, 6),
+            2,
+            &min_amps,
+            weights,
+            0.,
+            3.,
+            3,
+            1.,
+            1e-3,
+        );
 
         // period 0: events at indices 0, 1, 4
         // period 1: events at indices 2, 3, 5
@@ -336,11 +355,11 @@ mod tests {
         let times = Array1::from_vec(vec![500, 1200, 1800, 2500]);
         let specs = Array1::from_vec(vec![0, 1, 0, 1]);
         let amps = Array1::ones(4);
-        let periods = RLEArray::zeros(4);
+        let periods = RLEArray::zeros();
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
-        let result = make_histogram(times, specs, amps, 2, periods, 1, &min_amps, weights, 1., 3., 2, 1., 1e-3);
+        let result = make_histogram(times, specs, amps, 2, periods.slice(0, 6), 1, &min_amps, weights, 1., 3., 2, 1., 1e-3);
 
         let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 0, 1, 1]).unwrap();
 
@@ -353,11 +372,11 @@ mod tests {
         let times = Array1::from_vec(vec![500, 1200, 1800, 3500]);
         let specs = Array1::from_vec(vec![0, 1, 0, 1]);
         let amps = Array1::ones(4);
-        let periods = RLEArray::zeros(4);
+        let periods = RLEArray::zeros();
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
-        let result = make_histogram(times, specs, amps, 2, periods, 1, &min_amps, weights, 0., 2., 2, 1., 1e-3);
+        let result = make_histogram(times, specs, amps, 2, periods.slice(0, 6), 1, &min_amps, weights, 0., 2., 2, 1., 1e-3);
 
         let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 1, 0, 1]).unwrap();
 
@@ -404,7 +423,7 @@ mod tests {
         let times = Array1::from_vec(vec![400, 800, 2500]);
         let specs = Array1::from_vec(vec![0, 0, 0]);
         let amps = Array1::ones(3);
-        let periods = RLEArray::zeros(3);
+        let periods = RLEArray::zeros();
         let min_amps = Array1::zeros(3);
 
         let result = make_histogram(
@@ -412,7 +431,7 @@ mod tests {
             specs.clone(),
             amps.clone(),
             1,
-            periods.clone(),
+            periods.slice(0, 3),
             1,
             &min_amps,
             Weights::ones(3),
@@ -432,7 +451,7 @@ mod tests {
             specs,
             amps,
             1,
-            periods,
+            periods.slice(0, 3),
             1,
             &min_amps,
             Weights::ones(3),
