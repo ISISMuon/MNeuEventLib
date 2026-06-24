@@ -1,6 +1,6 @@
-use std::fs::File;
 /// The user-facing API for the filter objects.
 use std::collections::HashMap;
+use std::fs::File;
 
 use anyhow::{Error, Result};
 use ndarray::Array1;
@@ -10,8 +10,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::consts::S_TO_NS;
 use crate::data::SampleLog;
-
-use std::io::Read;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 enum FilterType {
@@ -115,15 +113,6 @@ impl Filters {
         }
         Ok(array)
     }
-}
-
-/// Internal of load function so we can call it from Rust.
-fn _load(filename: String) -> Result<Filters> {
-    let mut file = File::open(&filename)?;
-
-    let mut contents = String::new();
-    let _ = file.read_to_string(&mut contents);
-    Ok(serde_json::from_str(contents.as_str())?)
 }
 
 #[pymethods]
@@ -243,6 +232,12 @@ impl Filters {
     pub fn load(_cls: &Bound<'_, PyType>, filename: String) -> Result<Filters> {
         _load(filename)
     }
+}
+
+/// Internal of load function so we can call it from Rust.
+fn _load(filename: String) -> Result<Filters> {
+    let file = File::open(&filename)?;
+    Ok(serde_json::from_reader(file)?)
 }
 
 #[cfg(test)]
