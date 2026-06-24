@@ -55,18 +55,15 @@ impl Filters {
         logs: HashMap<String, SampleLog>,
     ) -> (Vec<usize>, Vec<usize>) {
         // get the value log for each required sample log
-        if self.sample_log_filters.is_empty() {
-            return (Vec::new(), Vec::new());
-        }
+        // the zip/unzip is to convert it from
+        // Vec<(usize, usize)> to (Vec<usize>, Vec<usize>)
         self.sample_log_filters
             .iter()
-            .map(|f| logs[&f.log].to_time_ranges(f.lower, f.upper))
-            .reduce(|(mut acc_a, mut acc_b), (f_a, f_b)| {
-                acc_a.extend(f_a);
-                acc_b.extend(f_b);
-                (acc_a, acc_b)
+            .flat_map(|f| {
+                let (s, e) = logs[&f.log].to_time_ranges(f.lower, f.upper);
+                s.into_iter().zip(e)
             })
-            .unwrap()
+            .unzip()
     }
 
     // Get the relevant log for each log filter.

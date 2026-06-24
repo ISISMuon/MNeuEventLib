@@ -47,6 +47,11 @@ where
                 }
             }
         }
+
+        // if still in range at end, we need to add the last datapoint to the ends
+        if in_range {
+            ends.push((self.time.last().unwrap() * S_TO_NS) as usize);
+        }
         (starts, ends)
     }
 }
