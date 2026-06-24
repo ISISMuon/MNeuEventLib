@@ -4,7 +4,7 @@ use crate::utils::binary_search;
 
 /// A run-length encoded array, which stores repeated values more efficiently.
 /// e.g. the array [1, 1, 1, 2, 2, 3, 3, 3, 3, 6, 6, 6, 6] would be encoded as
-/// values = [1, 2, 3, 6], run_length = [3, 2, 4, 4].
+/// values = [1, 2, 3, 6], start_index = [0, 3, 5, 9].
 /// Note we don't implement a way to perform this compression; this class exists
 /// as a nicer way to deal with the per-frame compression already included in the Nexus data.
 pub struct RLEArray {
@@ -12,13 +12,13 @@ pub struct RLEArray {
     pub start_index: Array1<usize>,
 }
 
-/// Struct for a slice of an RLEArray.
+/// An iterable slice of an RLEArray.
 pub struct RLEArraySlice<'a> {
     pub values: ArrayView1<'a, usize>,
     pub start_index: Array1<usize>,
-    pub array_len: usize,
-    current_index: usize,      // used for iterator impl
-    pub remaining_vals: usize, // used for iterator impl
+    pub array_len: usize,  // total size of the uncompressed array
+    current_index: usize,  // used for iterator impl: current index of `values`
+    remaining_vals: usize, // used for iterator impl: remaining values in this index
 }
 
 impl RLEArray {
@@ -41,12 +41,14 @@ impl RLEArray {
     }
 
     /// Get a smaller array from a contiguous slice of this one.
+    /// `lower` and `upper` correspond to indices on the 'uncompressed' array.
     pub fn slice(&self, lower: usize, upper: usize) -> RLEArraySlice<'_> {
         // find the frames which bound the range
         let n_runs = self.start_index.len();
         let lower_index = binary_search(&self.start_index, 0, n_runs, lower).unwrap();
         let upper_index = binary_search(&self.start_index, 0, n_runs, upper).unwrap();
 
+        // shift the start indices to match the slice
         let new_starts: Array1<usize> = (lower_index..=upper_index)
             .map(|i| {
                 if i == lower_index {
@@ -57,7 +59,6 @@ impl RLEArray {
             })
             .collect();
 
-        // copy the relevant indices
         let array_len = upper - lower;
         let remaining_vals = match new_starts.len() {
             1 => array_len,
