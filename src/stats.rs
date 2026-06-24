@@ -45,8 +45,7 @@ impl Histogram {
     }
 
     fn calculate(&self, data: NexusData, filters: Filters) -> Result<(Histogram, u128)> {
-        // todo: add periods
-        let frame_periods: Array1<usize> = data.periods.read_1d()?; 
+        let frame_periods: Array1<usize> = data.periods.read_1d()?;
         let start_index: Array1<usize> = data.frames.read_1d()?;
 
         let periods = RLEArray::new(frame_periods, start_index.clone());
@@ -278,12 +277,6 @@ mod tests {
         let min_amps = Array1::zeros(6);
         let weights: [bool; 6] = [false, true, true, false, false, true];
 
-        let slice = periods.slice(0, 6);
-        println!("{}", slice.array_len);
-        println!("{}", slice.values);
-        println!("{}", slice.start_index);
-        println!("{:?}", slice.collect::<Vec<usize>>());
-
         let result = make_histogram(
             times,
             specs,
@@ -359,7 +352,7 @@ mod tests {
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
-        let result = make_histogram(times, specs, amps, 2, periods.slice(0, 6), 1, &min_amps, weights, 1., 3., 2, 1., 1e-3);
+        let result = make_histogram(times, specs, amps, 2, periods.slice(0, 4), 1, &min_amps, weights, 1., 3., 2, 1., 1e-3);
 
         let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 0, 1, 1]).unwrap();
 
@@ -376,7 +369,7 @@ mod tests {
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
-        let result = make_histogram(times, specs, amps, 2, periods.slice(0, 6), 1, &min_amps, weights, 0., 2., 2, 1., 1e-3);
+        let result = make_histogram(times, specs, amps, 2, periods.slice(0, 4), 1, &min_amps, weights, 0., 2., 2, 1., 1e-3);
 
         let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 1, 0, 1]).unwrap();
 
@@ -393,28 +386,27 @@ mod tests {
         let min_amps = Array1::from_vec(vec![0.5, 1.5]);
         let weights = Weights::ones(6);
 
-        unsafe {
-            let result = make_histogram(
-                times,
-                specs,
-                amps,
-                2,
-                &periods.slice(s![0..=5]),
-                1,
-                &min_amps,
-                weights,
-                0.,
-                3.,
-                3,
-                1.,
-                1e-3,
-            );
+        let result = make_histogram(
+            times,
+            specs,
+            amps,
+            2,
+            &periods.slice(s![0..=5]),
+            1,
+            &min_amps,
+            weights,
+            0.,
+            3.,
+            3,
+            1.,
+            1e-3,
+        );
 
-            let expected =
-                Array3::<usize>::from_shape_vec((1, 2, 3), vec![1, 1, 1, 0, 0, 1]).unwrap();
+        let expected =
+            Array3::<usize>::from_shape_vec((1, 2, 3), vec![1, 1, 1, 0, 0, 1]).unwrap();
 
-            assert_eq!(result.hist, expected)
-        }
+        assert_eq!(result.hist, expected)
+    
     }
 
     /// Test that the conversion value correctly scales time values.

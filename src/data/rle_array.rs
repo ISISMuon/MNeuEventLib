@@ -17,6 +17,7 @@ pub struct RLEArraySlice<'a> {
     pub values: ArrayView1<'a, usize>,
     pub start_index: Array1<usize>,
     pub array_len: usize,  // total size of the uncompressed array
+    current_value: usize,  // used for iterator impl: current value being returned
     current_index: usize,  // used for iterator impl: current index of `values`
     remaining_vals: usize, // used for iterator impl: remaining values in this index
 }
@@ -69,6 +70,7 @@ impl RLEArray {
             values: self.values.slice(s![lower_index..=upper_index]),
             start_index: new_starts,
             array_len,
+            current_value: self.values[lower_index],
             current_index: 0,
             remaining_vals,
         }
@@ -91,9 +93,10 @@ impl Iterator for RLEArraySlice<'_> {
                 }
                 i => self.remaining_vals = self.start_index[i + 1] - self.start_index[i],
             }
+            self.current_value = self.values[self.current_index];
         };
         self.remaining_vals -= 1;
-        Some(self.values[self.current_index])
+        Some(self.current_value)
     }
 }
 
@@ -122,6 +125,7 @@ mod tests {
             values: values.view(),
             start_index,
             array_len: 12,
+            current_value: 1,
             current_index: 0,
             remaining_vals: 2,
         };
