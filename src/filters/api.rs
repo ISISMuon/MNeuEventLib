@@ -20,20 +20,21 @@ pub struct Filters {
 }
 
 impl Filters {
-    /// Get the start points of each filter.
-    pub fn get_time_filter_starts(&self) -> Vec<usize> {
-        self.time_filters
-            .iter()
-            .map(|f| (f.start * S_TO_NS) as usize)
-            .collect()
-    }
-
-    /// Get the end points of each filter.
-    pub fn get_time_filter_ends(&self) -> Vec<usize> {
-        self.time_filters
-            .iter()
-            .map(|f| (f.end * S_TO_NS) as usize)
-            .collect()
+    /// Get the start and end points of each time filter.
+    pub fn get_time_filter_times(&self) -> (Vec<usize>, Vec<usize>) {
+        if self.time_filters.is_empty() {
+            return (Vec::new(), Vec::new());
+        }
+        (
+            self.time_filters
+                .iter()
+                .map(|f| (f.start * S_TO_NS) as usize)
+                .collect(),
+            self.time_filters
+                .iter()
+                .map(|f| (f.end * S_TO_NS) as usize)
+                .collect(),
+        )
     }
 
     /// Return whether the time filters are include or exclude.
@@ -149,8 +150,7 @@ mod tests {
             amplitudes: 0.,
         };
 
-        let starts = filters.get_time_filter_starts();
-        let ends = filters.get_time_filter_ends();
+        let (starts, ends) = filters.get_time_filter_times();
 
         assert_eq!(starts, vec![1e9 as usize, 3e9 as usize, 5e9 as usize]);
         assert_eq!(ends, vec![2e9 as usize, 4e9 as usize, 6e9 as usize]);
@@ -160,8 +160,9 @@ mod tests {
     #[test]
     fn test_new_filters_creates_empty_filters() {
         let filters = Filters::new();
-        assert_eq!(filters.get_time_filter_starts().len(), 0);
-        assert_eq!(filters.get_time_filter_ends().len(), 0);
+        let (starts, ends) = filters.get_time_filter_times();
+        assert_eq!(starts.len(), 0);
+        assert_eq!(ends.len(), 0);
         assert!(filters.is_include()); // default is include
     }
 

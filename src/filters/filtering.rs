@@ -2,8 +2,22 @@ use ndarray::Array1;
 
 use crate::filters::weights::Weights;
 
+// Given a list of filter start and end times, get the weights array.
+pub fn get_weights(
+    filter_starts: Vec<usize>,
+    filter_ends: Vec<usize>,
+    frame_start_times: Array1<usize>,
+    start_index: Array1<usize>,
+    array_len: usize,
+    include: bool,
+) -> Weights {
+    let (start_frames, end_frames) = get_indices(&frame_start_times, filter_starts, filter_ends);
+    get_good_values(start_frames, end_frames, start_index, array_len, include)
+}
+
 /// Binary search to find the left bounding index of a target value.
 /// start and stop are the indices of the array to search between.
+#[inline]
 fn binary_search(
     array: &Array1<usize>,
     start: usize,
@@ -30,7 +44,8 @@ fn binary_search(
 }
 
 /// Assuming the data is sorted, get which frames the filters belong to.
-pub fn get_indices(
+#[inline(always)]
+fn get_indices(
     start_times: &Array1<usize>,
     filter_starts: Vec<usize>,
     filter_ends: Vec<usize>,
@@ -73,8 +88,8 @@ pub fn get_indices(
 /// -------
 /// Weights
 ///     An array of the weights corresponding to the filtered frames.
-///
-pub fn get_good_values(
+#[inline(always)]
+fn get_good_values(
     f_start: Vec<usize>,
     f_end: Vec<usize>,
     start_index: Array1<usize>,
@@ -86,12 +101,9 @@ pub fn get_good_values(
         false => Weights::ones(array_len),
     };
 
-    f_start
-        .into_iter()
-        .zip(f_end.iter())
-        .for_each(|(start, end)| {
-            result.set_range(start_index[start], start_index[*end], include);
-        });
+    f_start.iter().zip(f_end.iter()).for_each(|(start, end)| {
+        result.set_range(start_index[*start], start_index[*end], include);
+    });
 
     result
 }
