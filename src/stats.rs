@@ -177,7 +177,6 @@ pub fn calculate_histograms(
 }
 
 /// Make a histogram for a set of data.
-/// This function is unsafe because we do array indexing without bounds checks!
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 fn make_histogram(
