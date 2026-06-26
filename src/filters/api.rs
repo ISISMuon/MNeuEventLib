@@ -224,7 +224,8 @@ impl Filters {
     /// Save the filters to a JSON file.
     pub fn save(&self, filename: String) -> Result<()> {
         let file = File::create(&filename)?;
-        Ok(serde_json::to_writer_pretty(file, &self)?)
+        serde_json::to_writer_pretty(file, &self)?;
+        Ok(())
     }
 
     /// Load filters from a JSON file.
@@ -703,12 +704,13 @@ mod tests {
         filters.amplitudes.insert(3, 5.);
 
         let mut temp_save_loc = temp_dir();
-        temp_save_loc.push("filters.json");
+        temp_save_loc.push("filters_test_save_load.json");
 
         // these functions take strings but this is a PathBuf
         let tmp_path = temp_save_loc.to_string_lossy().to_string();
 
-        let _ = filters.save(tmp_path.clone());
+        let save_result = filters.save(tmp_path.clone());
+        assert!(save_result.is_ok());
         let loaded_filters = _load(tmp_path).unwrap();
 
         assert_eq!(filters, loaded_filters)
