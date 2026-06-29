@@ -53,16 +53,16 @@ impl NexusData {
         };
         let log_data = log.group("value_log")?;
 
-        let time: Array1<f64> = log_data.dataset("time")?.read_1d().unwrap();
+        let time: Array1<f64> = log_data.dataset("time")?.read_1d()?;
         let value: Dataset = log_data.dataset("value")?;
         match value.dtype()?.to_descriptor()? {
             TypeDescriptor::Integer(_) => Ok(SampleLog::Int(ValueLog::<i32> {
                 time,
-                value: value.read_1d().unwrap(),
+                value: value.read_1d()?,
             })),
             TypeDescriptor::Float(_) => Ok(SampleLog::Float(ValueLog::<f64> {
                 time,
-                value: value.read_1d().unwrap(),
+                value: value.read_1d()?,
             })),
             other_type => Err(Error::msg(format!(
                 "Sample log type {other_type} for log {log_name} is not supported.
@@ -72,10 +72,7 @@ impl NexusData {
     }
 
     /// Get the value logs associated with a list of sample log names.
-    pub fn get_sample_logs(
-        &self,
-        log_names: Vec<String>,
-    ) -> Result<HashMap<String, SampleLog>, Error> {
+    pub fn get_sample_logs(&self, log_names: Vec<String>) -> Result<HashMap<String, SampleLog>> {
         log_names
             .into_iter()
             .map(|name| self.get_sample_log(&name).map(|log| (name, log)))
