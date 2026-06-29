@@ -32,7 +32,7 @@ pub struct NexusData {
 impl NexusData {
     #[new]
     #[pyo3(signature = (filename, n_spec, chunk_size=1048576))]
-    fn new(filename: String, n_spec: usize, chunk_size: usize) -> Result<Self> {
+    pub fn new(filename: String, n_spec: usize, chunk_size: usize) -> Result<Self> {
         let path = Path::new(&filename);
         load_data(path, n_spec, chunk_size)
     }

@@ -25,7 +25,7 @@ pub struct Histogram {
 #[pymethods]
 impl Histogram {
     #[new]
-    fn new(min_time: f32, max_time: f32, n_bins: usize) -> Histogram {
+    pub fn new(min_time: f32, max_time: f32, n_bins: usize) -> Histogram {
         Histogram {
             min_time,
             max_time,
@@ -44,7 +44,7 @@ impl Histogram {
         self.n
     }
 
-    fn calculate(&self, data: NexusData, filters: Filters) -> Result<(Histogram, u128)> {
+    pub fn calculate(&self, data: &NexusData, filters: &Filters) -> Result<(Histogram, u128)> {
         let periods: Array1<usize> = data.periods.read_1d()?;
         let n_periods = periods.iter().max().unwrap() + 1;
 
@@ -113,7 +113,7 @@ impl Histogram {
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 pub fn calculate_histograms(
-    dataset: NexusData,
+    dataset: &NexusData,
     min_time: f32,
     max_time: f32,
     n_bins: usize,

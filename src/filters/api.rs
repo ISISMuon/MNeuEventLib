@@ -115,7 +115,7 @@ impl Filters {
 #[pymethods]
 impl Filters {
     #[new]
-    fn new() -> Filters {
+    pub fn new() -> Filters {
         Filters {
             time_filter_type: FilterType::Include,
             time_filters: Vec::<Filter>::new(),
