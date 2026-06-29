@@ -14,9 +14,9 @@ def add_N_filters(data, N):
     they are placed every other frame.
     This maximises the computational expense
     of the calculation.
-    :param data: the MuonEventData object
+    :param data: the NexusData object
     :param N: the number of filters
-    :return: the updated MuonEventData object
+    :return: A Filters object with N time filters 
     """
     filters = Filters()
     filters.set_time_type("exclude")

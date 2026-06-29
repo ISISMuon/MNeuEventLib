@@ -79,6 +79,15 @@ impl Filters {
         if self.time_filters.iter().any(|f| f.name == name) {
             return Err(Error::msg("Name already exists!"));
         }
+        if !start.is_finite() || !end.is_finite() {
+            return Err(Error::msg("start and end must be finite."));
+        }
+        if start < 0.0 || end < 0.0 {
+            return Err(Error::msg("start and end must be non-negative."));
+        }
+        if end < start {
+            return Err(Error::msg("end must be greater than or equal to start."));
+        }
         self.time_filters.push(Filter { name, start, end });
         Ok(())
     }

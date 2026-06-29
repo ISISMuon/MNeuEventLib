@@ -116,7 +116,7 @@ mod tests {
     #[test]
     fn test_binary_search() {
         let array = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
-        let result = binary_search(&array, 0, 6, 25);
+        let result = binary_search(&array, 0, array.len(), 25);
 
         assert_eq!(result, Ok(2))
     }
