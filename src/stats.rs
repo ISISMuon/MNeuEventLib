@@ -42,7 +42,9 @@ impl Histogram {
     fn n_events(&self) -> usize {
         self.n
     }
+}
 
+impl Histogram {
     pub fn calculate(&self, data: &NexusData, filters: &Filters) -> Result<Histogram> {
         let periods: Array1<usize> = data.periods.read_1d()?;
         let n_periods = periods.iter().max().unwrap() + 1;
@@ -107,7 +109,7 @@ impl Histogram {
     }
 }
 
-/// Calculate histograms and output the result and time taken.
+/// Calculate histograms and output the result.
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 pub fn calculate_histograms(

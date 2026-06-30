@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Error, Result};
 use pyo3::prelude::{pyclass, pymethods};
 
 use crate::data::NexusData;
@@ -50,8 +50,23 @@ impl Data {
     ///     The maximum time bound for the histogram.
     /// n_bins: int
     ///     The number of bins to divide the time range into.
-    fn set_histogram_settings(&mut self, min_time: f32, max_time: f32, n_bins: usize) {
-        self.results = Histogram::new(min_time, max_time, n_bins)
+    fn set_histogram_settings(
+        &mut self,
+        min_time: f32,
+        max_time: f32,
+        n_bins: usize,
+    ) -> Result<()> {
+        if n_bins == 0 {
+            return Err(Error::msg("n_bins must be greater than 0."));
+        }
+        if !min_time.is_finite() || !max_time.is_finite() {
+            return Err(Error::msg("min_time and max_time must be finite."));
+        }
+        if max_time <= min_time {
+            return Err(Error::msg("max_time must be greater than min_time."));
+        }
+        self.results = Histogram::new(min_time, max_time, n_bins);
+        Ok(())
     }
 
     /// Set the type for the time filters.
