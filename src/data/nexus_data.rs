@@ -7,6 +7,7 @@ use hdf5::{Dataset, File, Group};
 use ndarray::Array1;
 use numpy::{PyArray1, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Bound};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::data::{SampleLog, ValueLog};
 
@@ -74,7 +75,7 @@ impl NexusData {
     /// Get the value logs associated with a list of sample log names.
     pub fn get_sample_logs(&self, log_names: Vec<String>) -> Result<HashMap<String, SampleLog>> {
         log_names
-            .into_iter()
+            .into_par_iter()
             .map(|name| self.get_sample_log(&name).map(|log| (name, log)))
             .collect()
     }

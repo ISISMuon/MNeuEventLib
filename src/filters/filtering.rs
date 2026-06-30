@@ -7,12 +7,12 @@ use crate::utils::binary_search;
 pub fn get_weights(
     filter_starts: Vec<usize>,
     filter_ends: Vec<usize>,
-    frame_start_times: Array1<usize>,
-    start_index: Array1<usize>,
+    frame_start_times: &Array1<usize>,
+    start_index: &Array1<usize>,
     array_len: usize,
     include: bool,
 ) -> Weights {
-    let (start_frames, end_frames) = get_indices(&frame_start_times, filter_starts, filter_ends);
+    let (start_frames, end_frames) = get_indices(frame_start_times, filter_starts, filter_ends);
     get_good_values(start_frames, end_frames, start_index, array_len, include)
 }
 
@@ -60,7 +60,7 @@ fn get_indices(
 fn get_good_values(
     f_start: Vec<usize>,
     f_end: Vec<usize>,
-    start_index: Array1<usize>,
+    start_index: &Array1<usize>,
     array_len: usize,
     include: bool,
 ) -> Weights {
@@ -127,7 +127,7 @@ mod tests {
         let start_index = Array1::from_vec(vec![0, 30, 50, 64]);
         let array_len = 64;
 
-        let weights = get_good_values(f_start, f_end, start_index, array_len, true);
+        let weights = get_good_values(f_start, f_end, &start_index, array_len, true);
 
         // expected is 1s between index 30 and 50
         assert_eq!(weights, Weights::from_raw(vec![1125898833100800]))
@@ -141,7 +141,7 @@ mod tests {
         let start_index = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 64]);
         let array_len = 64;
 
-        let weights = get_good_values(f_start, f_end, start_index, array_len, true);
+        let weights = get_good_values(f_start, f_end, &start_index, array_len, true);
 
         // expected is 1s between indices 10-20 and 40-64
         assert_eq!(weights, Weights::from_raw(vec![18446742974198971392]))

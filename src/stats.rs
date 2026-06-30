@@ -50,7 +50,7 @@ impl Histogram {
         let n_periods: usize = *periods.iter().max().unwrap() as usize + 1;
 
         let start_index: Array1<usize> = data.frames.read_1d()?;
-        let (mut time_starts, mut time_ends) = filters.get_time_filter_times();
+        let (time_starts, time_ends) = filters.get_time_filter_times();
 
         let log_names = filters.get_log_filter_logs();
         let value_logs = match data.get_sample_logs(log_names) {
@@ -63,16 +63,32 @@ impl Histogram {
             Weights::ones(data.n_events)
         } else {
             let frame_start_times: Array1<usize> = data.frame_times.read_1d()?;
-            time_starts.extend(log_starts);
-            time_ends.extend(log_ends);
-            get_weights(
-                time_starts,
-                time_ends,
-                frame_start_times,
-                start_index,
-                data.n_events,
-                filters.is_include(),
-            )
+            let time_weights = if time_starts.is_empty() {
+                Weights::ones(data.n_events)
+            } else {
+                get_weights(
+                    time_starts,
+                    time_ends,
+                    &frame_start_times,
+                    &start_index,
+                    data.n_events,
+                    filters.is_include(),
+                )
+            };
+            // log weights are always include filters
+            let log_weights = if log_starts.is_empty() {
+                Weights::ones(data.n_events)
+            } else {
+                get_weights(
+                    log_starts,
+                    log_ends,
+                    &frame_start_times,
+                    &start_index,
+                    data.n_events,
+                    true,
+                )
+            };
+            time_weights & log_weights
         };
 
         let (result, time) = calculate_histograms(
