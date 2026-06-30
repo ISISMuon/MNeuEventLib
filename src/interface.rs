@@ -9,9 +9,10 @@ use crate::stats::Histogram;
 #[pyclass]
 pub struct Data {
     #[pyo3(get)]
-    dataset: NexusData,
-    results: Histogram,
-    filters: Filters,
+    pub dataset: NexusData,
+    pub results: Histogram,
+    pub filters: Filters,
+    data_changed: bool, // whether data has changed since last calculation
 }
 
 #[pymethods]
@@ -26,6 +27,7 @@ impl Data {
             dataset,
             results,
             filters: Filters::new(),
+            data_changed: true,
         })
     }
 
@@ -36,8 +38,14 @@ impl Data {
     /// Histogram
     ///     A Histogram object containing the resulting histogram
     ///     and number of events.
-    fn calculate(&self) -> Result<Histogram> {
-        self.results.calculate(&self.dataset, &self.filters)
+    fn calculate(&mut self) -> Result<Histogram> {
+        if self.data_changed {
+            self.data_changed = false;
+            self.results.calculate(&self.dataset, &self.filters)
+        } else {
+            // if data hasn't changed, just return the existing saved results
+            Ok(self.results.clone())
+        }
     }
 
     /// Set histogram settings.
@@ -65,6 +73,7 @@ impl Data {
         if max_time <= min_time {
             return Err(Error::msg("max_time must be greater than min_time."));
         }
+        self.data_changed = true;
         self.results = Histogram::new(min_time, max_time, n_bins);
         Ok(())
     }
@@ -76,6 +85,7 @@ impl Data {
     /// filter_type: str
     ///     The type for the time filters. Must be 'exclude' or 'include'.
     fn set_time_type(&mut self, filter_type: String) -> Result<()> {
+        self.data_changed = true;
         self.filters.set_time_type(filter_type)
     }
 
@@ -90,6 +100,7 @@ impl Data {
     /// end: float
     ///     The end point for the time filter.
     fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> Result<()> {
+        self.data_changed = true;
         self.filters.add_time_filter(name, start, end)
     }
 
@@ -100,6 +111,7 @@ impl Data {
     /// name: str
     ///     The name of the time filter to remove.
     fn remove_time_filter(&mut self, name: String) -> Result<()> {
+        self.data_changed = true;
         self.filters.remove_time_filter(name)
     }
 
@@ -116,6 +128,7 @@ impl Data {
     /// upper: float
     ///     The upper bound for the log filter.
     fn add_log_filter(&mut self, name: String, log: String, lower: f64, upper: f64) -> Result<()> {
+        self.data_changed = true;
         self.filters.add_log_filter(name, log, lower, upper)
     }
 
@@ -126,6 +139,7 @@ impl Data {
     /// name: str
     ///     The name of the log filter to remove.
     fn remove_log_filter(&mut self, name: String) -> Result<()> {
+        self.data_changed = true;
         self.filters.remove_log_filter(name)
     }
 
@@ -140,6 +154,7 @@ impl Data {
     /// lower: float
     ///     The lower bound for the log filter.
     fn add_log_filter_above(&mut self, name: String, log: String, lower: f64) -> Result<()> {
+        self.data_changed = true;
         self.filters.add_log_filter_above(name, log, lower)
     }
 
@@ -154,6 +169,7 @@ impl Data {
     /// upper: float
     ///     The upper bound for the log filter.
     fn add_log_filter_below(&mut self, name: String, log: String, upper: f64) -> Result<()> {
+        self.data_changed = true;
         self.filters.add_log_filter_below(name, log, upper)
     }
 
@@ -166,6 +182,7 @@ impl Data {
     /// amp: float
     ///     The maximum amplitude that should be ignored.
     fn set_amp(&mut self, detector: usize, amp: f64) {
+        self.data_changed = true;
         self.filters.set_amp(detector, amp)
     }
 
@@ -176,6 +193,7 @@ impl Data {
     /// amp: float
     ///     The maximum amplitude that should be ignored.
     fn set_amps_baseline(&mut self, amp: f64) {
+        self.data_changed = true;
         self.filters.set_amps_baseline(amp)
     }
 }

@@ -12,7 +12,8 @@ use crate::filters::{get_weights, Filters, Weights};
 
 type PyHist<'py> = Bound<'py, PyArray3<usize>>;
 
-#[pyclass(frozen)]
+#[pyclass(from_py_object)]
+#[derive(Clone)]
 pub struct Histogram {
     pub min_time: f32,
     pub max_time: f32,
