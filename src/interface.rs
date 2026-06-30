@@ -8,6 +8,7 @@ use crate::stats::Histogram;
 /// The main MNeuEventLib interface.
 #[pyclass]
 pub struct Data {
+    #[pyo3(get)]
     dataset: NexusData,
     results: Histogram,
     filters: Filters,
@@ -36,8 +37,7 @@ impl Data {
     ///     A Histogram object containing the resulting histogram
     ///     and number of events.
     fn calculate(&self) -> Result<Histogram> {
-        let (hist, _) = self.results.calculate(&self.dataset, &self.filters)?;
-        Ok(hist)
+        self.results.calculate(&self.dataset, &self.filters)
     }
 
     /// Set histogram settings.

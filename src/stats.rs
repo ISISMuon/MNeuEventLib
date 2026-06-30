@@ -1,6 +1,5 @@
 use std::cmp::min;
 use std::iter::Iterator;
-use std::time::{Duration, Instant};
 
 use anyhow::{Error, Result};
 use ndarray::{s, Array1, Array3};
@@ -44,7 +43,7 @@ impl Histogram {
         self.n
     }
 
-    pub fn calculate(&self, data: &NexusData, filters: &Filters) -> Result<(Histogram, u128)> {
+    pub fn calculate(&self, data: &NexusData, filters: &Filters) -> Result<Histogram> {
         let periods: Array1<usize> = data.periods.read_1d()?;
         let n_periods = periods.iter().max().unwrap() + 1;
 
@@ -94,7 +93,7 @@ impl Histogram {
 
         let min_amps = filters.get_amps(data.n_spec)?;
 
-        let (result, time) = calculate_histograms(
+        Ok(calculate_histograms(
             data,
             self.min_time,
             self.max_time,
@@ -104,8 +103,7 @@ impl Histogram {
             min_amps,
             weights,
             frame_data,
-        );
-        Ok((result, time.as_millis()))
+        ))
     }
 }
 
@@ -122,13 +120,11 @@ pub fn calculate_histograms(
     min_amps: Array1<f64>,
     weights: Weights,
     frame_data: FrameData,
-) -> (Histogram, Duration) {
-    let time = Instant::now();
-
+) -> Histogram {
     let width: f64 = (max_time - min_time) as f64 / n_bins as f64;
 
     // iterate over the data chunks, make histograms for each, then sum histograms at the end
-    let results: Histogram = (0..dataset.n_events)
+    (0..dataset.n_events)
         .into_par_iter()
         .step_by(dataset.chunk_size)
         .map(|start| {
@@ -173,9 +169,7 @@ pub fn calculate_histograms(
                 acc.n += &r.n;
                 acc
             },
-        );
-
-    (results, time.elapsed())
+        )
 }
 
 /// Make a histogram for a set of data.
