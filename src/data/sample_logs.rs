@@ -2,7 +2,6 @@ use ndarray::Array1;
 
 use crate::consts::S_TO_NS;
 
-#[allow(dead_code)] // to be implemented by log filters
 pub enum SampleLog {
     Int(ValueLog<i32>),
     Float(ValueLog<f64>),
@@ -19,7 +18,6 @@ impl SampleLog {
     }
 }
 
-#[allow(dead_code)] // to be implemented by log filters
 pub struct ValueLog<T> {
     pub time: Array1<f64>,
     pub value: Array1<T>,
