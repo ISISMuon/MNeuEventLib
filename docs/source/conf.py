@@ -7,7 +7,7 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'MNeuEventLib'
-copyright = '2026, Anthony Lim, Alex Room'
+copyright = '2026, ISIS Neutron and Muon Source'
 author = 'Anthony Lim, Alex Room'
 release = '0.1.0'
 

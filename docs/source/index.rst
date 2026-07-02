@@ -3,8 +3,8 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-MNeuEventLib:
-=============
+MNeuEventLib
+============
 
 MNeuEventLib is a Python package (written in Rust) for processing ISIS event data into a NeXuS
 version 2 histogram file. This processing may include filtering the events based on:
@@ -14,38 +14,42 @@ version 2 histogram file. This processing may include filtering the events based
 - or on a high-pass filter of event amplitudes per detector.
 
 It is primarily for muon event data, and the histogram files are
-currently only compatible with [WiMDA](https://shadow.nd.rl.ac.uk/wimda/).
+currently only compatible with `WiMDA <https://shadow.nd.rl.ac.uk/wimda/>`_.
 
-.. grid:: 1 1 3 3
+Get started with MNeuEventLib 
+-----------------------------
 
-    .. grid-item-card::
+Follow these guides to get started:
 
-        Getting started with MNeuEventLib 
-        ^^^
-        Follow these guides to get started:
+* :ref:`install`: Learn how to install MNeuEventLib.
 
-        * :ref:`install`: Learn how to install MNeuEventLib.
-
-        * :ref:`tutorials`: Learn how to use MNeuEventLib through guided tutorials.
+* :ref:`tutorials`: Learn how to use MNeuEventLib through guided tutorials.
 
 
-    .. grid-item-card::
 
-        Learn more
-        ^^^
+Learn more
+----------
 
-        * :ref:`how-to`: Explore specific features and workflows.
+* :ref:`how-to`: Explore specific features and workflows.
 
-        * `API Reference` <../_static/api/doc/mneueventlib/index.html>: API reference for developers is `available here <>`_.
+* `API Reference <_static/api/doc/mneueventlib/index.html>`_: The API reference for developers is available here.
 
-    .. grid-item-card::
 
-        Get more help
-        ^^^
+Get more help
+-------------
 
-        The easiest way to get help with the project is to start discussions or open an issue on `Github <https://github.com/ISISMuon/MNeuEventLib>`_.
+The easiest way to get help with the project is to start discussions or open an issue on `Github <https://github.com/ISISMuon/MNeuEventLib>`_.
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+   :hidden:
 
+   Home <self>
+
+.. toctree::
+   :hidden:
+   :titlesonly:
+
+   install
+   tutorials/index
+   how-to/index
+   api
