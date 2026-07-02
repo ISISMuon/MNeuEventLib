@@ -182,6 +182,9 @@ where
         let max_start_idx = start_times.len() - 1;
 
         for (k, t) in self.time.iter().enumerate().skip(1) {
+            if current_start_idx >= start_times.len() || current_end_idx >= end_times.len() {
+                break;
+            }
             let time_ns = (t * S_TO_NS) as usize;
             if in_filter {
                 if time_ns >= end_times[current_end_idx] {
@@ -290,13 +293,18 @@ mod tests {
         assert_eq!(ends, expected_ends)
     }
 
-    /// Test applying filters successfully 'flattens' filtered-out values.
-    #[test]
-    fn test_apply_filters() {
+    /// A sample ValueLog for testing.
+    fn sample_log() -> ValueLog<f64> {
         let time = Array1::<f64>::from_vec(vec![0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]);
         let value = Array1::<f64>::from_vec(vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
-        let log = ValueLog::<f64> { time, value };
+        ValueLog::<f64> { time, value }
+    }
+
+    /// Test applying filters successfully 'flattens' filtered-out values.
+    #[test]
+    fn test_apply_filters() {
+        let log = sample_log();
 
         // filters are [0.15, 0.22], [0.55, 0.83]
         // 0  1  2  3  4  5  6  7  8  9   values
@@ -312,10 +320,12 @@ mod tests {
     /// Test applying filters works when the filters have an overlap.
     #[test]
     fn test_apply_filters_overlap() {
-        let time = Array1::<f64>::from_vec(vec![0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]);
-        let value = Array1::<f64>::from_vec(vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let log = sample_log();
 
-        let log = ValueLog::<f64> { time, value };
+        // filters are [0.06, 0.35], [0.22, 0.56], [0.71, 0.89]
+        // 0  1  2  3  4  5  6  7  8  9   values
+        //   ^-------^           ^---^    exclude
+        //        ^--------^
         let filter_starts = vec![
             (0.06 * S_TO_NS) as usize,
             (0.22 * S_TO_NS) as usize,
@@ -326,13 +336,40 @@ mod tests {
             (0.56 * S_TO_NS) as usize,
             (0.89 * S_TO_NS) as usize,
         ];
-        // filters are [0.06, 0.35], [0.22, 0.56], [0.71, 0.89]
-        // 0  1  2  3  4  5  6  7  8  9   values
-        //   ^-------^           ^---^    exclude
-        //        ^--------^
         let new_log = log.apply_filters(filter_starts, filter_ends);
 
         let expected_vals = Array1::<f64>::from_vec(vec![0., 0., 0., 0., 0., 0., 6., 7., 7., 9.]);
+        assert_eq!(new_log.value, expected_vals)
+    }
+
+    /// Test applying filters works when the first value is included in a filter.
+    #[test]
+    fn test_apply_filters_including_start() {
+        let log = sample_log();
+
+        // filter [0, 0.61]
+        // 0  1  2  3  4  5  6  7  8  9  values
+        // ^----------------^          exclude
+        let filter_starts = vec![0];
+        let filter_ends = vec![(0.61 * S_TO_NS) as usize];
+        let new_log = log.apply_filters(filter_starts, filter_ends);
+
+        let expected_vals = Array1::<f64>::from_vec(vec![0., 0., 0., 0., 0., 0., 0., 7., 8., 9.]);
+        assert_eq!(new_log.value, expected_vals)
+    }
+
+    #[test]
+    fn test_apply_filters_including_end() {
+        let log = sample_log();
+
+        // filter [0.45, inf]
+        // 0  1  2  3  4  5  6  7  8  9  values
+        //              ^------------... exclude
+        let filter_starts = vec![(0.45 * S_TO_NS) as usize];
+        let filter_ends = vec![usize::MAX];
+        let new_log = log.apply_filters(filter_starts, filter_ends);
+
+        let expected_vals = Array1::<f64>::from_vec(vec![0., 1., 2., 3., 4., 4., 4., 4., 4., 4.]);
         assert_eq!(new_log.value, expected_vals)
     }
 }
