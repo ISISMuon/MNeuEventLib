@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 use pyo3::prelude::*;
 
 mod data;
@@ -8,7 +9,7 @@ mod filters;
 
 /// A Python module implemented in Rust.
 #[pymodule]
-fn mneueventlib(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn MNeuEventLib(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NexusData>()?;
     m.add_class::<Histogram>()?;
     Ok(())

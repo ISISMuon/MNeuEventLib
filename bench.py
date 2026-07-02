@@ -1,6 +1,6 @@
 import time
 
-from mneueventlib import Histogram, NexusData 
+from MNeuEventLib import Histogram, NexusData 
 
 files = [f"SIM0000000{n}.nxs" for n in range(1,4)]
 

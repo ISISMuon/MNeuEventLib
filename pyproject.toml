@@ -17,5 +17,5 @@ dependencies = [
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-module-name = "mneueventlib"
+module-name = "MNeuEventLib"
 universal2 = true  # makes arm64 + x86_64 wheels for mac
