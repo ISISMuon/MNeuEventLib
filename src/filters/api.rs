@@ -236,6 +236,7 @@ impl Filters {
 }
 
 /// Internal of load function so we can call it from Rust.
+#[inline(always)]
 fn _load(filename: String) -> Result<Filters> {
     let file = File::open(&filename)?;
     Ok(serde_json::from_reader(file)?)
@@ -714,5 +715,12 @@ mod tests {
         let loaded_filters = _load(tmp_path).unwrap();
 
         assert_eq!(filters, loaded_filters)
+    }
+
+    /// Test loading a file that doesn't exist gives an error.
+    #[test]
+    fn test_load_nonexistent_file() {
+        let filters = _load("./fake_dir/fake_filters.json".to_string());
+        assert!(filters.is_err())
     }
 }
