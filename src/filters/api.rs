@@ -10,6 +10,13 @@ enum FilterType {
 
 const S_TO_NS: f64 = 1e9;
 
+#[derive(Clone, Debug, PartialEq)]
+struct Filter {
+    name: String,
+    start: f64,
+    end: f64,
+}
+
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct Filters {
@@ -22,6 +29,8 @@ pub struct Filters {
 impl Filters {
     /// Get the start and end points of each time filter.
     pub fn get_time_filter_times(&self) -> (Vec<usize>, Vec<usize>) {
+        // note this just gets the intervals for each filter; whether
+        // they're include or exclude filters is handled by get_weights
         if self.time_filters.is_empty() {
             return (Vec::new(), Vec::new());
         }
@@ -85,8 +94,8 @@ impl Filters {
         if start < 0.0 || end < 0.0 {
             return Err(Error::msg("start and end must be non-negative."));
         }
-        if end < start {
-            return Err(Error::msg("end must be greater than or equal to start."));
+        if end <= start {
+            return Err(Error::msg("end must be greater than start."));
         }
         self.time_filters.push(Filter { name, start, end });
         Ok(())
@@ -120,13 +129,6 @@ impl Filters {
     fn set_amp(&mut self, amp: f64) {
         self.amplitudes = amp;
     }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct Filter {
-    name: String,
-    start: f64,
-    end: f64,
 }
 
 #[cfg(test)]
@@ -182,6 +184,16 @@ mod tests {
         filters.set_time_type("include".to_string()).unwrap();
         assert!(filters.is_include());
         filters.set_time_type("exclude".to_string()).unwrap();
+        assert!(!filters.is_include());
+    }
+
+    /// Test time filter type can correctly be set regardless of case.
+    #[test]
+    fn test_set_time_type_mixed_case() {
+        let mut filters = Filters::new();
+        filters.set_time_type("INCLudE".to_string()).unwrap();
+        assert!(filters.is_include());
+        filters.set_time_type("ExClUDe".to_string()).unwrap();
         assert!(!filters.is_include());
     }
 

@@ -69,6 +69,9 @@ fn get_good_values(
     array_len: usize,
     include: bool,
 ) -> Weights {
+    // if `include` is true, we start with an array of zeroes and add
+    // ranges of ones. if it is false, we start with an array of ones
+    // and add ranges of zeroes.
     let mut result = match include {
         true => Weights::zeros(array_len),
         false => Weights::ones(array_len),
