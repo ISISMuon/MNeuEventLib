@@ -110,13 +110,13 @@ mod tests {
     /// Test that get_indices gets the correct indices when a filter starts below the range.
     #[test]
     fn test_get_indices_below_range() {
-        let filter_starts = vec![15];
-        let filter_ends = vec![800];
-        let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+        let filter_starts = vec![2];
+        let filter_ends = vec![50];
+        let start_times = Array1::from_vec(vec![10, 20, 30, 40, 50, 60, 70]);
 
         let (frame_starts, frame_ends) = get_indices(&start_times, filter_starts, filter_ends);
-        assert_eq!(frame_starts, vec![1]);
-        assert_eq!(frame_ends, vec![6])
+        assert_eq!(frame_starts, vec![0]);
+        assert_eq!(frame_ends, vec![4])
     }
 
     /// Test the mask is created correctly for one filter.
