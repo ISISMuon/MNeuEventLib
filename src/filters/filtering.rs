@@ -26,20 +26,15 @@ fn get_indices(
     let n_filters = filter_starts.len();
     let n_frames = start_times.len();
 
-    let frame_starts = (0..n_filters)
+    // map each filter to a (start, stop) index pair
+    (0..n_filters)
         .map(|j| {
-            binary_search(start_times, 0, n_frames, filter_starts[j])
-                .expect("Filter lower bound out of range of data!")
+            (
+                binary_search(start_times, 0, n_frames, filter_starts[j]),
+                binary_search(start_times, 0, n_frames, filter_ends[j]),
+            )
         })
-        .collect();
-    let frame_ends = (0..n_filters)
-        .map(|j| {
-            binary_search(start_times, 0, n_frames, filter_ends[j])
-                .expect("Filter upper bound out of range of data!")
-        })
-        .collect();
-
-    (frame_starts, frame_ends)
+        .collect()
 }
 
 /// Get a weights array corresponding to the filtered frames.
@@ -100,6 +95,30 @@ mod tests {
         assert_eq!(frame_ends, vec![2, 2, 4])
     }
 
+    /// Test that get_indices gets the correct indices when a filter ends above the range.
+    #[test]
+    fn test_get_indices_above_range() {
+        let filter_starts = vec![15];
+        let filter_ends = vec![800];
+        let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+
+        let (frame_starts, frame_ends) = get_indices(&start_times, filter_starts, filter_ends);
+        assert_eq!(frame_starts, vec![1]);
+        assert_eq!(frame_ends, vec![6])
+    }
+
+    /// Test that get_indices gets the correct indices when a filter starts below the range.
+    #[test]
+    fn test_get_indices_below_range() {
+        let filter_starts = vec![15];
+        let filter_ends = vec![800];
+        let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+
+        let (frame_starts, frame_ends) = get_indices(&start_times, filter_starts, filter_ends);
+        assert_eq!(frame_starts, vec![1]);
+        assert_eq!(frame_ends, vec![6])
+    }
+
     /// Test the mask is created correctly for one filter.
     #[test]
     fn test_good_values_one_filter() {
@@ -119,6 +138,35 @@ mod tests {
     fn test_good_values_two_filters() {
         let f_start = vec![1, 4];
         let f_end = vec![2, 6];
+        let start_index = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 64]);
+        let array_len = 64;
+
+        let weights = get_good_values(f_start, f_end, start_index, array_len, true);
+
+        // expected is 1s between indices 10-20 and 40-64
+        assert_eq!(weights, Weights::from_raw(vec![18446742974198971392]))
+    }
+
+    /// Test the mask is created correctly for two filters that overlap.
+    #[test]
+    fn test_good_values_overlap() {
+        let f_start = vec![1, 3];
+        let f_end = vec![4, 5];
+
+        let start_index = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 64]);
+        let array_len = 64;
+
+        let weights = get_good_values(f_start, f_end, start_index, array_len, true);
+
+        // expected is 1s between indices 10-50
+        assert_eq!(weights, Weights::from_raw(vec![1125899906841600]))
+    }
+
+    /// Test the mask is created when the filters aren't in increasing order.
+    #[test]
+    fn test_good_values_out_of_order() {
+        let f_start = vec![4, 1];
+        let f_end = vec![6, 2];
         let start_index = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 64]);
         let array_len = 64;
 
