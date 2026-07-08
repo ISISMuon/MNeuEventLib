@@ -86,7 +86,9 @@ impl Filters {
     fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> Result<()> {
         // check name isn't already in use
         if self.time_filters.iter().any(|f| f.name == name) {
-            return Err(Error::msg("Name already exists!"));
+            return Err(Error::msg(
+                "Name already exists! Use `Filters.report()` to see a list of all filters.",
+            ));
         }
         if !start.is_finite() || !end.is_finite() {
             return Err(Error::msg("start and end must be finite."));
@@ -107,7 +109,7 @@ impl Filters {
                 self.time_filters.swap_remove(i);
                 Ok(())
             }
-            None => Err(Error::msg("No such name in time filters.")),
+            None => Err(Error::msg("No such name in time filters. Use `Filters.report()` to see a list of all filters.")),
         }
     }
 
