@@ -5,7 +5,8 @@ use anyhow::{Error, Result};
 use hdf5::{Dataset, File, Group};
 use ndarray::Array1;
 use numpy::{PyArray1, ToPyArray};
-use pyo3::prelude::{pyclass, pymethods, Bound};
+use pyo3::prelude::{pyclass, pymethods, Bound, PyDictMethods, Python};
+use pyo3::types::PyDict;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::data::SampleLog;
@@ -43,6 +44,32 @@ impl NexusData {
     fn get_frame_times<'py>(slf: &Bound<'py, NexusData>) -> Bound<'py, PyArray1<u32>> {
         let py = slf.py();
         slf.borrow().frame_times.read_1d().unwrap().to_pyarray(py)
+    }
+
+    // Python wrapper for get_sample_log, to avoid having to make SampleLog a pyclass
+    /// Retrieve the data for a sample log.
+    #[pyo3(name = "get_sample_log")]
+    fn get_sample_log_py<'py>(
+        &self,
+        log_name: String,
+        py: Python<'py>,
+    ) -> Result<Bound<'py, PyDict>> {
+        let sample_log = self.get_sample_log(&log_name)?;
+
+        let output = PyDict::new(py);
+        // pydict is dynamically typed (as it's a Python object),
+        // but we need to unpack the type of the SampleLog anyway to make the Rust compiler happy
+        match sample_log {
+            SampleLog::Float(log) => {
+                output.set_item("time".to_string(), log.time.to_pyarray(py))?;
+                output.set_item("value".to_string(), log.value.to_pyarray(py))?;
+            }
+            SampleLog::Int(log) => {
+                output.set_item("time".to_string(), log.time.to_pyarray(py))?;
+                output.set_item("value".to_string(), log.value.to_pyarray(py))?;
+            }
+        };
+        Ok(output)
     }
 }
 
