@@ -20,6 +20,14 @@ pub struct Filter {
     end: f64,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct LogFilter {
+    name: String,
+    log: String,
+    lower: f64,
+    upper: f64,
+}
+
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct Filters {
@@ -176,14 +184,6 @@ impl Filters {
     fn set_amp(&mut self, amp: f64) {
         self.amplitudes = amp
     }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct LogFilter {
-    name: String,
-    log: String,
-    lower: f64,
-    upper: f64,
 }
 
 #[cfg(test)]
