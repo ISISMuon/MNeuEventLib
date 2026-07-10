@@ -156,7 +156,7 @@ mod tests {
         let start_index = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 64]);
         let array_len = 64;
 
-        let weights = get_good_values(f_start, f_end, start_index, array_len, true);
+        let weights = get_good_values(f_start, f_end, &start_index, array_len, true);
 
         // expected is 1s between indices 10-50
         assert_eq!(weights, Weights::from_raw(vec![1125899906841600]))
@@ -170,7 +170,7 @@ mod tests {
         let start_index = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 64]);
         let array_len = 64;
 
-        let weights = get_good_values(f_start, f_end, start_index, array_len, true);
+        let weights = get_good_values(f_start, f_end, &start_index, array_len, true);
 
         // expected is 1s between indices 10-20 and 40-64
         assert_eq!(weights, Weights::from_raw(vec![18446742974198971392]))
