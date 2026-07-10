@@ -46,8 +46,8 @@ impl RLEArray {
     pub fn slice(&self, lower: usize, upper: usize) -> RLEArraySlice<'_> {
         // find the frames which bound the range
         let n_runs = self.start_index.len();
-        let lower_index = binary_search(&self.start_index, 0, n_runs, lower).unwrap();
-        let upper_index = binary_search(&self.start_index, 0, n_runs, upper).unwrap();
+        let lower_index = binary_search(&self.start_index, 0, n_runs, lower);
+        let upper_index = binary_search(&self.start_index, 0, n_runs, upper);
 
         // shift the start indices to match the slice
         let new_starts: Array1<usize> = (lower_index..=upper_index)
