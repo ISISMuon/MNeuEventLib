@@ -87,7 +87,7 @@ impl NexusData {
 /// Data
 ///     A data object containing the relevant datasets.
 ///
-fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<NexusData, Error> {
+fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<NexusData> {
     let file = File::open(filename)?;
     let data = file.group("raw_data_1")?;
     let events = data.group("detector_1_events")?;
