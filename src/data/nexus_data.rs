@@ -109,6 +109,7 @@ impl NexusData {
     }
 
     /// Get the histogram of amplitudes and the max height.
+    #[inline(always)]
     fn get_amp_histogram(
         &self,
         max_height: Option<f64>,
@@ -119,15 +120,16 @@ impl NexusData {
             None => self.get_dataset_max(&self.amps)?,
         };
         let width = max / n_bins as f64;
+        let n_amps = self.amps.size();
 
         // parallel iterate over chunks
         let results = Array1::from_iter(
-            (0..self.n_events)
+            (0..n_amps)
                 .into_par_iter()
                 .step_by(self.chunk_size)
                 // get the amps for each chunk
                 .map(|start| -> Array1<f64> {
-                    let end = min(start + self.chunk_size, self.n_events);
+                    let end = min(start + self.chunk_size, n_amps);
                     let array_slice = s![start..end];
                     self.amps
                         .read_slice_1d(array_slice)
@@ -161,12 +163,14 @@ impl NexusData {
     }
 
     /// Get the maximum value of a dataset.
+    #[inline(always)]
     fn get_dataset_max(&self, dataset: &Dataset) -> Result<f64> {
-        Ok((0..self.n_events)
+        let n_amps = self.amps.size();
+        Ok((0..n_amps)
             .into_par_iter()
             .step_by(self.chunk_size)
             .map(|start| -> f64 {
-                let end = min(start + self.chunk_size, self.n_events);
+                let end = min(start + self.chunk_size, n_amps);
                 let array_slice = s![start..end];
                 let array: Array1<f64> = dataset
                     .read_slice_1d(array_slice)
@@ -237,6 +241,7 @@ fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<NexusD
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::MockData;
 
     fn test_data() -> NexusData {
         let path = Path::new("./tests/test_data/HIFI00195790.nxs");
@@ -290,11 +295,36 @@ mod tests {
     }
 
     /// Test that an amplitude histogram is successfully created for some data.
+    /// This test uses a fixed maximum.
     #[test]
-    fn test_make_amp_histogram() {
-        let data = test_data();
+    fn test_make_amp_histogram_fixed_max() {
+        let data = MockData::new().unwrap();
+        let amps = Array1::from_vec(vec![0.8, 1.5, 1.2, 3.3, 2., 3.8, 6.1]);
+        data.add_dataset("pulse_height", amps).unwrap();
+        let nexus_data = data.create(64, 5).unwrap();
 
-        let result = data.get_amp_histogram(None, 10);
-        assert!(result.is_ok())
+        let result = nexus_data.get_amp_histogram(Some(10.), 10);
+        assert!(result.is_ok());
+        let (hist, max) = result.unwrap();
+        assert_eq!(max, 10.);
+        assert_eq!(hist, Array1::from_vec(vec![1, 2, 1, 2, 0, 0, 1, 0, 0, 0]))
+    }
+
+    /// Test that an amplitude histogram is successfully created for some data.
+    /// This test uses a calculated maximum.
+    #[test]
+    fn test_make_amp_histogram_calculate_max() {
+        let data = MockData::new().unwrap();
+        let amps = Array1::from_vec(vec![0.8, 1.5, 1.2, 3.3, 2., 3.8, 6.1]);
+        data.add_dataset("pulse_height", amps).unwrap();
+        let nexus_data = data.create(64, 5).unwrap();
+
+        let result = nexus_data.get_amp_histogram(None, 10);
+        assert!(result.is_ok());
+        let (hist, max) = result.unwrap();
+        assert_eq!(max, 6.1);
+        // 10 bins from 0 to 6.1, which means the left bin edges are 
+        // [0, 0.61, 1.22, 1.83, 2.44, 3.05, 3.66, 4.27, 4.88, 5.49]
+        assert_eq!(hist, Array1::from_vec(vec![0, 2, 1, 1, 0, 1, 1, 0, 0, 1]))
     }
 }
