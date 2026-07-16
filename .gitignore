@@ -77,3 +77,6 @@ docs/source/_static/api/*
 
 # direnv
 .envrc
+
+# jupyter
+.ipynb_checkpoints

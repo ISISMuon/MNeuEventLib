@@ -8,18 +8,15 @@ use anyhow::Result;
 use hdf5::{Dataset, File, Group, H5Type};
 use ndarray::Array1;
 use tempfile::NamedTempFile;
-use std::path::Path;
 
 use crate::data::NexusData;
 
-const FLOAT_EVENT_FIELDS: [&str; 3] = ["event_time_offset", "pulse_height", "event_time_zero"]; 
+const FLOAT_EVENT_FIELDS: [&str; 3] = ["event_time_offset", "pulse_height", "event_time_zero"];
 const INT_EVENT_FIELDS: [&str; 3] = ["event_id", "event_index", "period_number"];
 
 pub struct MockData {
-    pub file: File,
-    pub data: Group,
     pub event_data: Group,
-    pub sample_logs: Group
+    pub sample_logs: Group,
 }
 
 impl MockData {
@@ -31,13 +28,16 @@ impl MockData {
         let data = file.create_group("raw_data_1")?;
         let event_data = data.create_group("detector_1_events")?;
         let sample_logs = data.create_group("selog")?;
-        Ok(MockData{file, data, event_data, sample_logs})
+        Ok(MockData {
+            event_data,
+            sample_logs,
+        })
     }
 
     /// Add a dataset to the mock data object.
     pub fn add_dataset<T>(&self, name: &str, data: Array1<T>) -> Result<Dataset>
     where
-    T: H5Type,
+        T: H5Type,
     {
         let builder = self.event_data.new_dataset_builder();
         let data = builder.with_data(&data);
@@ -72,7 +72,7 @@ impl MockData {
             sample_log_names: self.sample_logs.member_names()?,
             n_events,
             n_spec,
-            chunk_size 
+            chunk_size,
         })
     }
 }

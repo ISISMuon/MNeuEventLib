@@ -43,5 +43,7 @@ def plot_amplitudes(data: Data, max_height: Optional[float] = None, n_bins: int 
 
     steps = np.linspace(0, max_h, len(hist)+1)
     fig, ax = plt.subplots()
-    ax.stairs(hist, steps)
+    ax.stairs(hist, steps, fill = True)
+
+    plt.show()
     

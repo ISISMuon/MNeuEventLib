@@ -323,7 +323,7 @@ mod tests {
         assert!(result.is_ok());
         let (hist, max) = result.unwrap();
         assert_eq!(max, 6.1);
-        // 10 bins from 0 to 6.1, which means the left bin edges are 
+        // 10 bins from 0 to 6.1, which means the left bin edges are
         // [0, 0.61, 1.22, 1.83, 2.44, 3.05, 3.66, 4.27, 4.88, 5.49]
         assert_eq!(hist, Array1::from_vec(vec![0, 2, 1, 1, 0, 1, 1, 0, 0, 1]))
     }
