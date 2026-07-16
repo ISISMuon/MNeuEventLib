@@ -23,6 +23,9 @@ use interface::Data;
 mod consts;
 mod utils;
 
+#[cfg(test)]
+mod test_utils;
+
 /// A Python module implemented in Rust.
 #[pymodule]
 fn core(m: &Bound<'_, PyModule>) -> PyResult<()> {
