@@ -1,6 +1,6 @@
 //! Utilities for testing.
 //!
-//! Note these are only compiled when the package is compiled to run the test suite,
+//! Note this file is only compiled when the package is compiled to run the test suite,
 //! i.e. when `cargo test` is run.
 
 use anyhow::Result;
@@ -14,7 +14,11 @@ use crate::data::NexusData;
 const FLOAT_EVENT_FIELDS: [&str; 3] = ["event_time_offset", "pulse_height", "event_time_zero"];
 const INT_EVENT_FIELDS: [&str; 3] = ["event_id", "event_index", "period_number"];
 
+/// we don't use `file` but we want it to continue to exist
+/// todo: find out if the file can be deleted while HDF5 is on it
+#[allow(dead_code)]
 pub struct MockData {
+    file: NamedTempFile,
     pub event_data: Group,
     pub sample_logs: Group,
 }
@@ -29,6 +33,7 @@ impl MockData {
         let event_data = data.create_group("detector_1_events")?;
         let sample_logs = data.create_group("selog")?;
         Ok(MockData {
+            file: tempfile,
             event_data,
             sample_logs,
         })

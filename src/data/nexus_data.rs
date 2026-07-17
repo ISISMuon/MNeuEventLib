@@ -116,9 +116,13 @@ impl NexusData {
         n_bins: usize,
     ) -> Result<(Array1<usize>, f64)> {
         let max = match max_height {
-            Some(height) => height,
+            Some(height) if height.is_finite() => height,
+            Some(_) => return Err(Error::msg("max_height must be finite.")),
             None => self.get_dataset_max(&self.amps)?,
         };
+        if n_bins == 0 {
+            return Err(Error::msg("n_bins must be greater than 0."));
+        }
         let width = max / n_bins as f64;
         let n_amps = self.amps.size();
 
@@ -143,7 +147,10 @@ impl NexusData {
                         if amp >= max {
                             array[n_bins - 1] += 1
                         } else {
-                            let bin = (amp / width).floor() as usize;
+                            // it is technically impossible for the bin to be larger
+                            // than n_bins - 1, but floating point error may bump
+                            // the largest amp to above this in some cases
+                            let bin = ((amp / width).floor() as usize).min(n_bins - 1);
                             array[bin] += 1
                         }
                     }
@@ -165,12 +172,12 @@ impl NexusData {
     /// Get the maximum value of a dataset.
     #[inline(always)]
     fn get_dataset_max(&self, dataset: &Dataset) -> Result<f64> {
-        let n_amps = self.amps.size();
-        Ok((0..n_amps)
+        let n_data = dataset.size();
+        Ok((0..n_data)
             .into_par_iter()
             .step_by(self.chunk_size)
             .map(|start| -> f64 {
-                let end = min(start + self.chunk_size, n_amps);
+                let end = min(start + self.chunk_size, n_data);
                 let array_slice = s![start..end];
                 let array: Array1<f64> = dataset
                     .read_slice_1d(array_slice)

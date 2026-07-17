@@ -12,7 +12,8 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-  "numpy"
+  "numpy", 
+  "matplotlib",
 ]
 
 [tool.maturin]
