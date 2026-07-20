@@ -144,7 +144,7 @@ pub fn calculate_histograms(
                     dataset
                         .amps
                         .read_slice_1d(array_slice)
-                        .expect("Failed to read specs."),
+                        .expect("Failed to read amplitudes."),
                     dataset.n_spec,
                     &periods.slice(array_slice),
                     n_periods,

@@ -103,7 +103,7 @@ impl Filters {
             if key == &usize::MAX {
                 continue;
             }
-            if key > &n_spec {
+            if key >= &n_spec {
                 return Err(Error::msg(format!("Attempted to set amplitude filter for detector {key}, but instrument only has {n_spec} detectors.")));
             }
             array[*key] = *value;
@@ -620,7 +620,7 @@ mod tests {
         assert_eq!(actual, expected)
     }
 
-    /// Test ampltiudes are correctly converted to an array with baseline.
+    /// Test amplitudes are correctly converted to an array with baseline.
     #[test]
     fn test_get_amps_baseline() {
         let mut filters = Filters::new();
