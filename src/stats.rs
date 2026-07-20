@@ -91,6 +91,8 @@ impl Histogram {
             time_weights & log_weights
         };
 
+        let min_amps = filters.get_amps(data.n_spec)?;
+
         let (result, time) = calculate_histograms(
             data,
             self.min_time,
@@ -98,6 +100,7 @@ impl Histogram {
             self.n_bins,
             n_periods,
             periods,
+            min_amps,
             weights,
         );
         Ok((result, time.as_millis()))
@@ -106,6 +109,7 @@ impl Histogram {
 
 /// Calculate histograms and output the result and time taken.
 #[inline(always)]
+#[allow(clippy::too_many_arguments)]
 pub fn calculate_histograms(
     dataset: NexusData,
     min_time: f32,
@@ -113,6 +117,7 @@ pub fn calculate_histograms(
     n_bins: usize,
     n_periods: usize,
     periods: Array1<u32>,
+    min_amps: Array1<f64>,
     weights: Weights,
 ) -> (Histogram, Duration) {
     let time = Instant::now();
@@ -136,9 +141,14 @@ pub fn calculate_histograms(
                         .specs
                         .read_slice_1d(array_slice)
                         .expect("Failed to read specs."),
+                    dataset
+                        .amps
+                        .read_slice_1d(array_slice)
+                        .expect("Failed to read specs."),
                     dataset.n_spec,
                     &periods.slice(array_slice),
                     n_periods,
+                    &min_amps,
                     weights.slice(start, end),
                     min_time,
                     max_time,
@@ -173,9 +183,11 @@ pub fn calculate_histograms(
 unsafe fn make_histogram(
     times: Array1<u32>,
     specs: Array1<u32>,
+    amps: Array1<f64>,
     n_spec: usize,
     periods: &ArrayView1<u32>,
     n_periods: usize,
+    min_amps: &Array1<f64>,
     weights: Weights,
     min_time: f32,
     max_time: f32,
@@ -189,10 +201,12 @@ unsafe fn make_histogram(
     for (k, time) in times.into_iter().enumerate() {
         let t = time as f32 * conversion;
         let w_k = weights[k];
+        let amp = amps[k];
+        let spec = specs[k] as usize;
 
-        if w_k && (t >= min_time) && (t <= max_time) {
+        if w_k && (t >= min_time) && (t <= max_time) && amp > min_amps[spec] {
             let bin = ((t - min_time) / width as f32).floor() as usize;
-            result.hist[[*periods.uget(k) as usize, *specs.uget(k) as usize, bin]] += 1;
+            result.hist[[*periods.uget(k) as usize, spec, bin]] += 1;
             result.n += 1
         }
     }
@@ -227,16 +241,20 @@ mod tests {
     fn test_hist_no_filter() {
         let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
         let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
+        let amps = Array1::ones(6);
         let periods = Array1::zeros(6);
+        let min_amps = Array1::zeros(6);
         let weights = Weights::ones(6);
 
         unsafe {
             let result = make_histogram(
                 times,
                 specs,
+                amps,
                 2,
                 &periods.slice(s![0..=5]),
                 1,
+                &min_amps,
                 weights,
                 0.,
                 3.,
@@ -257,16 +275,20 @@ mod tests {
     fn test_hist_filter() {
         let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
         let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
+        let amps = Array1::ones(6);
         let periods = Array1::zeros(6);
+        let min_amps = Array1::zeros(6);
         let weights: [bool; 6] = [false, true, true, false, false, true];
 
         unsafe {
             let result = make_histogram(
                 times,
                 specs,
+                amps,
                 2,
                 &periods.slice(s![0..=5]),
                 1,
+                &min_amps,
                 weights.into_iter().into(),
                 0.,
                 3.,
@@ -287,16 +309,20 @@ mod tests {
     fn test_hist_multiple_periods() {
         let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
         let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
+        let amps = Array1::ones(6);
         let periods = Array1::from_vec(vec![0, 0, 1, 1, 0, 1]);
+        let min_amps = Array1::zeros(6);
         let weights = Weights::ones(6);
 
         unsafe {
             let result = make_histogram(
                 times,
                 specs,
+                amps,
                 2,
                 &periods.slice(s![0..=5]),
                 2,
+                &min_amps,
                 weights,
                 0.,
                 3.,
@@ -325,16 +351,20 @@ mod tests {
     fn test_hist_data_before_start() {
         let times = Array1::from_vec(vec![500, 1200, 1800, 2500]);
         let specs = Array1::from_vec(vec![0, 1, 0, 1]);
+        let amps = Array1::ones(4);
         let periods = Array1::zeros(4);
+        let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
         unsafe {
             let result = make_histogram(
                 times,
                 specs,
+                amps,
                 2,
                 &periods.slice(s![0..=3]),
                 1,
+                &min_amps,
                 weights,
                 1.,
                 3.,
@@ -354,16 +384,20 @@ mod tests {
     fn test_hist_data_after_end() {
         let times = Array1::from_vec(vec![500, 1200, 1800, 3500]);
         let specs = Array1::from_vec(vec![0, 1, 0, 1]);
+        let amps = Array1::ones(4);
         let periods = Array1::zeros(4);
+        let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
         unsafe {
             let result = make_histogram(
                 times,
                 specs,
+                amps,
                 2,
                 &periods.slice(s![0..=3]),
                 1,
+                &min_amps,
                 weights,
                 0.,
                 2.,
@@ -378,20 +412,58 @@ mod tests {
         }
     }
 
+    /// Test a histogram with amplitude filters is correctly constructed.
+    #[test]
+    fn test_hist_amps_filter() {
+        let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
+        let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
+        let amps = Array1::from_vec(vec![1., 1., 1., 0.25, 1., 1.75]);
+        let periods = Array1::zeros(6);
+        let min_amps = Array1::from_vec(vec![0.5, 1.5]);
+        let weights = Weights::ones(6);
+
+        unsafe {
+            let result = make_histogram(
+                times,
+                specs,
+                amps,
+                2,
+                &periods.slice(s![0..=5]),
+                1,
+                &min_amps,
+                weights,
+                0.,
+                3.,
+                3,
+                1.,
+                1e-3,
+            );
+
+            let expected =
+                Array3::<usize>::from_shape_vec((1, 2, 3), vec![1, 1, 1, 0, 0, 1]).unwrap();
+
+            assert_eq!(result.hist, expected)
+        }
+    }
+
     /// Test that the conversion value correctly scales time values.
     #[test]
     fn test_hist_conversion_value() {
         let times = Array1::from_vec(vec![400, 800, 2500]);
         let specs = Array1::from_vec(vec![0, 0, 0]);
+        let amps = Array1::ones(3);
         let periods = Array1::zeros(3);
+        let min_amps = Array1::zeros(3);
 
         unsafe {
             let result = make_histogram(
                 times.clone(),
                 specs.clone(),
+                amps.clone(),
                 1,
                 &periods.slice(s![0..=2]),
                 1,
+                &min_amps,
                 Weights::ones(3),
                 0.,
                 3.,
@@ -407,9 +479,11 @@ mod tests {
             let result2 = make_histogram(
                 times,
                 specs,
+                amps,
                 1,
                 &periods.slice(s![0..=2]),
                 1,
+                &min_amps,
                 Weights::ones(3),
                 0.,
                 3.,
