@@ -225,4 +225,36 @@ mod tests {
         // should be 1s between 10-20
         assert_eq!(weights, Weights::from_raw(vec![1047552]))
     }
+
+    /// Test that the get_weights wrapper function behaves as expected when the filter is entirely
+    /// within the first frame.
+    #[test]
+    fn test_get_weights_first_frame() {
+        let starts = vec![0];
+        let ends = vec![8];
+        let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+        let start_index = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 64]);
+        let array_len = 64;
+
+        let weights = get_weights(starts, ends, &start_times, &start_index, array_len, true);
+
+        // should be 1s between 0-10
+        assert_eq!(weights, Weights::from_raw(vec![0b1111111111]))
+    }
+
+    /// Test that the get_weights wrapper function behaves as expected when the filter is entirely
+    /// within the last frame.
+    #[test]
+    fn test_get_weights_last_frame() {
+        let starts = vec![55];
+        let ends = vec![60];
+        let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+        let start_index = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 64]);
+        let array_len = 64;
+
+        let weights = get_weights(starts, ends, &start_times, &start_index, array_len, true);
+
+        // should be 1s between 50-64
+        assert_eq!(weights, Weights::from_raw(vec![18445618173802708992]))
+    }
 }
