@@ -1,19 +1,82 @@
+use anyhow::{Error, Result};
+use hdf5::types::{FloatSize, IntSize, TypeDescriptor};
+use hdf5::Dataset;
 use ndarray::Array1;
 
 use crate::consts::S_TO_NS;
 
 pub enum SampleLog {
-    Int(ValueLog<i32>),
-    Float(ValueLog<f64>),
+    I8(ValueLog<i8>),
+    I16(ValueLog<i16>),
+    I32(ValueLog<i32>),
+    I64(ValueLog<i64>),
+    U8(ValueLog<u8>),
+    U16(ValueLog<u16>),
+    U32(ValueLog<u32>),
+    U64(ValueLog<u64>),
+    F32(ValueLog<f32>),
+    F64(ValueLog<f64>),
 }
 
 impl SampleLog {
+    /// Create a new SampleLog.
+    pub fn new(log_name: &String, time: Array1<f64>, value: Dataset) -> Result<SampleLog> {
+        let dtype = value.dtype()?.to_descriptor()?;
+
+        // this macro just lets us write the type conversions,
+        // and it handles the actual construction which is always the same
+        // e.g. TypeDescriptor::Integer(IntSize::U1) => I8: i8 is converted to the branch
+        //
+        //    TypeDescriptor::Integer(IntSize::U1) => SampleLog::I8(ValueLog<i8> {
+        //        time: time,
+        //        value: value.read_1d()?
+        //    }
+        //
+        macro_rules! make_value_log {
+            ( $( $hdf5_type:pat => $variant:ident : $type:ty ),+ $(,)? ) => {
+                match dtype {
+                    $(
+                        $hdf5_type => SampleLog::$variant(ValueLog::<$type> {
+                            time,
+                            value: value.read_1d()?,
+                        }),
+                    )+
+                    other_type => return Err(Error::msg(format!(
+                            "Sample log type {other_type} for log {log_name} is not supported.
+                            Supported types are Integer and Float.",
+                    )))
+                }
+            };
+        }
+        let log = make_value_log! {
+            TypeDescriptor::Integer(IntSize::U1) => I8: i8,
+            TypeDescriptor::Integer(IntSize::U2) => I16: i16,
+            TypeDescriptor::Integer(IntSize::U4) => I32: i32,
+            TypeDescriptor::Integer(IntSize::U8) => I64: i64,
+            TypeDescriptor::Unsigned(IntSize::U1) => U8: u8,
+            TypeDescriptor::Unsigned(IntSize::U2) => U16: u16,
+            TypeDescriptor::Unsigned(IntSize::U4) => U32: u32,
+            TypeDescriptor::Unsigned(IntSize::U8) => U64: u64,
+            TypeDescriptor::Float(FloatSize::U4) => F32: f32,
+            TypeDescriptor::Float(FloatSize::U8) => F64: f64,
+        };
+        Ok(log)
+    }
+
     /// Given a lower and upper limit, get the list of time starts and ends
     /// corresponding to the log filter.
     pub fn to_time_ranges(&self, lower: f64, upper: f64) -> (Vec<usize>, Vec<usize>) {
         match self {
-            SampleLog::Int(log) => log.to_time_ranges(&(lower as i32), &(upper as i32)),
-            SampleLog::Float(log) => log.to_time_ranges(&lower, &upper),
+            SampleLog::I8(log) => log.to_time_ranges(&(lower as i8), &(upper as i8)),
+            SampleLog::I16(log) => log.to_time_ranges(&(lower as i16), &(upper as i16)),
+            SampleLog::I32(log) => log.to_time_ranges(&(lower as i32), &(upper as i32)),
+            SampleLog::I64(log) => log.to_time_ranges(&(lower as i64), &(upper as i64)),
+            SampleLog::U8(log) => log.to_time_ranges(&(lower as u8), &(upper as u8)),
+            SampleLog::U16(log) => log.to_time_ranges(&(lower as u16), &(upper as u16)),
+            SampleLog::U32(log) => log.to_time_ranges(&(lower as u32), &(upper as u32)),
+            SampleLog::U64(log) => log.to_time_ranges(&(lower as u64), &(upper as u64)),
+            SampleLog::F32(log) => log.to_time_ranges(&(lower as f32), &(upper as f32)),
+            SampleLog::F64(log) => log.to_time_ranges(&lower, &upper),
         }
     }
 }

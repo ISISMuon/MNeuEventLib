@@ -2,14 +2,13 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Error, Result};
-use hdf5::types::TypeDescriptor;
 use hdf5::{Dataset, File, Group};
 use ndarray::Array1;
 use numpy::{PyArray1, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Bound};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
-use crate::data::{SampleLog, ValueLog};
+use crate::data::SampleLog;
 
 /// Class for storing a Nexus event file.
 #[pyclass(from_py_object)]
@@ -56,20 +55,7 @@ impl NexusData {
 
         let time: Array1<f64> = log_data.dataset("time")?.read_1d()?;
         let value: Dataset = log_data.dataset("value")?;
-        match value.dtype()?.to_descriptor()? {
-            TypeDescriptor::Integer(_) => Ok(SampleLog::Int(ValueLog::<i32> {
-                time,
-                value: value.read_1d()?,
-            })),
-            TypeDescriptor::Float(_) => Ok(SampleLog::Float(ValueLog::<f64> {
-                time,
-                value: value.read_1d()?,
-            })),
-            other_type => Err(Error::msg(format!(
-                "Sample log type {other_type} for log {log_name} is not supported.
-                Supported types are Integer and Float."
-            ))),
-        }
+        SampleLog::new(log_name, time, value)
     }
 
     /// Get the value logs associated with a list of sample log names.
@@ -174,7 +160,7 @@ mod tests {
         assert!(log.is_ok());
 
         let value_log = log.unwrap();
-        assert!(matches!(value_log, SampleLog::Float(_)))
+        assert!(matches!(value_log, SampleLog::F32(_)))
     }
 
     /// Test that a non-real sample log throws an error.

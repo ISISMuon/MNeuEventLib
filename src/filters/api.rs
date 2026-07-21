@@ -321,8 +321,8 @@ mod tests {
         };
 
         let mut logs = HashMap::<String, SampleLog>::new();
-        logs.insert("simple".to_string(), SampleLog::Float(simple_log));
-        logs.insert("complex".to_string(), SampleLog::Float(complex_log));
+        logs.insert("simple".to_string(), SampleLog::F64(simple_log));
+        logs.insert("complex".to_string(), SampleLog::F64(complex_log));
 
         let (starts, ends) = filters.get_log_filter_times(logs);
         let expected_starts = vec![2e9 as usize, 0, 1e9 as usize, 4e9 as usize];
