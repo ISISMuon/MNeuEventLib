@@ -2,7 +2,7 @@ use std::cmp::min;
 use std::iter::Iterator;
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Error, Result};
 use ndarray::{s, Array1, Array3, ArrayView1};
 use numpy::{PyArray3, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Bound};
@@ -49,21 +49,46 @@ impl Histogram {
         let periods: Array1<u32> = Array1::zeros(data.n_events);
         let n_periods: usize = *periods.iter().max().unwrap() as usize + 1;
 
-        let (filter_starts, filter_ends) = filters.get_time_filter_times();
         let start_index: Array1<usize> = data.frames.read_1d()?;
+        let (time_starts, time_ends) = filters.get_time_filter_times();
 
-        let weights = if filter_starts.is_empty() {
+        let log_names = filters.get_required_log_names();
+        let value_logs = match data.get_sample_logs(log_names) {
+            Ok(logs) => logs,
+            Err(info) => return Err(Error::msg(format!("Failed to get logs: {info}"))),
+        };
+        let (log_starts, log_ends) = filters.get_log_filter_times(value_logs);
+
+        let weights = if time_starts.is_empty() && log_starts.is_empty() {
             Weights::ones(data.n_events)
         } else {
             let frame_start_times: Array1<usize> = data.frame_times.read_1d()?;
-            get_weights(
-                filter_starts,
-                filter_ends,
-                frame_start_times,
-                start_index,
-                data.n_events,
-                filters.is_include(),
-            )
+            let time_weights = if time_starts.is_empty() {
+                Weights::ones(data.n_events)
+            } else {
+                get_weights(
+                    time_starts,
+                    time_ends,
+                    &frame_start_times,
+                    &start_index,
+                    data.n_events,
+                    filters.is_include(),
+                )
+            };
+            // log weights are always include filters
+            let log_weights = if log_starts.is_empty() {
+                Weights::ones(data.n_events)
+            } else {
+                get_weights(
+                    log_starts,
+                    log_ends,
+                    &frame_start_times,
+                    &start_index,
+                    data.n_events,
+                    true,
+                )
+            };
+            time_weights & log_weights
         };
 
         let (result, time) = calculate_histograms(

@@ -1,13 +1,14 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Error, Result};
-use hdf5::types::TypeDescriptor;
 use hdf5::{Dataset, File, Group};
 use ndarray::Array1;
 use numpy::{PyArray1, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Bound};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
-use crate::data::{SampleLog, ValueLog};
+use crate::data::SampleLog;
 
 /// Class for storing a Nexus event file.
 #[pyclass(from_py_object)]
@@ -45,29 +46,24 @@ impl NexusData {
 
 impl NexusData {
     /// Retreve the data for a sample log.
-    #[allow(dead_code)] // to be implemented by log filters
-    fn get_sample_log(&self, log_name: String) -> Result<SampleLog> {
-        let log_data = self.sample_logs.group(&log_name)?.group("value_log")?;
-        let time: Array1<f64> = log_data.dataset("time")?.read_1d().unwrap();
+    pub fn get_sample_log(&self, log_name: &String) -> Result<SampleLog> {
+        let log = match self.sample_logs.group(log_name) {
+            Ok(group) => group,
+            Err(_) => return Err(Error::msg(format!("Sample log {} not found!", log_name))),
+        };
+        let log_data = log.group("value_log")?;
+
+        let time: Array1<f64> = log_data.dataset("time")?.read_1d()?;
         let value: Dataset = log_data.dataset("value")?;
-        match value.dtype()?.to_descriptor()? {
-            TypeDescriptor::Integer(_) => Ok(SampleLog::Int(ValueLog::<i32> {
-                time,
-                value: value.read_1d().unwrap(),
-            })),
-            TypeDescriptor::Float(_) => Ok(SampleLog::Float(ValueLog::<f64> {
-                time,
-                value: value.read_1d().unwrap(),
-            })),
-            TypeDescriptor::Boolean => Ok(SampleLog::Bool(ValueLog::<bool> {
-                time,
-                value: value.read_1d().unwrap(),
-            })),
-            other_type => Err(Error::msg(format!(
-                "Sample log type {other_type} for log {log_name} is not supported.
-                Supported types are Integer, Float, and Boolean."
-            ))),
-        }
+        SampleLog::new(log_name, time, value)
+    }
+
+    /// Get the value logs associated with a list of sample log names.
+    pub fn get_sample_logs(&self, log_names: Vec<String>) -> Result<HashMap<String, SampleLog>> {
+        log_names
+            .into_par_iter()
+            .map(|name| self.get_sample_log(&name).map(|log| (name, log)))
+            .collect()
     }
 }
 
@@ -160,11 +156,11 @@ mod tests {
     fn test_load_sample_log() {
         let data = test_data();
 
-        let log = data.get_sample_log("Temp".to_string());
+        let log = data.get_sample_log(&"Temp".to_string());
         assert!(log.is_ok());
 
         let value_log = log.unwrap();
-        assert!(matches!(value_log, SampleLog::Float(_)))
+        assert!(matches!(value_log, SampleLog::F32(_)))
     }
 
     /// Test that a non-real sample log throws an error.
@@ -172,7 +168,7 @@ mod tests {
     fn test_load_sample_log_not_found() {
         let data = test_data();
 
-        let log = data.get_sample_log("Lunch".to_string());
+        let log = data.get_sample_log(&"Lunch".to_string());
         assert!(log.is_err())
     }
 }

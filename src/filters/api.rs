@@ -1,6 +1,11 @@
 /// The user-facing API for the filter objects.
+use std::collections::HashMap;
+
 use anyhow::{Error, Result};
 use pyo3::prelude::{pyclass, pymethods};
+
+use crate::consts::S_TO_NS;
+use crate::data::SampleLog;
 
 #[derive(Clone)]
 enum FilterType {
@@ -8,13 +13,19 @@ enum FilterType {
     Exclude,
 }
 
-const S_TO_NS: f64 = 1e9;
-
 #[derive(Clone, Debug, PartialEq)]
-struct Filter {
+pub struct Filter {
     name: String,
     start: f64,
     end: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LogFilter {
+    name: String,
+    log: String,
+    lower: f64,
+    upper: f64,
 }
 
 #[pyclass(from_py_object)]
@@ -22,7 +33,7 @@ struct Filter {
 pub struct Filters {
     time_filter_type: FilterType,
     time_filters: Vec<Filter>,
-    sample_log_filters: Vec<Filter>,
+    sample_log_filters: Vec<LogFilter>,
     amplitudes: f64,
 }
 
@@ -46,6 +57,31 @@ impl Filters {
         )
     }
 
+    /// Get the start and end times for each log filter.
+    pub fn get_log_filter_times(
+        &self,
+        logs: HashMap<String, SampleLog>,
+    ) -> (Vec<usize>, Vec<usize>) {
+        // get the value log for each required sample log
+        // the zip/unzip is to convert it from
+        // Vec<(usize, usize)> to (Vec<usize>, Vec<usize>)
+        self.sample_log_filters
+            .iter()
+            .flat_map(|f| {
+                let (s, e) = logs[&f.log].to_time_ranges(f.lower, f.upper);
+                s.into_iter().zip(e)
+            })
+            .unzip()
+    }
+
+    // Get the relevant log for each log filter.
+    pub fn get_required_log_names(&self) -> Vec<String> {
+        self.sample_log_filters
+            .iter()
+            .map(|f| f.log.clone())
+            .collect()
+    }
+
     /// Return whether the time filters are include or exclude.
     pub fn is_include(&self) -> bool {
         match self.time_filter_type {
@@ -62,7 +98,7 @@ impl Filters {
         Filters {
             time_filter_type: FilterType::Include,
             time_filters: Vec::<Filter>::new(),
-            sample_log_filters: Vec::<Filter>::new(),
+            sample_log_filters: Vec::<LogFilter>::new(),
             amplitudes: 0.,
         }
     }
@@ -114,8 +150,17 @@ impl Filters {
     }
 
     /// Add a log filter.
-    fn add_log_filter(&mut self, name: String, start: f64, end: f64) {
-        self.sample_log_filters.push(Filter { name, start, end })
+    fn add_log_filter(&mut self, name: String, log: String, lower: f64, upper: f64) -> Result<()> {
+        if self.sample_log_filters.iter().any(|f| f.name == name) {
+            return Err(Error::msg("Name already exists!"));
+        }
+        self.sample_log_filters.push(LogFilter {
+            name,
+            log,
+            lower,
+            upper,
+        });
+        Ok(())
     }
 
     fn remove_log_filter(&mut self, name: String) -> Result<()> {
@@ -128,14 +173,26 @@ impl Filters {
         }
     }
 
+    fn add_log_filter_above(&mut self, name: String, log: String, lower: f64) -> Result<()> {
+        self.add_log_filter(name, log, lower, f64::INFINITY)
+    }
+
+    fn add_log_filter_below(&mut self, name: String, log: String, upper: f64) -> Result<()> {
+        self.add_log_filter(name, log, -f64::INFINITY, upper)
+    }
+
     fn set_amp(&mut self, amp: f64) {
-        self.amplitudes = amp;
+        self.amplitudes = amp
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use ndarray::Array1;
+
+    use crate::data::ValueLog;
 
     /// Test converting a Filters object to starts and ends.
     #[test]
@@ -159,7 +216,7 @@ mod tests {
                     end: 6.,
                 },
             ],
-            sample_log_filters: Vec::<Filter>::new(),
+            sample_log_filters: Vec::<LogFilter>::new(),
             amplitudes: 0.,
         };
 
@@ -177,6 +234,101 @@ mod tests {
         assert_eq!(starts.len(), 0);
         assert_eq!(ends.len(), 0);
         assert!(filters.is_include()); // default is include
+    }
+
+    /// Test get_required_log_names returns the log name for each log filter.
+    #[test]
+    fn test_get_log_names() {
+        let filters = Filters {
+            time_filter_type: FilterType::Include,
+            time_filters: Vec::<Filter>::new(),
+            sample_log_filters: vec![
+                LogFilter {
+                    name: "a".to_string(),
+                    log: "temp".to_string(),
+                    lower: 1.,
+                    upper: 2.,
+                },
+                LogFilter {
+                    name: "b".to_string(),
+                    log: "pulse_width".to_string(),
+                    lower: 3.,
+                    upper: 4.,
+                },
+                LogFilter {
+                    name: "c".to_string(),
+                    log: "pressure".to_string(),
+                    lower: 5.,
+                    upper: 6.,
+                },
+            ],
+            amplitudes: 0.,
+        };
+        let logs = filters.get_required_log_names();
+        assert_eq!(
+            logs,
+            vec![
+                "temp".to_string(),
+                "pulse_width".to_string(),
+                "pressure".to_string()
+            ]
+        )
+    }
+
+    /// Test log_filter_times correctly gets the times from the log filters.
+    #[test]
+    fn test_log_filter_to_times() {
+        // note we test individual time ranges in data::sample_logs, so we only need to test
+        // that this routine correctly maps over log names (and multiple bands for one log)
+        let filters = Filters {
+            time_filter_type: FilterType::Include,
+            time_filters: Vec::<Filter>::new(),
+            sample_log_filters: vec![
+                LogFilter {
+                    name: "a".to_string(),
+                    log: "simple".to_string(),
+                    lower: 2.,
+                    upper: 3.,
+                },
+                LogFilter {
+                    name: "b".to_string(),
+                    log: "simple".to_string(),
+                    lower: 0.,
+                    upper: 1.,
+                },
+                LogFilter {
+                    name: "c".to_string(),
+                    log: "complex".to_string(),
+                    lower: 2.,
+                    upper: 8.,
+                },
+            ],
+            amplitudes: 0.,
+        };
+
+        // logs from data::sample_logs tests
+        let simple_times = Array1::<f64>::linspace(0., 4., 4001);
+        let simple_log = ValueLog::<f64> {
+            time: simple_times.clone(),
+            value: simple_times.clone(),
+        };
+
+        // add a sample log: f(t) = 2(t-3)^2 from 0 to 4
+        let complex_times = Array1::<f64>::linspace(0., 6., 6001);
+        let complex_log = ValueLog::<f64> {
+            time: complex_times.clone(),
+            value: Array1::<f64>::from_iter(complex_times.iter().map(|t| 2. * (t - 3.).powi(2))),
+        };
+
+        let mut logs = HashMap::<String, SampleLog>::new();
+        logs.insert("simple".to_string(), SampleLog::F64(simple_log));
+        logs.insert("complex".to_string(), SampleLog::F64(complex_log));
+
+        let (starts, ends) = filters.get_log_filter_times(logs);
+        let expected_starts = vec![2e9 as usize, 0, 1e9 as usize, 4e9 as usize];
+        let expected_ends = vec![3e9 as usize, 1e9 as usize, 2e9 as usize, 5e9 as usize];
+        assert_eq!(starts, expected_starts);
+        assert_eq!(ends, expected_ends);
     }
 
     /// Test time filter type can correctly be set.
@@ -209,7 +361,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// Test adding a time filter and converting it to filter starts and ends.
+    /// Test adding a time filter.
     #[test]
     fn test_add_single_time_filter() {
         let mut filters = Filters::new();
@@ -303,6 +455,106 @@ mod tests {
     fn test_remove_time_filter_nonexistent() {
         let mut filters = Filters::new();
         let result = filters.remove_time_filter("nonexistent".to_string());
+        assert!(result.is_err());
+    }
+
+    /// Test adding a single log filter.
+    #[test]
+    fn test_add_log_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter("name".to_string(), "temp".to_string(), 0., 1.)
+            .unwrap();
+        assert_eq!(
+            filters.sample_log_filters,
+            vec![LogFilter {
+                name: "name".to_string(),
+                log: "temp".to_string(),
+                lower: 0.,
+                upper: 1.
+            }]
+        )
+    }
+
+    /// Test adding multiple log filters.
+    #[test]
+    fn test_add_multiple_log_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter("name".to_string(), "temp".to_string(), 0., 1.)
+            .unwrap();
+        filters
+            .add_log_filter_above("name2".to_string(), "p".to_string(), 5.)
+            .unwrap();
+        filters
+            .add_log_filter_below("name3".to_string(), "temp".to_string(), 8.)
+            .unwrap();
+        assert_eq!(
+            filters.sample_log_filters,
+            vec![
+                LogFilter {
+                    name: "name".to_string(),
+                    log: "temp".to_string(),
+                    lower: 0.,
+                    upper: 1.
+                },
+                LogFilter {
+                    name: "name2".to_string(),
+                    log: "p".to_string(),
+                    lower: 5.,
+                    upper: f64::INFINITY
+                },
+                LogFilter {
+                    name: "name3".to_string(),
+                    log: "temp".to_string(),
+                    lower: -f64::INFINITY,
+                    upper: 8.
+                }
+            ]
+        )
+    }
+
+    /// Test an error is given when a log filter is given a duplicate name.
+    #[test]
+    fn test_add_log_filter_duplicate_name() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter("filter1".to_string(), "temp".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        let result = filters.add_log_filter("filter1".to_string(), "temp".to_string(), 3.0, 4.0);
+        assert!(result.is_err());
+    }
+
+    /// Test time filters can be removed correctly.
+    #[test]
+    fn test_remove_log_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter("filter1".to_string(), "temp".to_string(), 1.0, 2.0)
+            .unwrap();
+        filters
+            .add_log_filter("filter2".to_string(), "pw".to_string(), 3.0, 4.0)
+            .unwrap();
+
+        filters.remove_log_filter("filter1".to_string()).unwrap();
+
+        assert_eq!(
+            filters.sample_log_filters,
+            vec![LogFilter {
+                name: "filter2".to_string(),
+                log: "pw".to_string(),
+                lower: 3.,
+                upper: 4.
+            }]
+        )
+    }
+
+    /// Test removing a time filter that doesn't exist throws an error.
+    #[test]
+    fn test_remove_log_filter_nonexistent() {
+        let mut filters = Filters::new();
+        let result = filters.remove_log_filter("nonexistent".to_string());
         assert!(result.is_err());
     }
 }
