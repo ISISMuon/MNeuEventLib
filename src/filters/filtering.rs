@@ -29,10 +29,14 @@ fn get_indices(
     // map each filter to a (start, stop) index pair
     (0..n_filters)
         .map(|j| {
-            (
-                binary_search(start_times, 0, n_frames, filter_starts[j]),
-                binary_search(start_times, 0, n_frames, filter_ends[j]),
-            )
+            let start = binary_search(start_times, 0, n_frames, filter_starts[j]);
+            let mut end = binary_search(start_times, 0, n_frames, filter_ends[j]);
+            // if the end is not the top of the array, we should adjust it
+            // to be the upper bound of the frame that it is in
+            if end + 1 < n_frames {
+                end += 1
+            }
+            (start, end)
         })
         .collect()
 }
@@ -92,7 +96,7 @@ mod tests {
 
         let (frame_starts, frame_ends) = get_indices(&start_times, filter_starts, filter_ends);
         assert_eq!(frame_starts, vec![1, 2, 3]);
-        assert_eq!(frame_ends, vec![2, 2, 4])
+        assert_eq!(frame_ends, vec![3, 3, 5])
     }
 
     /// Test that get_indices gets the correct indices when a filter ends above the range.
@@ -116,7 +120,7 @@ mod tests {
 
         let (frame_starts, frame_ends) = get_indices(&start_times, filter_starts, filter_ends);
         assert_eq!(frame_starts, vec![0]);
-        assert_eq!(frame_ends, vec![4])
+        assert_eq!(frame_ends, vec![5])
     }
 
     /// Test the mask is created correctly for one filter.
@@ -174,5 +178,51 @@ mod tests {
 
         // expected is 1s between indices 10-20 and 40-64
         assert_eq!(weights, Weights::from_raw(vec![18446742974198971392]))
+    }
+
+    /// Test that the get_weights wrapper function behaves as expected.
+    #[test]
+    fn test_get_weights_one_filter() {
+        let starts = vec![15];
+        let ends = vec![31];
+        let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+        let start_index = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 64]);
+        let array_len = 64;
+
+        let weights = get_weights(starts, ends, &start_times, &start_index, array_len, true);
+
+        // should be 1s between 10-40
+        assert_eq!(weights, Weights::from_raw(vec![1099511626752]))
+    }
+
+    /// Test that the get_weights wrapper function behaves as expected for multiple filters.
+    #[test]
+    fn test_get_weights_two_filters() {
+        let starts = vec![15, 41];
+        let ends = vec![21, 55];
+        let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+        let start_index = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 64]);
+        let array_len = 64;
+
+        let weights = get_weights(starts, ends, &start_times, &start_index, array_len, true);
+
+        // should be 1s between 10-30 and 40-64
+        assert_eq!(weights, Weights::from_raw(vec![18446742975271664640]))
+    }
+
+    /// Test that the get_weights wrapper function behaves as expected when the filter is entirely
+    /// within one frame.
+    #[test]
+    fn test_get_weights_one_frame() {
+        let starts = vec![15];
+        let ends = vec![18];
+        let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+        let start_index = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 64]);
+        let array_len = 64;
+
+        let weights = get_weights(starts, ends, &start_times, &start_index, array_len, true);
+
+        // should be 1s between 10-20
+        assert_eq!(weights, Weights::from_raw(vec![1047552]))
     }
 }
