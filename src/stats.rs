@@ -52,7 +52,7 @@ impl Histogram {
         let start_index: Array1<usize> = data.frames.read_1d()?;
         let (time_starts, time_ends) = filters.get_time_filter_times();
 
-        let log_names = filters.get_log_filter_logs();
+        let log_names = filters.get_required_log_names();
         let value_logs = match data.get_sample_logs(log_names) {
             Ok(logs) => logs,
             Err(info) => return Err(Error::msg(format!("Failed to get logs: {info}"))),

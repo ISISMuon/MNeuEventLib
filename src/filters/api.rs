@@ -75,7 +75,7 @@ impl Filters {
     }
 
     // Get the relevant log for each log filter.
-    pub fn get_log_filter_logs(&self) -> Vec<String> {
+    pub fn get_required_log_names(&self) -> Vec<String> {
         self.sample_log_filters
             .iter()
             .map(|f| f.log.clone())
@@ -236,9 +236,9 @@ mod tests {
         assert!(filters.is_include()); // default is include
     }
 
-    /// Test get_log_filter_logs returns the log name for each log filter.
+    /// Test get_required_log_names returns the log name for each log filter.
     #[test]
-    fn test_log_filter_logs() {
+    fn test_get_log_names() {
         let filters = Filters {
             time_filter_type: FilterType::Include,
             time_filters: Vec::<Filter>::new(),
@@ -264,7 +264,7 @@ mod tests {
             ],
             amplitudes: 0.,
         };
-        let logs = filters.get_log_filter_logs();
+        let logs = filters.get_required_log_names();
         assert_eq!(
             logs,
             vec![

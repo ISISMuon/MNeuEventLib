@@ -121,7 +121,7 @@ where
 mod tests {
     use super::*;
 
-    /// Test log_filter_times correctly gets the times from the log filters for a complex case.
+    /// Test log_filter_times correctly gets the times from the log filters for a simple case.
     #[test]
     fn test_time_ranges_simple() {
         // add a sample log: f(t) = t from 0 to 4
@@ -132,8 +132,46 @@ mod tests {
         };
 
         let (starts, ends) = value_log.to_time_ranges(&1., &2.);
-        let expected_starts = vec![1e9 as usize];
-        let expected_ends = vec![2e9 as usize];
+        let expected_starts = vec![(1. * S_TO_NS) as usize];
+        let expected_ends = vec![(2. * S_TO_NS) as usize];
+
+        assert_eq!(starts, expected_starts);
+        assert_eq!(ends, expected_ends)
+    }
+
+    /// Test log_filter_times correctly gets the times from the log filters when the start is
+    /// included.
+    #[test]
+    fn test_time_ranges_with_start() {
+        // add a sample log: f(t) = t from 0 to 4
+        let times = Array1::<f64>::linspace(0., 4., 4001);
+        let value_log = ValueLog::<f64> {
+            time: times.clone(),
+            value: times.clone(),
+        };
+
+        let (starts, ends) = value_log.to_time_ranges(&0., &2.);
+        let expected_starts = vec![0];
+        let expected_ends = vec![(2. * S_TO_NS) as usize];
+
+        assert_eq!(starts, expected_starts);
+        assert_eq!(ends, expected_ends)
+    }
+
+    /// Test log_filter_times correctly gets the times from the log filters when the end is
+    /// included.
+    #[test]
+    fn test_time_ranges_with_end() {
+        // add a sample log: f(t) = t from 0 to 4
+        let times = Array1::<f64>::linspace(0., 4., 4001);
+        let value_log = ValueLog::<f64> {
+            time: times.clone(),
+            value: times.clone(),
+        };
+
+        let (starts, ends) = value_log.to_time_ranges(&1., &4.);
+        let expected_starts = vec![(1. * S_TO_NS) as usize];
+        let expected_ends = vec![(4. * S_TO_NS) as usize];
 
         assert_eq!(starts, expected_starts);
         assert_eq!(ends, expected_ends)
@@ -152,8 +190,8 @@ mod tests {
 
         // f(t) is between 2 and 8 for t = 1-2 and 4-5
         let (starts, ends) = value_log.to_time_ranges(&2., &8.);
-        let expected_starts = vec![1e9 as usize, 4e9 as usize];
-        let expected_ends = vec![2e9 as usize, 5e9 as usize];
+        let expected_starts = vec![(1. * S_TO_NS) as usize, (4. * S_TO_NS) as usize];
+        let expected_ends = vec![(2. * S_TO_NS) as usize, (5. * S_TO_NS) as usize];
 
         assert_eq!(starts, expected_starts);
         assert_eq!(ends, expected_ends)
