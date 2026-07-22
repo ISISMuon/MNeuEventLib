@@ -13,7 +13,6 @@ pub fn get_weights(
     include: bool,
 ) -> Weights {
     let (start_frames, end_frames) = get_indices(frame_start_times, filter_starts, filter_ends);
-    println!("{:?} {:?}", start_frames, end_frames);
     get_good_values(start_frames, end_frames, start_index, array_len, include)
 }
 
