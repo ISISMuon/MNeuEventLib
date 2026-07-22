@@ -290,7 +290,8 @@ mod tests {
         let amps = Array1::ones(6);
         let periods = Array1::zeros(6);
         let min_amps = Array1::zeros(6);
-        let weights: [bool; 6] = [false, true, true, false, false, true];
+        // weight bytes are filtering out values 0, 3, 4
+        let weights = Weights::from_raw(vec![0b100110]);
 
         let result = make_histogram(
             times,
@@ -300,7 +301,7 @@ mod tests {
             &periods,
             1,
             &min_amps,
-            weights.into_iter().into(),
+            weights,
             FrameData::one_frame(6),
             0.,
             3.,
