@@ -129,7 +129,8 @@ impl Data {
     ///     The upper bound for the log filter.
     fn add_log_filter(&mut self, name: String, log: String, lower: f64, upper: f64) -> Result<()> {
         self.data_changed = true;
-        self.filters.add_log_filter(name, log, lower, upper)
+        self.filters
+            .add_log_filter(name, log, Some(lower), Some(upper))
     }
 
     /// Remove a sample log filter.

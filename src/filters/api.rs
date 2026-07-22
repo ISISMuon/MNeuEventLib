@@ -24,12 +24,14 @@ pub struct Filter {
     end: f64,
 }
 
+// LogFilter bounds are Options because serialisation doesn't support infinity or -infinity;
+// we use None to represent those
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LogFilter {
     name: String,
     log: String,
-    lower: f64,
-    upper: f64,
+    lower: Option<f64>,
+    upper: Option<f64>,
 }
 
 #[pyclass(from_py_object)]
@@ -72,7 +74,10 @@ impl Filters {
         self.sample_log_filters
             .iter()
             .flat_map(|f| {
-                let (s, e) = logs[&f.log].to_time_ranges(f.lower, f.upper);
+                let (s, e) = logs[&f.log].to_time_ranges(
+                    f.lower.unwrap_or(-f64::INFINITY),
+                    f.upper.unwrap_or(f64::INFINITY),
+                );
                 s.into_iter().zip(e)
             })
             .unzip()
@@ -178,8 +183,8 @@ impl Filters {
         &mut self,
         name: String,
         log: String,
-        lower: f64,
-        upper: f64,
+        lower: Option<f64>,
+        upper: Option<f64>,
     ) -> Result<()> {
         if self.sample_log_filters.iter().any(|f| f.name == name) {
             return Err(Error::msg("Name already exists!"));
@@ -204,11 +209,11 @@ impl Filters {
     }
 
     pub fn add_log_filter_above(&mut self, name: String, log: String, lower: f64) -> Result<()> {
-        self.add_log_filter(name, log, lower, f64::INFINITY)
+        self.add_log_filter(name, log, Some(lower), None)
     }
 
     pub fn add_log_filter_below(&mut self, name: String, log: String, upper: f64) -> Result<()> {
-        self.add_log_filter(name, log, -f64::INFINITY, upper)
+        self.add_log_filter(name, log, None, Some(upper))
     }
 
     /// Set the minimum amplitude for a given detector.
@@ -303,20 +308,20 @@ mod tests {
                 LogFilter {
                     name: "a".to_string(),
                     log: "temp".to_string(),
-                    lower: 1.,
-                    upper: 2.,
+                    lower: Some(1.),
+                    upper: Some(2.),
                 },
                 LogFilter {
                     name: "b".to_string(),
                     log: "pulse_width".to_string(),
-                    lower: 3.,
-                    upper: 4.,
+                    lower: Some(3.),
+                    upper: Some(4.),
                 },
                 LogFilter {
                     name: "c".to_string(),
                     log: "pressure".to_string(),
-                    lower: 5.,
-                    upper: 6.,
+                    lower: Some(5.),
+                    upper: Some(6.),
                 },
             ],
             amplitudes: HashMap::new(),
@@ -344,20 +349,20 @@ mod tests {
                 LogFilter {
                     name: "a".to_string(),
                     log: "simple".to_string(),
-                    lower: 2.,
-                    upper: 3.,
+                    lower: Some(2.),
+                    upper: Some(3.),
                 },
                 LogFilter {
                     name: "b".to_string(),
                     log: "simple".to_string(),
-                    lower: 0.,
-                    upper: 1.,
+                    lower: Some(0.),
+                    upper: Some(1.),
                 },
                 LogFilter {
                     name: "c".to_string(),
                     log: "complex".to_string(),
-                    lower: 2.,
-                    upper: 8.,
+                    lower: Some(2.),
+                    upper: Some(8.),
                 },
             ],
             amplitudes: HashMap::new(),
@@ -384,6 +389,49 @@ mod tests {
         let (starts, ends) = filters.get_log_filter_times(logs);
         let expected_starts = vec![2e9 as usize, 0, 1e9 as usize, 4e9 as usize];
         let expected_ends = vec![3e9 as usize, 1e9 as usize, 2e9 as usize, 5e9 as usize];
+        assert_eq!(starts, expected_starts);
+        assert_eq!(ends, expected_ends);
+    }
+
+    /// Test log_filter_times correctly gets the times from the log filters for an unbounded
+    /// filter.
+    #[test]
+    fn test_log_filter_to_times_unbounded() {
+        // note we test individual time ranges in data::sample_logs, so we only need to test
+        // that this routine correctly maps over log names (and multiple bands for one log)
+        let filters = Filters {
+            time_filter_type: FilterType::Include,
+            time_filters: Vec::<Filter>::new(),
+            sample_log_filters: vec![
+                LogFilter {
+                    name: "a".to_string(),
+                    log: "simple".to_string(),
+                    lower: Some(2.),
+                    upper: None,
+                },
+                LogFilter {
+                    name: "b".to_string(),
+                    log: "simple".to_string(),
+                    lower: None,
+                    upper: Some(3.),
+                },
+            ],
+            amplitudes: HashMap::new(),
+        };
+
+        // logs from data::sample_logs tests
+        let simple_times = Array1::<f64>::linspace(0., 4., 4001);
+        let simple_log = ValueLog::<f64> {
+            time: simple_times.clone(),
+            value: simple_times.clone(),
+        };
+
+        let mut logs = HashMap::<String, SampleLog>::new();
+        logs.insert("simple".to_string(), SampleLog::F64(simple_log));
+
+        let (starts, ends) = filters.get_log_filter_times(logs);
+        let expected_starts = vec![2e9 as usize, 0];
+        let expected_ends = vec![4e9 as usize, 3e9 as usize];
         assert_eq!(starts, expected_starts);
         assert_eq!(ends, expected_ends);
     }
@@ -520,15 +568,15 @@ mod tests {
     fn test_add_log_filter() {
         let mut filters = Filters::new();
         filters
-            .add_log_filter("name".to_string(), "temp".to_string(), 0., 1.)
+            .add_log_filter("name".to_string(), "temp".to_string(), Some(0.), Some(1.))
             .unwrap();
         assert_eq!(
             filters.sample_log_filters,
             vec![LogFilter {
                 name: "name".to_string(),
                 log: "temp".to_string(),
-                lower: 0.,
-                upper: 1.
+                lower: Some(0.),
+                upper: Some(1.)
             }]
         )
     }
@@ -538,7 +586,7 @@ mod tests {
     fn test_add_multiple_log_filter() {
         let mut filters = Filters::new();
         filters
-            .add_log_filter("name".to_string(), "temp".to_string(), 0., 1.)
+            .add_log_filter("name".to_string(), "temp".to_string(), Some(0.), Some(1.))
             .unwrap();
         filters
             .add_log_filter_above("name2".to_string(), "p".to_string(), 5.)
@@ -552,20 +600,20 @@ mod tests {
                 LogFilter {
                     name: "name".to_string(),
                     log: "temp".to_string(),
-                    lower: 0.,
-                    upper: 1.
+                    lower: Some(0.),
+                    upper: Some(1.)
                 },
                 LogFilter {
                     name: "name2".to_string(),
                     log: "p".to_string(),
-                    lower: 5.,
-                    upper: f64::INFINITY
+                    lower: Some(5.),
+                    upper: None
                 },
                 LogFilter {
                     name: "name3".to_string(),
                     log: "temp".to_string(),
-                    lower: -f64::INFINITY,
-                    upper: 8.
+                    lower: None,
+                    upper: Some(8.)
                 }
             ]
         )
@@ -576,10 +624,20 @@ mod tests {
     fn test_add_log_filter_duplicate_name() {
         let mut filters = Filters::new();
         filters
-            .add_log_filter("filter1".to_string(), "temp".to_string(), 1.0, 2.0)
+            .add_log_filter(
+                "filter1".to_string(),
+                "temp".to_string(),
+                Some(1.0),
+                Some(2.0),
+            )
             .unwrap();
 
-        let result = filters.add_log_filter("filter1".to_string(), "temp".to_string(), 3.0, 4.0);
+        let result = filters.add_log_filter(
+            "filter1".to_string(),
+            "temp".to_string(),
+            Some(3.0),
+            Some(4.0),
+        );
         assert!(result.is_err());
     }
 
@@ -588,10 +646,20 @@ mod tests {
     fn test_remove_log_filter() {
         let mut filters = Filters::new();
         filters
-            .add_log_filter("filter1".to_string(), "temp".to_string(), 1.0, 2.0)
+            .add_log_filter(
+                "filter1".to_string(),
+                "temp".to_string(),
+                Some(1.0),
+                Some(2.0),
+            )
             .unwrap();
         filters
-            .add_log_filter("filter2".to_string(), "pw".to_string(), 3.0, 4.0)
+            .add_log_filter(
+                "filter2".to_string(),
+                "pw".to_string(),
+                Some(3.0),
+                Some(4.0),
+            )
             .unwrap();
 
         filters.remove_log_filter("filter1".to_string()).unwrap();
@@ -601,8 +669,8 @@ mod tests {
             vec![LogFilter {
                 name: "filter2".to_string(),
                 log: "pw".to_string(),
-                lower: 3.,
-                upper: 4.
+                lower: Some(3.),
+                upper: Some(4.)
             }]
         )
     }
@@ -697,8 +765,8 @@ mod tests {
             sample_log_filters: vec![LogFilter {
                 name: "c".to_string(),
                 log: "Temp".to_string(),
-                lower: 5.,
-                upper: 6.,
+                lower: Some(5.),
+                upper: Some(6.),
             }],
             amplitudes: HashMap::new(),
         };
@@ -706,6 +774,46 @@ mod tests {
 
         let mut temp_save_loc = temp_dir();
         temp_save_loc.push("filters_test_save_load.json");
+
+        // these functions take strings but this is a PathBuf
+        let tmp_path = temp_save_loc.to_string_lossy().to_string();
+
+        let save_result = filters.save(tmp_path.clone());
+        assert!(save_result.is_ok());
+        let loaded_filters = _load(tmp_path).unwrap();
+
+        assert_eq!(filters, loaded_filters)
+    }
+
+    /// Test that saving a filter and loading it back in works for an unbounded log filter.
+    #[test]
+    fn test_save_load_unbounded_log() {
+        let mut filters = Filters {
+            time_filter_type: FilterType::Include,
+            time_filters: vec![
+                Filter {
+                    name: "a".to_string(),
+                    start: 1.,
+                    end: 2.,
+                },
+                Filter {
+                    name: "b".to_string(),
+                    start: 3.,
+                    end: 4.,
+                },
+            ],
+            sample_log_filters: vec![LogFilter {
+                name: "c".to_string(),
+                log: "Temp".to_string(),
+                lower: Some(5.),
+                upper: None,
+            }],
+            amplitudes: HashMap::new(),
+        };
+        filters.amplitudes.insert(3, 5.);
+
+        let mut temp_save_loc = temp_dir();
+        temp_save_loc.push("filters_test_save_load_unbdd.json");
 
         // these functions take strings but this is a PathBuf
         let tmp_path = temp_save_loc.to_string_lossy().to_string();
