@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 
 use anyhow::{Error, Result};
+use ndarray::Array1;
 use pyo3::prelude::{pyclass, pymethods};
 
 use crate::consts::S_TO_NS;
@@ -34,7 +35,7 @@ pub struct Filters {
     time_filter_type: FilterType,
     time_filters: Vec<Filter>,
     sample_log_filters: Vec<LogFilter>,
-    amplitudes: f64,
+    amplitudes: HashMap<usize, f64>,
 }
 
 impl Filters {
@@ -89,6 +90,26 @@ impl Filters {
             FilterType::Exclude => false,
         }
     }
+
+    /// Turn the detectors map into an array for indexing.
+    pub fn get_amps(&self, n_spec: usize) -> Result<Array1<f64>> {
+        // usize::MAX is used as a placeholder key for 'all other detectors'
+        let mut array: Array1<f64> = if let Some(val) = self.amplitudes.get(&usize::MAX) {
+            Array1::from_elem(n_spec, *val)
+        } else {
+            Array1::zeros(n_spec)
+        };
+        for (key, value) in self.amplitudes.iter() {
+            if key == &usize::MAX {
+                continue;
+            }
+            if key >= &n_spec {
+                return Err(Error::msg(format!("Attempted to set amplitude filter for detector {key}, but instrument only has {n_spec} detectors.")));
+            }
+            array[*key] = *value;
+        }
+        Ok(array)
+    }
 }
 
 #[pymethods]
@@ -99,7 +120,7 @@ impl Filters {
             time_filter_type: FilterType::Include,
             time_filters: Vec::<Filter>::new(),
             sample_log_filters: Vec::<LogFilter>::new(),
-            amplitudes: 0.,
+            amplitudes: HashMap::<usize, f64>::new(),
         }
     }
 
@@ -181,8 +202,14 @@ impl Filters {
         self.add_log_filter(name, log, -f64::INFINITY, upper)
     }
 
-    fn set_amp(&mut self, amp: f64) {
-        self.amplitudes = amp
+    /// Set the minimum amplitude for a given detector.
+    fn set_amp(&mut self, detector: usize, amp: f64) {
+        self.amplitudes.insert(detector, amp);
+    }
+
+    /// Set the minimum amplitude for all detectors not otherwise specified.
+    fn set_amps_baseline(&mut self, amp: f64) {
+        self.amplitudes.insert(usize::MAX, amp);
     }
 }
 
@@ -217,7 +244,7 @@ mod tests {
                 },
             ],
             sample_log_filters: Vec::<LogFilter>::new(),
-            amplitudes: 0.,
+            amplitudes: HashMap::new(),
         };
 
         let (starts, ends) = filters.get_time_filter_times();
@@ -262,7 +289,7 @@ mod tests {
                     upper: 6.,
                 },
             ],
-            amplitudes: 0.,
+            amplitudes: HashMap::new(),
         };
         let logs = filters.get_required_log_names();
         assert_eq!(
@@ -303,7 +330,7 @@ mod tests {
                     upper: 8.,
                 },
             ],
-            amplitudes: 0.,
+            amplitudes: HashMap::new(),
         };
 
         // logs from data::sample_logs tests
@@ -556,5 +583,67 @@ mod tests {
         let mut filters = Filters::new();
         let result = filters.remove_log_filter("nonexistent".to_string());
         assert!(result.is_err());
+    }
+
+    /// Test setting an amplitude for a given detector works.
+    #[test]
+    fn test_set_amp() {
+        let mut filters = Filters::new();
+        filters.set_amp(5, 3.);
+
+        let mut expected = HashMap::<usize, f64>::new();
+        expected.insert(5, 3.);
+        assert_eq!(filters.amplitudes, expected)
+    }
+
+    /// Test setting an amplitude for all detectors works.
+    #[test]
+    fn test_set_amps_baseline() {
+        let mut filters = Filters::new();
+        filters.set_amps_baseline(3.);
+
+        let mut expected = HashMap::<usize, f64>::new();
+        expected.insert(usize::MAX, 3.);
+        assert_eq!(filters.amplitudes, expected)
+    }
+
+    /// Test amplitudes are correctly converted to an array.
+    #[test]
+    fn test_get_amps() {
+        let mut filters = Filters::new();
+        filters.set_amp(2, 4.4);
+        filters.set_amp(5, 9.);
+
+        let expected = Array1::from_vec(vec![0., 0., 4.4, 0., 0., 9.]);
+        let actual = filters.get_amps(6).unwrap();
+
+        assert_eq!(actual, expected)
+    }
+
+    /// Test amplitudes are correctly converted to an array with baseline.
+    #[test]
+    fn test_get_amps_baseline() {
+        let mut filters = Filters::new();
+        filters.set_amp(2, 4.4);
+        filters.set_amp(5, 9.);
+        filters.set_amps_baseline(1.5);
+
+        let expected = Array1::from_vec(vec![1.5, 1.5, 4.4, 1.5, 1.5, 9.]);
+        let actual = filters.get_amps(6).unwrap();
+
+        assert_eq!(actual, expected)
+    }
+
+    /// Test an error is produced if a bad amplitude is given.
+    #[test]
+    fn test_get_amps_bad_amp() {
+        let mut filters = Filters::new();
+        filters.set_amp(2, 4.4);
+        filters.set_amp(20, 9.);
+
+        let result = filters.get_amps(6);
+        assert!(result.is_err());
+
+        assert_eq!(result.unwrap_err().to_string(), "Attempted to set amplitude filter for detector 20, but instrument only has 6 detectors.".to_string())
     }
 }
