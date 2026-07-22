@@ -178,13 +178,11 @@ where
         let mut current_start_idx = 0;
         let mut current_end_idx = 0;
         let mut in_filter = false;
-        let mut new_log = self.clone();
+        let mut new_times = Vec::<f64>::with_capacity(self.time.len());
+        let mut new_values = Vec::<T>::with_capacity(self.value.len());
         let max_start_idx = start_times.len() - 1;
 
-        for (k, t) in self.time.iter().enumerate().skip(1) {
-            if current_start_idx >= start_times.len() || current_end_idx >= end_times.len() {
-                break;
-            }
+        for (k, t) in self.time.iter().enumerate() {
             let time_ns = (t * S_TO_NS) as usize;
             if in_filter {
                 if time_ns >= end_times[current_end_idx] {
@@ -192,7 +190,8 @@ where
                     in_filter = false;
                     current_end_idx += 1;
                     current_start_idx += 1;
-                    continue;
+                    new_times.push(*t);
+                    new_values.push(self.value[k].clone());
                 } else if current_start_idx < max_start_idx
                     && time_ns >= start_times[current_start_idx + 1]
                 {
@@ -200,16 +199,21 @@ where
                     current_start_idx += 1;
                     current_end_idx += 1
                 }
-                new_log.value[k] = new_log.value[k - 1].clone();
-            } else if time_ns >= start_times[current_start_idx] {
+            } else if current_start_idx < start_times.len()
+                && time_ns >= start_times[current_start_idx]
+            {
                 // start of interval
                 in_filter = true;
-                if k > 0 {
-                    new_log.value[k] = new_log.value[k - 1].clone();
-                }
+            } else {
+                // not in filter; append to new log
+                new_times.push(*t);
+                new_values.push(self.value[k].clone());
             }
         }
-        new_log
+        ValueLog::<T> {
+            time: new_times.into(),
+            value: new_values.into(),
+        }
     }
 }
 
@@ -313,7 +317,7 @@ mod tests {
         let filter_ends = vec![(0.22 * S_TO_NS) as usize, (0.83 * S_TO_NS) as usize];
         let new_log = log.apply_filters(filter_starts, filter_ends);
 
-        let expected_vals = Array1::<f64>::from_vec(vec![0., 1., 1., 3., 4., 5., 5., 5., 5., 9.]);
+        let expected_vals = Array1::<f64>::from_vec(vec![0., 1., 3., 4., 5., 9.]);
         assert_eq!(new_log.value, expected_vals)
     }
 
@@ -338,7 +342,7 @@ mod tests {
         ];
         let new_log = log.apply_filters(filter_starts, filter_ends);
 
-        let expected_vals = Array1::<f64>::from_vec(vec![0., 0., 0., 0., 0., 0., 6., 7., 7., 9.]);
+        let expected_vals = Array1::<f64>::from_vec(vec![0., 6., 7., 9.]);
         assert_eq!(new_log.value, expected_vals)
     }
 
@@ -354,7 +358,7 @@ mod tests {
         let filter_ends = vec![(0.61 * S_TO_NS) as usize];
         let new_log = log.apply_filters(filter_starts, filter_ends);
 
-        let expected_vals = Array1::<f64>::from_vec(vec![0., 0., 0., 0., 0., 0., 0., 7., 8., 9.]);
+        let expected_vals = Array1::<f64>::from_vec(vec![7., 8., 9.]);
         assert_eq!(new_log.value, expected_vals)
     }
 
@@ -369,7 +373,7 @@ mod tests {
         let filter_ends = vec![usize::MAX];
         let new_log = log.apply_filters(filter_starts, filter_ends);
 
-        let expected_vals = Array1::<f64>::from_vec(vec![0., 1., 2., 3., 4., 4., 4., 4., 4., 4.]);
+        let expected_vals = Array1::<f64>::from_vec(vec![0., 1., 2., 3., 4.]);
         assert_eq!(new_log.value, expected_vals)
     }
 }
