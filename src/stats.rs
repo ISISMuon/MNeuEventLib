@@ -327,13 +327,16 @@ mod tests {
             1e-3,
         );
 
-        // period 0: events at indices 0, 1, 4
-        // period 1: events at indices 2, 3, 5
+        // bins are 0-1000, 1000-2000, 2000-3000
+        // period 0: events at times 500 (bin 0, spec 0), 600 (bin 0, spec 1), 2500 (bin 2, spec 0)
+        // period 1: events at times 1500 (bin 1, spec 0), 2300 (bin 2, spec 0), 2650 (bin 2, spec 1)
         let expected = Array3::<usize>::from_shape_vec(
             (2, 2, 3),
             vec![
-                1, 0, 1, 1, 0, 0, // period 0
-                0, 1, 1, 0, 0, 1, // period 1
+                1, 0, 1, // period 0, spec 0
+                1, 0, 0, // period 0, spec 1
+                0, 1, 1, // period 1, spec 0
+                0, 0, 1, // period 1, spec 1
             ],
         )
         .unwrap();
@@ -351,7 +354,21 @@ mod tests {
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
-        let result = make_histogram(times, specs, amps, 2, periods.slice(0, 4), 1, &min_amps, weights, 1., 3., 2, 1., 1e-3);
+        let result = make_histogram(
+            times,
+            specs,
+            amps,
+            2,
+            periods.slice(0, 4),
+            1,
+            &min_amps,
+            weights,
+            1.,
+            3.,
+            2,
+            1.,
+            1e-3,
+        );
 
         let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 0, 1, 1]).unwrap();
 
@@ -368,7 +385,21 @@ mod tests {
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
-        let result = make_histogram(times, specs, amps, 2, periods.slice(0, 4), 1, &min_amps, weights, 0., 2., 2, 1., 1e-3);
+        let result = make_histogram(
+            times,
+            specs,
+            amps,
+            2,
+            periods.slice(0, 4),
+            1,
+            &min_amps,
+            weights,
+            0.,
+            2.,
+            2,
+            1.,
+            1e-3,
+        );
 
         let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 1, 0, 1]).unwrap();
 
@@ -381,7 +412,7 @@ mod tests {
         let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
         let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
         let amps = Array1::from_vec(vec![1., 1., 1., 0.25, 1., 1.75]);
-        let periods = Array1::zeros(6);
+        let periods = RLEArray::zeros();
         let min_amps = Array1::from_vec(vec![0.5, 1.5]);
         let weights = Weights::ones(6);
 
@@ -390,7 +421,7 @@ mod tests {
             specs,
             amps,
             2,
-            &periods.slice(s![0..=5]),
+            periods.slice(0, 6),
             1,
             &min_amps,
             weights,
@@ -401,11 +432,9 @@ mod tests {
             1e-3,
         );
 
-        let expected =
-            Array3::<usize>::from_shape_vec((1, 2, 3), vec![1, 1, 1, 0, 0, 1]).unwrap();
+        let expected = Array3::<usize>::from_shape_vec((1, 2, 3), vec![1, 1, 1, 0, 0, 1]).unwrap();
 
         assert_eq!(result.hist, expected)
-    
     }
 
     /// Test that the conversion value correctly scales time values.
