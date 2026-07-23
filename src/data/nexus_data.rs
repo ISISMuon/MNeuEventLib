@@ -56,20 +56,36 @@ impl NexusData {
         py: Python<'py>,
     ) -> Result<Bound<'py, PyDict>> {
         let sample_log = self.get_sample_log(&log_name)?;
-
         let output = PyDict::new(py);
-        // PyDict is dynamically typed (as it's a Python object),
-        // but we need to unpack the type of the SampleLog anyway to make the Rust compiler happy
-        match sample_log {
-            SampleLog::Float(log) => {
-                output.set_item("time".to_string(), log.time.to_pyarray(py))?;
-                output.set_item("value".to_string(), log.value.to_pyarray(py))?;
+
+        // we need to use pattern matching to turn each log into a PyDict
+        // and PyDict is dynamically typed but we need to unpack the type anyway
+        // to make the Rust compiler happy
+        macro_rules! pydict_for_type {
+            ( $($type:path),+ ) => {
+                match sample_log {
+                    $(
+                        $type(log) => {
+                            output.set_item("time".to_string(), log.time.to_pyarray(py))?;
+                            output.set_item("value".to_string(), log.value.to_pyarray(py))?;
+                        }
+                    )+
+                }
             }
-            SampleLog::Int(log) => {
-                output.set_item("time".to_string(), log.time.to_pyarray(py))?;
-                output.set_item("value".to_string(), log.value.to_pyarray(py))?;
-            }
-        };
+        }
+
+        pydict_for_type! {
+            SampleLog::I8,
+            SampleLog::I16,
+            SampleLog::I32,
+            SampleLog::I64,
+            SampleLog::U8,
+            SampleLog::U16,
+            SampleLog::U32,
+            SampleLog::U64,
+            SampleLog::F32,
+            SampleLog::F64
+        }
         Ok(output)
     }
 
@@ -91,7 +107,7 @@ impl NexusData {
     pub fn get_sample_log(&self, log_name: &String) -> Result<SampleLog> {
         let log = match self.sample_logs.group(log_name) {
             Ok(group) => group,
-            Err(_) => return Err(Error::msg(format!("Sample log {} not found!", log_name))),
+            Err(_) => return Err(Error::msg(format!("Sample log {log_name} not found!"))),
         };
         let log_data = log.group("value_log")?;
 
