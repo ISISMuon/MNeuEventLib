@@ -115,7 +115,7 @@ impl Filters {
 #[pymethods]
 impl Filters {
     #[new]
-    fn new() -> Filters {
+    pub fn new() -> Filters {
         Filters {
             time_filter_type: FilterType::Include,
             time_filters: Vec::<Filter>::new(),
@@ -125,7 +125,7 @@ impl Filters {
     }
 
     /// Set the time filter type.
-    fn set_time_type(&mut self, filter_type: String) -> Result<()> {
+    pub fn set_time_type(&mut self, filter_type: String) -> Result<()> {
         match filter_type.to_lowercase().as_str() {
             "include" => {
                 self.time_filter_type = FilterType::Include;
@@ -140,7 +140,7 @@ impl Filters {
     }
 
     /// Add a time filter.
-    fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> Result<()> {
+    pub fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> Result<()> {
         // check name isn't already in use
         if self.time_filters.iter().any(|f| f.name == name) {
             return Err(Error::msg(
@@ -160,7 +160,7 @@ impl Filters {
         Ok(())
     }
 
-    fn remove_time_filter(&mut self, name: String) -> Result<()> {
+    pub fn remove_time_filter(&mut self, name: String) -> Result<()> {
         match self.time_filters.iter().position(|f| f.name == name) {
             Some(i) => {
                 self.time_filters.swap_remove(i);
@@ -171,7 +171,13 @@ impl Filters {
     }
 
     /// Add a log filter.
-    fn add_log_filter(&mut self, name: String, log: String, lower: f64, upper: f64) -> Result<()> {
+    pub fn add_log_filter(
+        &mut self,
+        name: String,
+        log: String,
+        lower: f64,
+        upper: f64,
+    ) -> Result<()> {
         if self.sample_log_filters.iter().any(|f| f.name == name) {
             return Err(Error::msg("Name already exists!"));
         }
@@ -184,7 +190,7 @@ impl Filters {
         Ok(())
     }
 
-    fn remove_log_filter(&mut self, name: String) -> Result<()> {
+    pub fn remove_log_filter(&mut self, name: String) -> Result<()> {
         match self.sample_log_filters.iter().position(|f| f.name == name) {
             Some(i) => {
                 self.sample_log_filters.swap_remove(i);
@@ -194,21 +200,21 @@ impl Filters {
         }
     }
 
-    fn add_log_filter_above(&mut self, name: String, log: String, lower: f64) -> Result<()> {
+    pub fn add_log_filter_above(&mut self, name: String, log: String, lower: f64) -> Result<()> {
         self.add_log_filter(name, log, lower, f64::INFINITY)
     }
 
-    fn add_log_filter_below(&mut self, name: String, log: String, upper: f64) -> Result<()> {
+    pub fn add_log_filter_below(&mut self, name: String, log: String, upper: f64) -> Result<()> {
         self.add_log_filter(name, log, -f64::INFINITY, upper)
     }
 
     /// Set the minimum amplitude for a given detector.
-    fn set_amp(&mut self, detector: usize, amp: f64) {
+    pub fn set_amp(&mut self, detector: usize, amp: f64) {
         self.amplitudes.insert(detector, amp);
     }
 
     /// Set the minimum amplitude for all detectors not otherwise specified.
-    fn set_amps_baseline(&mut self, amp: f64) {
+    pub fn set_amps_baseline(&mut self, amp: f64) {
         self.amplitudes.insert(usize::MAX, amp);
     }
 }

@@ -7,6 +7,8 @@ mod stats;
 use stats::Histogram;
 mod filters;
 use filters::Filters;
+mod interface;
+use interface::Data;
 mod consts;
 mod utils;
 
@@ -16,5 +18,6 @@ fn MNeuEventLib(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NexusData>()?;
     m.add_class::<Histogram>()?;
     m.add_class::<Filters>()?;
+    m.add_class::<Data>()?;
     Ok(())
 }
