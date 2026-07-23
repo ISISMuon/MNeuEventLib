@@ -247,8 +247,8 @@ mod tests {
     /// This test is for arrays that are an exact number of blocks.
     #[test]
     fn test_create_array_full_blocks() {
-        let ones = Weights::ones(192);
-        let zeros = Weights::zeros(128);
+        let ones = Weights::ones(64 * 3);
+        let zeros = Weights::zeros(64 * 2);
 
         assert_eq!(ones.raw_weights, vec![u64::MAX, u64::MAX, u64::MAX]);
         assert_eq!(zeros.raw_weights, vec![0, 0]);
