@@ -1,5 +1,7 @@
 use ndarray::Array1;
-use rayon::iter::{ParallelIterator, IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
+};
 
 use crate::filters::weights::Weights;
 use crate::utils::binary_search;
@@ -72,19 +74,20 @@ fn get_good_values(
         false => Weights::ones(n_frames),
     };
 
-    f_start.par_iter().zip(f_end.par_iter()).map(|(start, end)| {
-        let mut weight = base.clone();
-        weight.set_range(*start, *end, include);
-        weight 
-    }).
-    reduce(
-        || {base.clone()},
-        |acc, r| {
-            match include {
-            true => acc | r,
-            false => acc & r
-            }
-    }
+    f_start
+        .par_iter()
+        .zip(f_end.par_iter())
+        .map(|(start, end)| {
+            let mut weight = base.clone();
+            weight.set_range(*start, *end, include);
+            weight
+        })
+        .reduce(
+            || base.clone(),
+            |acc, r| match include {
+                true => acc | r,
+                false => acc & r,
+            },
         )
 }
 
@@ -175,10 +178,15 @@ mod tests {
     }
 
     /// Helper function for get_weights tests.
-    fn weight_test_helper(starts: Vec<usize>, ends: Vec<usize>, start_times: Array1<usize>, expected: Weights) {
+    fn weight_test_helper(
+        starts: Vec<usize>,
+        ends: Vec<usize>,
+        start_times: Array1<usize>,
+        expected: Weights,
+    ) {
         let weights = get_weights(starts.clone(), ends.clone(), &start_times, true);
         assert_eq!(weights, expected);
-        
+
         let weights = get_weights(starts.clone(), ends.clone(), &start_times, false);
         assert_eq!(weights, !expected);
     }
@@ -191,7 +199,12 @@ mod tests {
         let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
         //                                            ^-------^ filter
 
-        weight_test_helper(starts, ends, start_times, Weights::from_raw(vec![0b0001110]))
+        weight_test_helper(
+            starts,
+            ends,
+            start_times,
+            Weights::from_raw(vec![0b0001110]),
+        )
     }
 
     /// Test that the get_weights wrapper function behaves as expected for multiple filters.
@@ -202,7 +215,12 @@ mod tests {
         let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
         //                                            ^--^       ^-------^ filter
 
-        weight_test_helper(starts, ends, start_times, Weights::from_raw(vec![0b1110110]))
+        weight_test_helper(
+            starts,
+            ends,
+            start_times,
+            Weights::from_raw(vec![0b1110110]),
+        )
     }
 
     /// Test that the get_weights wrapper function behaves as expected when the filter is entirely
@@ -214,7 +232,12 @@ mod tests {
         let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
         //                                           ^^  filter
 
-        weight_test_helper(starts, ends, start_times, Weights::from_raw(vec![0b0000010]))
+        weight_test_helper(
+            starts,
+            ends,
+            start_times,
+            Weights::from_raw(vec![0b0000010]),
+        )
     }
 
     /// Test that the get_weights wrapper function behaves as expected when the filter is entirely
@@ -226,8 +249,12 @@ mod tests {
         let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
         //                                      ^-^ filter
 
-        weight_test_helper(starts, ends, start_times, Weights::from_raw(vec![0b0000001]))
-
+        weight_test_helper(
+            starts,
+            ends,
+            start_times,
+            Weights::from_raw(vec![0b0000001]),
+        )
     }
 
     /// Test that the get_weights wrapper function behaves as expected when the filter is entirely
@@ -239,6 +266,11 @@ mod tests {
         let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
         //                                                               ^--^ filter
 
-        weight_test_helper(starts, ends, start_times, Weights::from_raw(vec![0b1000000]))
+        weight_test_helper(
+            starts,
+            ends,
+            start_times,
+            Weights::from_raw(vec![0b1000000]),
+        )
     }
 }

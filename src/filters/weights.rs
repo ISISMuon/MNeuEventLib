@@ -124,9 +124,7 @@ impl Weights {
         };
         let lo = first_block / BLOCK_SIZE;
         let hi = last_block / BLOCK_SIZE;
-        self.raw_weights[lo..hi]
-            .iter_mut()
-            .for_each(|b| *b = value);
+        self.raw_weights[lo..hi].iter_mut().for_each(|b| *b = value);
     }
 }
 
@@ -190,29 +188,27 @@ impl Not for Weights {
 /// Routines used for unit tests.
 #[cfg(test)]
 impl Weights {
-        // this method is used to create expected weights vectors for unit tests,
-        // but is not used in the actual code
-        /// Create a weights array from a raw weight vector.
-        pub fn from_raw(raw_weights: Vec<u64>) -> Self {
-            Weights {
-                raw_weights,
-            }
-        }
+    // this method is used to create expected weights vectors for unit tests,
+    // but is not used in the actual code
+    /// Create a weights array from a raw weight vector.
+    pub fn from_raw(raw_weights: Vec<u64>) -> Self {
+        Weights { raw_weights }
+    }
 
-        /// Set the weight at a given index to a given value.
-        pub fn set_weight(&mut self, index: usize, set_to: bool) {
-            // bit manipulation patterns:
-            // `x | 1 << n`     sets bit `n` of the binary number `x` to 1
-            // `x & !(1 << n)`  sets bit `n` of the binary number `x` to 0
-            // note `1 << n` is the binary number with all zeroes except a 1 at position n,
-            // and so `!(1 << n)` is all ones except a zero at position n
+    /// Set the weight at a given index to a given value.
+    pub fn set_weight(&mut self, index: usize, set_to: bool) {
+        // bit manipulation patterns:
+        // `x | 1 << n`     sets bit `n` of the binary number `x` to 1
+        // `x & !(1 << n)`  sets bit `n` of the binary number `x` to 0
+        // note `1 << n` is the binary number with all zeroes except a 1 at position n,
+        // and so `!(1 << n)` is all ones except a zero at position n
 
-            match set_to {
-                true => self.raw_weights[index / BLOCK_SIZE] |= 1 << (index % BLOCK_SIZE),
-                false => self.raw_weights[index / BLOCK_SIZE] &= !(1 << (index % BLOCK_SIZE)),
-            }
+        match set_to {
+            true => self.raw_weights[index / BLOCK_SIZE] |= 1 << (index % BLOCK_SIZE),
+            false => self.raw_weights[index / BLOCK_SIZE] &= !(1 << (index % BLOCK_SIZE)),
         }
     }
+}
 
 #[cfg(test)]
 mod tests {
