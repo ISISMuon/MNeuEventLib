@@ -1,4 +1,5 @@
 use ndarray::Array1;
+use rayon::iter::{ParallelIterator, IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator};
 
 use crate::filters::weights::Weights;
 use crate::utils::binary_search;
@@ -27,11 +28,10 @@ fn get_indices(
 
     // map each filter to a (start, stop) index pair
     (0..n_filters)
+        .into_par_iter()
         .map(|j| {
             let start = binary_search(start_times, 0, n_frames, filter_starts[j]);
-            let mut end = binary_search(start_times, 0, n_frames, filter_ends[j]);
-            // adjust end to be the upper bound of the frame its in
-            end += 1;
+            let end = binary_search(start_times, 0, n_frames, filter_ends[j]) + 1;
 
             (start, end)
         })
@@ -67,16 +67,25 @@ fn get_good_values(
     // if `include` is true, we start with an array of zeroes and add
     // ranges of ones. if it is false, we start with an array of ones
     // and add ranges of zeroes.
-    let mut result = match include {
+    let base = match include {
         true => Weights::zeros(n_frames),
         false => Weights::ones(n_frames),
     };
 
-    f_start.iter().zip(f_end.iter()).for_each(|(start, end)| {
-        result.set_range(*start, *end, include);
-    });
-
-    result
+    f_start.par_iter().zip(f_end.par_iter()).map(|(start, end)| {
+        let mut weight = base.clone();
+        weight.set_range(*start, *end, include);
+        weight 
+    }).
+    reduce(
+        || {base.clone()},
+        |acc, r| {
+            match include {
+            true => acc | r,
+            false => acc & r
+            }
+    }
+        )
 }
 
 #[cfg(test)]
@@ -165,6 +174,15 @@ mod tests {
         assert_eq!(weights, Weights::from_raw(vec![0b0110010]))
     }
 
+    /// Helper function for get_weights tests.
+    fn weight_test_helper(starts: Vec<usize>, ends: Vec<usize>, start_times: Array1<usize>, expected: Weights) {
+        let weights = get_weights(starts.clone(), ends.clone(), &start_times, true);
+        assert_eq!(weights, expected);
+        
+        let weights = get_weights(starts.clone(), ends.clone(), &start_times, false);
+        assert_eq!(weights, !expected);
+    }
+
     /// Test that the get_weights wrapper function behaves as expected.
     #[test]
     fn test_get_weights_one_filter() {
@@ -173,9 +191,7 @@ mod tests {
         let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
         //                                            ^-------^ filter
 
-        let weights = get_weights(starts, ends, &start_times, true);
-
-        assert_eq!(weights, Weights::from_raw(vec![0b0001110]))
+        weight_test_helper(starts, ends, start_times, Weights::from_raw(vec![0b0001110]))
     }
 
     /// Test that the get_weights wrapper function behaves as expected for multiple filters.
@@ -186,9 +202,7 @@ mod tests {
         let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
         //                                            ^--^       ^-------^ filter
 
-        let weights = get_weights(starts, ends, &start_times, true);
-
-        assert_eq!(weights, Weights::from_raw(vec![0b1110110]))
+        weight_test_helper(starts, ends, start_times, Weights::from_raw(vec![0b1110110]))
     }
 
     /// Test that the get_weights wrapper function behaves as expected when the filter is entirely
@@ -200,10 +214,7 @@ mod tests {
         let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
         //                                           ^^  filter
 
-        let weights = get_weights(starts, ends, &start_times, true);
-
-        // should be 1s between 10-20
-        assert_eq!(weights, Weights::from_raw(vec![0b0000010]))
+        weight_test_helper(starts, ends, start_times, Weights::from_raw(vec![0b0000010]))
     }
 
     /// Test that the get_weights wrapper function behaves as expected when the filter is entirely
@@ -215,9 +226,8 @@ mod tests {
         let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
         //                                      ^-^ filter
 
-        let weights = get_weights(starts, ends, &start_times, true);
+        weight_test_helper(starts, ends, start_times, Weights::from_raw(vec![0b0000001]))
 
-        assert_eq!(weights, Weights::from_raw(vec![0b0000001]))
     }
 
     /// Test that the get_weights wrapper function behaves as expected when the filter is entirely
@@ -229,8 +239,6 @@ mod tests {
         let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
         //                                                               ^--^ filter
 
-        let weights = get_weights(starts, ends, &start_times, true);
-
-        assert_eq!(weights, Weights::from_raw(vec![0b1000000]))
+        weight_test_helper(starts, ends, start_times, Weights::from_raw(vec![0b1000000]))
     }
 }

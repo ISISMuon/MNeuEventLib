@@ -5,11 +5,7 @@ use std::cmp::max;
 /// This is used as an efficient way to represent a filter; in the histogram code,
 /// a weight of 1 for an event indicates that an event should be included in the histogram,
 /// whereas a weight of 0 means it should not be included.
-use std::ops::{BitAnd, Index, Not};
-
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
-};
+use std::ops::{BitAnd, BitOr, Index, Not};
 
 const BLOCK_SIZE: usize = 64;
 
@@ -21,7 +17,7 @@ const BLOCK_SIZE: usize = 64;
 
 /// Struct to store weights as a bit string.
 /// The bits are stored in 64-bit blocks.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Weights {
     // Note that each block of raw weights is stored in little-endian order;
     // that is, e.g. for the second block (representing weights 64-127)
@@ -129,7 +125,7 @@ impl Weights {
         let lo = first_block / BLOCK_SIZE;
         let hi = last_block / BLOCK_SIZE;
         self.raw_weights[lo..hi]
-            .par_iter_mut()
+            .iter_mut()
             .for_each(|b| *b = value);
     }
 }
@@ -157,9 +153,25 @@ impl BitAnd for Weights {
         Weights {
             raw_weights: self
                 .raw_weights
-                .par_iter()
-                .zip(rhs.raw_weights.par_iter())
+                .iter()
+                .zip(rhs.raw_weights.iter())
                 .map(|(x, y)| x & y)
+                .collect(),
+        }
+    }
+}
+
+impl BitOr for Weights {
+    type Output = Weights;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        // we simply iterate bitwise AND over the blocks
+        Weights {
+            raw_weights: self
+                .raw_weights
+                .iter()
+                .zip(rhs.raw_weights.iter())
+                .map(|(x, y)| x | y)
                 .collect(),
         }
     }
@@ -170,7 +182,7 @@ impl Not for Weights {
 
     fn not(self) -> Self::Output {
         Weights {
-            raw_weights: self.raw_weights.par_iter().map(|x| !x).collect(),
+            raw_weights: self.raw_weights.iter().map(|x| !x).collect(),
         }
     }
 }
