@@ -63,33 +63,24 @@ impl Histogram {
         let (log_starts, log_ends) = filters.get_log_filter_times(value_logs);
 
         let weights = if time_starts.is_empty() && log_starts.is_empty() {
-            Weights::ones(data.n_events)
+            Weights::ones(data.n_frames)
         } else {
             let frame_start_times: Array1<usize> = data.frame_times.read_1d()?;
             let time_weights = if time_starts.is_empty() {
-                Weights::ones(data.n_events)
+                Weights::ones(data.n_frames)
             } else {
                 get_weights(
                     time_starts,
                     time_ends,
                     &frame_start_times,
-                    &start_index,
-                    data.n_events,
                     filters.is_include(),
                 )
             };
             // log weights are always include filters
             let log_weights = if log_starts.is_empty() {
-                Weights::ones(data.n_events)
+                Weights::ones(data.n_frames)
             } else {
-                get_weights(
-                    log_starts,
-                    log_ends,
-                    &frame_start_times,
-                    &start_index,
-                    data.n_events,
-                    true,
-                )
+                get_weights(log_starts, log_ends, &frame_start_times, true)
             };
             time_weights & log_weights
         };
@@ -150,7 +141,7 @@ pub fn calculate_histograms(
                 &periods,
                 n_periods,
                 &min_amps,
-                weights.slice(start, end),
+                &weights,
                 frame_data.slice(start, end),
                 min_time,
                 max_time,
@@ -186,7 +177,7 @@ fn make_histogram(
     periods: &Array1<usize>,
     n_periods: usize,
     min_amps: &Array1<f64>,
-    weights: Weights,
+    weights: &Weights,
     frame_data: FrameData,
     min_time: f32,
     max_time: f32,
@@ -201,6 +192,11 @@ fn make_histogram(
 
     // iterate over the frames in the slice
     for (i, frame) in frame_data.frame_number.iter().enumerate() {
+        // if the weight for this frame is 0, skip the frame
+        if !weights[*frame] {
+            continue;
+        }
+
         // get event indices of this frame in the slice
         let frame_start_event = frame_data.start_index[i];
         let frame_end_event = if frame == last_frame {
@@ -215,9 +211,8 @@ fn make_histogram(
             let t = times[k] as f32 * conversion;
             let amp = amps[k];
             let spec = specs[k] as usize;
-            let weight = weights[k];
 
-            if weight && (t >= min_time) && (t <= max_time) && amp > min_amps[spec] {
+            if (t >= min_time) && (t <= max_time) && amp > min_amps[spec] {
                 let bin = ((t - min_time) / width as f32).floor() as usize;
                 result.hist[[period, spec, bin]] += 1;
                 result.n += 1
@@ -268,7 +263,7 @@ mod tests {
             &periods,
             1,
             &min_amps,
-            weights,
+            &weights,
             FrameData::one_frame(6),
             0.,
             3.,
@@ -301,8 +296,8 @@ mod tests {
             &periods,
             1,
             &min_amps,
-            weights,
-            FrameData::one_frame(6),
+            &weights,
+            FrameData::one_event_per_frame(6),
             0.,
             3.,
             3,
@@ -333,7 +328,7 @@ mod tests {
             &periods,
             2,
             &min_amps,
-            weights,
+            &weights,
             FrameData::one_event_per_frame(6),
             0.,
             3.,
@@ -377,7 +372,7 @@ mod tests {
             &periods,
             1,
             &min_amps,
-            weights,
+            &weights,
             FrameData::one_frame(4),
             1.,
             3.,
@@ -409,7 +404,7 @@ mod tests {
             &periods,
             1,
             &min_amps,
-            weights,
+            &weights,
             FrameData::one_frame(4),
             0.,
             2.,
@@ -441,7 +436,7 @@ mod tests {
             &periods,
             1,
             &min_amps,
-            weights,
+            &weights,
             FrameData::one_frame(6),
             0.,
             3.,
@@ -472,7 +467,7 @@ mod tests {
             &periods,
             1,
             &min_amps,
-            Weights::ones(3),
+            &Weights::ones(3),
             FrameData::one_frame(3),
             0.,
             3.,
@@ -493,7 +488,7 @@ mod tests {
             &periods,
             1,
             &min_amps,
-            Weights::ones(3),
+            &Weights::ones(3),
             FrameData::one_frame(3),
             0.,
             3.,
