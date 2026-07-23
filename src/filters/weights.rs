@@ -31,16 +31,24 @@ pub struct Weights {
 impl Weights {
     /// Create an array of all ones weights.
     pub fn ones(len: usize) -> Self {
+        let array_size = match len % BLOCK_SIZE {
+            0 => len / BLOCK_SIZE,
+            _ => len / BLOCK_SIZE + 1, // account for partial block at end
+        };
         Weights {
-            raw_weights: vec![u64::MAX; max(len / BLOCK_SIZE, 1)],
+            raw_weights: vec![u64::MAX; max(array_size, 1)],
             offset: 0,
         }
     }
 
     /// Create an array of all zero weights.
     pub fn zeros(len: usize) -> Self {
+        let array_size = match len % BLOCK_SIZE {
+            0 => len / BLOCK_SIZE,
+            _ => len / BLOCK_SIZE + 1, // account for partial block at end
+        };
         Weights {
-            raw_weights: vec![0; max(len / BLOCK_SIZE, 1)],
+            raw_weights: vec![0; max(array_size, 1)],
             offset: 0,
         }
     }
@@ -234,6 +242,31 @@ mod tests {
     // this web link is good for checking that the 'expected values' look how we expect:
     //  https://www.rapidtables.com/convert/number/decimal-to-binary.html
     // we want to look at the signed 2's compliment
+
+    /// Test that creating an array creates an array of the expected length.
+    /// This test is for arrays that are an exact number of blocks.
+    #[test]
+    fn test_create_array_full_blocks() {
+        let ones = Weights::ones(192);
+        let zeros = Weights::zeros(128);
+
+        assert_eq!(ones.raw_weights, vec![u64::MAX, u64::MAX, u64::MAX]);
+        assert_eq!(zeros.raw_weights, vec![0, 0]);
+    }
+
+    /// Test that creating an array creates an array of the expected length.
+    /// This test is for arrays that are not an exact number of blocks.
+    #[test]
+    fn test_create_array_partial_blocks() {
+        let ones = Weights::ones(200);
+        let zeros = Weights::zeros(70);
+
+        assert_eq!(
+            ones.raw_weights,
+            vec![u64::MAX, u64::MAX, u64::MAX, u64::MAX]
+        );
+        assert_eq!(zeros.raw_weights, vec![0, 0]);
+    }
 
     /// Test set_weight sets the expected weights.
     #[test]
