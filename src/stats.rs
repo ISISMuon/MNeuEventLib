@@ -115,28 +115,31 @@ pub fn calculate_histograms(
     weights: Weights,
     frame_data: FrameData,
 ) -> Histogram {
-    let width: f64 = (max_time - min_time) as f64 / n_bins as f64;
+    let width: f32 = (max_time - min_time) / n_bins as f32;
 
     // iterate over the data chunks, make histograms for each, then sum histograms at the end
     (0..dataset.n_events)
         .into_par_iter()
         .step_by(dataset.chunk_size)
         .map(|start| {
-            let end = min(start + dataset.chunk_size, dataset.n_events);
+            let end = min(start + (dataset.chunk_size), dataset.n_events);
             let array_slice = s![start..end];
+            let amps: Array1<f64> = dataset
+                .amps
+                .read_slice_1d(array_slice)
+                .expect("failed to read amplitudes.");
+            let times: Array1<usize> = dataset
+                .times
+                .read_slice_1d(array_slice)
+                .expect("Failed to read times.");
+            let specs: Array1<usize> = dataset
+                .specs
+                .read_slice_1d(array_slice)
+                .expect("Failed to read specs.");
             make_histogram(
-                dataset
-                    .times
-                    .read_slice_1d(array_slice)
-                    .expect("Failed to read times."),
-                dataset
-                    .specs
-                    .read_slice_1d(array_slice)
-                    .expect("Failed to read specs."),
-                dataset
-                    .amps
-                    .read_slice_1d(array_slice)
-                    .expect("Failed to read amplitudes."),
+                times,
+                specs,
+                amps,
                 dataset.n_spec,
                 &periods,
                 n_periods,
@@ -170,8 +173,8 @@ pub fn calculate_histograms(
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 fn make_histogram(
-    times: Array1<u32>,
-    specs: Array1<u32>,
+    times: Array1<usize>,
+    specs: Array1<usize>,
     amps: Array1<f64>,
     n_spec: usize,
     periods: &Array1<usize>,
@@ -182,7 +185,7 @@ fn make_histogram(
     min_time: f32,
     max_time: f32,
     n_bins: usize,
-    width: f64,
+    width: f32,
     conversion: f32,
 ) -> Histogram {
     let mut result = Histogram::new(min_time, max_time, n_bins);
@@ -206,14 +209,15 @@ fn make_histogram(
         };
 
         let period = periods[*frame];
+        result.n += 1;
 
         for k in frame_start_event..frame_end_event {
             let t = times[k] as f32 * conversion;
             let amp = amps[k];
-            let spec = specs[k] as usize;
+            let spec = specs[k];
 
             if (t >= min_time) && (t <= max_time) && amp > min_amps[spec] {
-                let bin = ((t - min_time) / width as f32).floor() as usize;
+                let bin = ((t - min_time) / width).floor() as usize;
                 result.hist[[period, spec, bin]] += 1;
                 result.n += 1
             }
