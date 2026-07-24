@@ -9,9 +9,11 @@ name = "MNeuEventLib"
 crate-type = ["cdylib"]
 
 [dependencies]
-hdf5 = { package = "hdf5-metno", version = "0.12.4", features=["static"] }
+hdf5 = { package = "hdf5-metno", version = "0.12.4", features = ["static"] }
 ndarray = "0.17.2"
 rayon = "1.12.0"
 anyhow = "1.0.102"
 pyo3 = { version = "0.28.0", features = ["anyhow"] }
 numpy = "0.28.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
