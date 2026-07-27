@@ -20,6 +20,8 @@ pub struct Histogram {
     pub n_bins: usize,
     pub hist: Array3<usize>,
     pub n: usize,
+    pub n_frames: u32,
+    pub n_good_frames: u32,
 }
 
 #[pymethods]
@@ -32,6 +34,8 @@ impl Histogram {
             n_bins,
             hist: Array3::zeros((0, 0, 0)),
             n: 0,
+            n_frames: 0,
+            n_good_frames: 0,
         }
     }
 
@@ -85,9 +89,12 @@ impl Histogram {
             time_weights & log_weights
         };
 
+        // todo: once vetos are added, calculate n_good_frames too
+        let n_frames = weights.count();
+
         let min_amps = filters.get_amps(data.n_spec)?;
 
-        Ok(calculate_histograms(
+        let mut histogram = calculate_histograms(
             data,
             self.min_time,
             self.max_time,
@@ -97,7 +104,11 @@ impl Histogram {
             min_amps,
             weights,
             frame_data,
-        ))
+        );
+        histogram.n_frames = n_frames;
+        histogram.n_good_frames = n_frames;
+
+        Ok(histogram)
     }
 }
 

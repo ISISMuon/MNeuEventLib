@@ -1,7 +1,7 @@
 use anyhow::{Error, Result};
 use pyo3::prelude::{pyclass, pymethods};
 
-use crate::data::NexusData;
+use crate::data::{NexusData, SaveFile, WiMDAFile};
 use crate::filters::Filters;
 use crate::stats::Histogram;
 
@@ -41,7 +41,9 @@ impl Data {
     fn calculate(&mut self) -> Result<Histogram> {
         if self.data_changed {
             self.data_changed = false;
-            self.results.calculate(&self.dataset, &self.filters)
+            let results = self.results.calculate(&self.dataset, &self.filters)?;
+            self.results = results.clone();
+            Ok(results)
         } else {
             // if data hasn't changed, just return the existing saved results
             Ok(self.results.clone())
@@ -196,5 +198,29 @@ impl Data {
     fn set_amps_baseline(&mut self, amp: f64) {
         self.data_changed = true;
         self.filters.set_amps_baseline(amp)
+    }
+
+    /// Save to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename for the saved file.
+    fn save(&self, filename: String) -> Result<()> {
+        WiMDAFile::save(self, filename)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_save() {
+        let mut data = Data::new("SIM00000001.nxs".to_string(), 64, 1048576).unwrap();
+
+        data.calculate().unwrap();
+
+        data.save("output.nxs".to_string()).unwrap()
     }
 }

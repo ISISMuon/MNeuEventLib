@@ -14,7 +14,7 @@ use crate::data::SampleLog;
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct NexusData {
-    pub file: String,
+    pub file: File,
     pub specs: Dataset,
     pub times: Dataset,
     pub amps: Dataset,
@@ -104,7 +104,7 @@ fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<NexusD
     let n_frames = frames.size();
 
     Ok(NexusData {
-        file: filename.to_str().unwrap().to_string(),
+        file,
         specs,
         times,
         amps,
