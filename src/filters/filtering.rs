@@ -1,7 +1,5 @@
 use ndarray::Array1;
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
-};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::filters::weights::Weights;
 use crate::utils::binary_search;
@@ -69,26 +67,20 @@ fn get_good_values(
     // if `include` is true, we start with an array of zeroes and add
     // ranges of ones. if it is false, we start with an array of ones
     // and add ranges of zeroes.
-    let base = match include {
+    let mut result = match include {
         true => Weights::zeros(n_frames),
         false => Weights::ones(n_frames),
     };
 
-    f_start
-        .par_iter()
-        .zip(f_end.par_iter())
-        .map(|(start, end)| {
-            let mut weight = base.clone();
-            weight.set_range(*start, *end, include);
-            weight
-        })
-        .reduce(
-            || base.clone(),
-            |acc, r| match include {
-                true => acc | r,
-                false => acc & r,
-            },
-        )
+    f_start.iter().zip(f_end.iter()).for_each(|(start, end)| {
+        if end == &n_frames {
+            result.set_range(*start, n_frames, include);
+        } else {
+            result.set_range(*start, *end, include);
+        }
+    });
+
+    result
 }
 
 #[cfg(test)]

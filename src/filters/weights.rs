@@ -5,7 +5,7 @@ use std::cmp::max;
 /// This is used as an efficient way to represent a filter; in the histogram code,
 /// a weight of 1 for an event indicates that an event should be included in the histogram,
 /// whereas a weight of 0 means it should not be included.
-use std::ops::{BitAnd, BitOr, Index, Not};
+use std::ops::{BitAnd, Index, Not};
 
 const BLOCK_SIZE: usize = 64;
 
@@ -154,22 +154,6 @@ impl BitAnd for Weights {
                 .iter()
                 .zip(rhs.raw_weights.iter())
                 .map(|(x, y)| x & y)
-                .collect(),
-        }
-    }
-}
-
-impl BitOr for Weights {
-    type Output = Weights;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        // we simply iterate bitwise AND over the blocks
-        Weights {
-            raw_weights: self
-                .raw_weights
-                .iter()
-                .zip(rhs.raw_weights.iter())
-                .map(|(x, y)| x | y)
                 .collect(),
         }
     }
