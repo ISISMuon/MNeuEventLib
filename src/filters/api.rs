@@ -4,6 +4,7 @@ use std::fs::File;
 
 use anyhow::{Error, Result};
 use ndarray::Array1;
+use tabled::{builder::Builder, Table, Tabled};
 use pyo3::prelude::{pyclass, pymethods, Bound};
 use pyo3::types::PyType;
 use serde::{Deserialize, Serialize};
@@ -17,7 +18,7 @@ enum FilterType {
     Exclude,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Tabled)]
 pub struct Filter {
     name: String,
     start: f64,
@@ -237,6 +238,39 @@ impl Filters {
     #[classmethod]
     pub fn load(_cls: &Bound<'_, PyType>, filename: String) -> Result<Filters> {
         _load(filename)
+    }
+
+    /// Create a string describing the filter data. 
+    fn report(&self) -> String {
+        let mut times_table = Table::new(&self.time_filters);
+
+        let mut log_builder = Builder::new();
+        log_builder.push_record(["name", "log", "min", "max"]);
+        for filter in &self.sample_log_filters {
+            log_builder.push_record([
+                &filter.name,
+                &filter.log,
+                &filter.lower.unwrap_or(-f64::INFINITY).to_string(),
+                &filter.upper.unwrap_or(f64::INFINITY).to_string()
+            ]);
+        };
+        let mut log_table = log_builder.build();
+
+        let mut amps_builder = Builder::new();
+        amps_builder.push_record(["detector", "amplitude"]);
+        for (detector, amp) in self.amplitudes.iter() {
+            if detector == &usize::MAX {
+                amps_builder.push_record(["baseline", &amp.to_string()]);
+            } else {
+                amps_builder.push_record([detector.to_string(), amp.to_string()]);
+            }
+        };
+        let amps_table = amps_builder.build();
+        let time_type = match self.time_filter_type {
+            FilterType::Include => "include",
+            FilterType::Exclude => "exclude"
+        };
+        format!("Time filter type: {time_type}\n\nTime filters:\n{times_table}\n\nLog filters:\n{log_table}\n\nAmplitude filters:\n{amps_table}")
     }
 }
 
