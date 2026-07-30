@@ -15,6 +15,7 @@ use crate::data::SampleLog;
 #[derive(Clone)]
 pub struct NexusData {
     pub file: File,
+    pub filename: String,
     pub specs: Dataset,
     pub times: Dataset,
     pub amps: Dataset,
@@ -105,6 +106,7 @@ fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<NexusD
 
     Ok(NexusData {
         file,
+        filename: filename.to_str().unwrap().to_string(),
         specs,
         times,
         amps,
