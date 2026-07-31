@@ -51,6 +51,24 @@ impl Histogram {
     fn n_events(&self) -> usize {
         self.n
     }
+
+    pub fn __repr__(&self) -> String {
+        let shape = self.hist.shape();
+        let mut string = format!(
+            "Histogram with:\n  time range {}, {}",
+            self.min_time, self.max_time
+        );
+        if shape == [0, 0, 0] {
+            string += &format!("\n  {} bins\n  result not calculated", self.n_bins);
+        } else {
+            let plural_periods = if shape[0] > 1 { "s" } else { "" };
+            string += &format!(
+                "\n  {} period{}\n  {} detectors\n  {} bins\n  {} events",
+                shape[0], plural_periods, shape[1], shape[2], self.n
+            )
+        }
+        string
+    }
 }
 
 impl Histogram {

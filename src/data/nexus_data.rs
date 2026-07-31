@@ -102,6 +102,10 @@ impl NexusData {
         let (results, max) = self.get_amp_histogram(max_height, n_bins)?;
         Ok((results.to_pyarray(py), max))
     }
+
+    pub fn __repr__(&self) -> String {
+        "Dataset: ".to_owned() + &self.filename.clone()
+    }
 }
 
 impl NexusData {

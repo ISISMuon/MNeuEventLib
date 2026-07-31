@@ -4,10 +4,10 @@ use std::fs::File;
 
 use anyhow::{Error, Result};
 use ndarray::Array1;
-use tabled::{builder::Builder, Table, Tabled};
 use pyo3::prelude::{pyclass, pymethods, Bound};
 use pyo3::types::PyType;
 use serde::{Deserialize, Serialize};
+use tabled::{builder::Builder, Table, Tabled};
 
 use crate::consts::S_TO_NS;
 use crate::data::SampleLog;
@@ -240,9 +240,9 @@ impl Filters {
         _load(filename)
     }
 
-    /// Create a string describing the filter data. 
-    fn report(&self) -> String {
-        let mut times_table = Table::new(&self.time_filters);
+    /// Create a string describing the filter data.
+    pub fn __repr__(&self) -> String {
+        let times_table = Table::new(&self.time_filters);
 
         let mut log_builder = Builder::new();
         log_builder.push_record(["name", "log", "min", "max"]);
@@ -251,10 +251,10 @@ impl Filters {
                 &filter.name,
                 &filter.log,
                 &filter.lower.unwrap_or(-f64::INFINITY).to_string(),
-                &filter.upper.unwrap_or(f64::INFINITY).to_string()
+                &filter.upper.unwrap_or(f64::INFINITY).to_string(),
             ]);
-        };
-        let mut log_table = log_builder.build();
+        }
+        let log_table = log_builder.build();
 
         let mut amps_builder = Builder::new();
         amps_builder.push_record(["detector", "amplitude"]);
@@ -264,11 +264,11 @@ impl Filters {
             } else {
                 amps_builder.push_record([detector.to_string(), amp.to_string()]);
             }
-        };
+        }
         let amps_table = amps_builder.build();
         let time_type = match self.time_filter_type {
             FilterType::Include => "include",
-            FilterType::Exclude => "exclude"
+            FilterType::Exclude => "exclude",
         };
         format!("Time filter type: {time_type}\n\nTime filters:\n{times_table}\n\nLog filters:\n{log_table}\n\nAmplitude filters:\n{amps_table}")
     }
