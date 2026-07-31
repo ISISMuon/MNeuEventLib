@@ -34,13 +34,6 @@ pub struct NexusData {
 
 #[pymethods]
 impl NexusData {
-    #[new]
-    #[pyo3(signature = (filename, n_spec, chunk_size=1048576))]
-    pub fn new(filename: String, n_spec: usize, chunk_size: usize) -> Result<Self> {
-        let path = Path::new(&filename);
-        load_data(path, n_spec, chunk_size)
-    }
-
     /// used for testing
     fn get_frame_times<'py>(slf: &Bound<'py, NexusData>) -> Bound<'py, PyArray1<u32>> {
         let py = slf.py();
@@ -110,6 +103,10 @@ impl NexusData {
 
 impl NexusData {
     /// Retreve the data for a sample log.
+    pub fn new(filename: String, n_spec: usize, chunk_size: usize) -> Result<Self> {
+        let path = Path::new(&filename);
+        load_data(path, n_spec, chunk_size)
+    }
     pub fn get_sample_log(&self, log_name: &String) -> Result<SampleLog> {
         let log = match self.sample_logs.group(log_name) {
             Ok(group) => group,

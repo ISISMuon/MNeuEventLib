@@ -28,21 +28,6 @@ pub struct Histogram {
 
 #[pymethods]
 impl Histogram {
-    #[new]
-    pub fn new(min_time: f32, max_time: f32, n_bins: usize) -> Histogram {
-        Histogram {
-            min_time,
-            max_time,
-            n_bins,
-            hist: Array3::zeros((0, 0, 0)),
-            n: 0,
-            n_frames: vec![0],
-            n_good_frames: vec![0],
-            start_time: 0,
-            end_time: 0,
-        }
-    }
-
     fn data<'py>(slf: &Bound<'py, Histogram>) -> PyHist<'py> {
         let py = slf.py();
         slf.borrow().hist.to_pyarray(py)
@@ -72,6 +57,20 @@ impl Histogram {
 }
 
 impl Histogram {
+    pub fn new(min_time: f32, max_time: f32, n_bins: usize) -> Histogram {
+        Histogram {
+            min_time,
+            max_time,
+            n_bins,
+            hist: Array3::zeros((0, 0, 0)),
+            n: 0,
+            n_frames: vec![0],
+            n_good_frames: vec![0],
+            start_time: 0,
+            end_time: 0,
+        }
+    }
+
     pub fn calculate(&self, data: &NexusData, filters: &Filters) -> Result<Histogram> {
         // get period data
         let periods: Array1<u32> = data.periods.read_1d()?;
