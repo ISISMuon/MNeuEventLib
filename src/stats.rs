@@ -20,8 +20,8 @@ pub struct Histogram {
     pub n_bins: usize,
     pub hist: Array3<usize>,
     pub n: usize,
-    pub n_frames: u32,
-    pub n_good_frames: u32,
+    pub n_frames: Vec<u32>,
+    pub n_good_frames: Vec<u32>,
 }
 
 #[pymethods]
@@ -34,8 +34,8 @@ impl Histogram {
             n_bins,
             hist: Array3::zeros((0, 0, 0)),
             n: 0,
-            n_frames: 0,
-            n_good_frames: 0,
+            n_frames: vec![0],
+            n_good_frames: vec![0],
         }
     }
 
@@ -90,7 +90,11 @@ impl Histogram {
         };
 
         // todo: once vetos are added, calculate n_good_frames too
-        let n_frames = weights.count();
+        let n_frames = if n_periods == 1 {
+            vec![weights.count()]
+        } else {
+            get_period_frames(&periods, n_periods, &weights)
+        };
 
         let min_amps = filters.get_amps(data.n_spec)?;
 
@@ -105,11 +109,22 @@ impl Histogram {
             weights,
             frame_data,
         );
-        histogram.n_frames = n_frames;
+        histogram.n_frames = n_frames.clone();
         histogram.n_good_frames = n_frames;
 
         Ok(histogram)
     }
+}
+
+/// Calculate the number of kept frames for each period.
+pub fn get_period_frames(periods: &Array1<u32>, n_periods: usize, weights: &Weights) -> Vec<u32> {
+    let mut output = vec![0; n_periods];
+    for (k, period) in periods.iter().enumerate() {
+        if weights[k] {
+            output[*period as usize] += 1
+        }
+    }
+    output
 }
 
 /// Calculate histograms and output the result.

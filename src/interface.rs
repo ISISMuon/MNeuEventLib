@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_load_save() {
-        let mut data = Data::new("SIM00000001.nxs".to_string(), 64, 1048576).unwrap();
+        let mut data = Data::new("HIFI00206202.nxs".to_string(), 64, 1048576).unwrap();
 
         data.calculate().unwrap();
 

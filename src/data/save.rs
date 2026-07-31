@@ -3,7 +3,7 @@ use core::str::FromStr;
 use anyhow::Result;
 use hdf5::types::{FixedAscii, VarLenUnicode};
 use hdf5::{File, Group, H5Type, Location};
-use ndarray::{arr0, Array1, Array3};
+use ndarray::{arr0, Array, Array1, Array3, Dimension, s};
 
 use crate::data::SampleLog;
 use crate::interface::Data;
@@ -23,9 +23,14 @@ trait Save {
 
 /// Create a dataset with a scalar in it.
 fn add_scalar<T: H5Type>(group: &Group, scalar: T, name: &str) -> Result<()> {
-    let builder = group.new_dataset_builder();
     let data: Array1<T> = Array1::from_vec(vec![scalar]);
-    let builder = builder.with_data(&data);
+    add_array(group, &data, name)
+}
+
+/// Create a dataset with a scalar in it.
+fn add_array<T: H5Type, D: Dimension>(group: &Group, array: &Array<T, D>, name: &str) -> Result<()> {
+    let builder = group.new_dataset_builder();
+    let builder = builder.with_data(array);
     builder.create(name)?;
     Ok(())
 }
@@ -102,9 +107,9 @@ impl SaveFile for WiMDAFile {
         let hist_data = file.create_group("raw_data_1")?;
         add_nx_class(&hist_data, "NXentry")?;
 
-        let unfiltered_frames = data.dataset.periods.size() as i32;
-        let raw_frames = data.results.n_frames as i32;
-        let good_frames = data.results.n_good_frames as i32;
+        let unfiltered_frames = data.dataset.periods.size() as u32;
+        let raw_frames = data.results.n_frames.iter().sum::<u32>();
+        let good_frames = data.results.n_good_frames.iter().sum::<u32>();
         //let discarded_good_frames = unfiltered_frames - raw_frames;
         let discarded_raw_frames = unfiltered_frames - good_frames;
 
@@ -134,6 +139,7 @@ impl SaveFile for WiMDAFile {
         let instrument_group = hist_data.create_group("instrument")?;
         Instrument::save(data, &instrument_group)?;
         add_scalar(&hist_data, VarLenUnicode::from_str("name")?, "name")?;
+        hist_data.link_hard("instrument/detector_1", "detector_1")?;
 
         match event_data.dataset("notes") {
             Ok(notes) => notes.copy_to(&hist_data, "notes")?,
@@ -147,9 +153,14 @@ impl SaveFile for WiMDAFile {
         copy_scalar::<i32>(&event_data, &hist_data, "run_number")?;
         event_data.group("sample")?.copy_to(&hist_data, "sample")?;
         let sample = hist_data.group("sample")?;
-        sample
-            .dataset("name")?
-            .write(&arr0(VarLenUnicode::from_str("name")?))?;
+        // WiMDA crashes if sample name is not provided
+        let sample_name = sample.dataset("name")?;
+        let sample_name_data: VarLenUnicode = sample_name.read()?.into_scalar();
+        if sample_name_data.len() == 0 {
+            sample
+                .dataset("name")?
+                .write(&arr0(VarLenUnicode::from_str("unknown")?))?;
+        }
         add_scalar(&sample, 0, "height")?;
         add_scalar(&sample, FixedAscii::<1>::new(), "id")?;
         add_scalar(&sample, 0, "width")?;
@@ -199,9 +210,7 @@ impl Save for Detector1 {
         let hist = &data.results;
         let width = (hist.max_time - hist.min_time) / hist.n_bins as f32;
 
-        let counts_builder = group.new_dataset_builder();
-        let counts_builder = counts_builder.with_data(&hist.hist);
-        counts_builder.create("counts")?;
+        add_array(group, &hist.hist, "counts")?;
         let counts = group.dataset("counts")?;
         add_str_attr::<44>(
             &counts,
@@ -255,22 +264,32 @@ impl Save for Periods {
     fn save(data: &Data, group: &Group) -> Result<()> {
         // note labels, number, type have already been copied over
         // todo: make these work
-        let n_frames = data.results.n_frames;
         let n_periods = data.results.hist.shape()[0];
-        add_scalar(group, n_frames, "frames_requested")?;
+        let n_frames = Array1::from_vec(data.results.n_frames.clone());
+
+        add_array(group, &n_frames, "frames_requested")?;
         let labels = (0..n_periods)
-            .map(|n| format!("period {n}"))
+            .map(|n| format!("period {}", n+1))
             .collect::<Vec<String>>()
             .join(",");
         let labels = VarLenUnicode::from_str(&labels)?;
         add_scalar(group, labels, "labels")?;
         let label_dataset = group.dataset("labels")?;
         add_str_attr::<1>(&label_dataset, ",", "separator")?;
+
         add_scalar(group, n_periods, "number")?;
-        add_scalar(group, 0, "output")?;
-        add_scalar(group, n_frames, "raw_frames")?;
-        add_scalar(group, n_frames, "sequences")?;
-        add_scalar(group, 1, "total_counts")?;
+        add_array(group, &Array1::from_vec(vec![0; n_periods]), "output")?;
+        add_array(group, &n_frames, "raw_frames")?;
+        add_array(group, &n_frames, "sequences")?;
+        
+        let total_counts: Array1<f32> = (0..n_periods)
+            .map(|n| {
+                let slice = s![n, .., ..];
+                data.results.hist.slice(slice).sum() as f32 / 1e6
+            })
+            .collect();
+        add_array(group, &total_counts, "total_counts")?;
+
         let types = Array1::<i32>::from_vec(vec![1; n_periods]);
         let type_builder = group.new_dataset_builder();
         let type_builder = type_builder.with_data(&types);
