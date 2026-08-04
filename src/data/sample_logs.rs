@@ -84,7 +84,7 @@ impl SampleLog {
     /// Given a list of filter starts and ends, return the sample log with filter applied.
     ///
     /// Assumes that start_times and end_times are sorted arrays.
-    pub fn apply_filters(&self, start_times: &Vec<usize>, end_times: &Vec<usize>) -> SampleLog {
+    pub fn apply_filters(&self, start_times: &[usize], end_times: &[usize]) -> SampleLog {
         // we need to use pattern matching to access the inside of each log, but what we're
         // doing is essentially just
         // sample_log(log) -> sample_log(log.apply_filters())
@@ -155,7 +155,7 @@ where
     T: Clone,
 {
     /// Internal implementation of SampleLog.apply_filters.
-    fn apply_filters(&self, start_times: &Vec<usize>, end_times: &Vec<usize>) -> ValueLog<T> {
+    fn apply_filters(&self, start_times: &[usize], end_times: &[usize]) -> ValueLog<T> {
         // we use these indices to ignore overlaps in filters.
         //
         // Note that as the start_times and end_times are sorted, we will never get a scenario

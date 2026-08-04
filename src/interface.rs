@@ -20,7 +20,7 @@ impl Data {
     /// Create a new Data object.
     #[new]
     #[pyo3(signature = (filename, n_spec, chunk_size=1048576))]
-    fn new(filename: String, n_spec: usize, chunk_size: usize) -> Result<Self> {
+    pub fn new(filename: String, n_spec: usize, chunk_size: usize) -> Result<Self> {
         let dataset = NexusData::new(filename, n_spec, chunk_size)?;
         let results = Histogram::new(0., 32.768, 2048);
         Ok(Data {
@@ -38,7 +38,7 @@ impl Data {
     /// Histogram
     ///     A Histogram object containing the resulting histogram
     ///     and number of events.
-    fn calculate(&mut self) -> Result<Histogram> {
+    pub fn calculate(&mut self) -> Result<Histogram> {
         if self.data_changed {
             self.data_changed = false;
             let results = self.results.calculate(&self.dataset, &self.filters)?;
@@ -101,7 +101,7 @@ impl Data {
     ///     The start point for the time filter.
     /// end: float
     ///     The end point for the time filter.
-    fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> Result<()> {
+    pub fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> Result<()> {
         self.data_changed = true;
         self.filters.add_time_filter(name, start, end)
     }
@@ -129,7 +129,13 @@ impl Data {
     ///     The lower bound for the log filter.
     /// upper: float
     ///     The upper bound for the log filter.
-    fn add_log_filter(&mut self, name: String, log: String, lower: f64, upper: f64) -> Result<()> {
+    pub fn add_log_filter(
+        &mut self,
+        name: String,
+        log: String,
+        lower: f64,
+        upper: f64,
+    ) -> Result<()> {
         self.data_changed = true;
         self.filters
             .add_log_filter(name, log, Some(lower), Some(upper))
@@ -207,20 +213,8 @@ impl Data {
     /// filename: str
     ///     The filename for the saved file.
     fn save(&self, filename: String) -> Result<()> {
-        WiMDAFile::save(self, filename)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_load_save() {
-        let mut data = Data::new("HIFI00206202.nxs".to_string(), 64, 1048576).unwrap();
-
-        data.calculate().unwrap();
-
-        data.save("output.nxs".to_string()).unwrap()
+        let wimda_file = WiMDAFile::new(self)?;
+        wimda_file.save(filename, &self.dataset.file)?;
+        Ok(())
     }
 }
