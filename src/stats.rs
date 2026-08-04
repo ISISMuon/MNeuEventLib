@@ -10,7 +10,7 @@ use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIter
 use crate::data::{FrameData, NexusData};
 use crate::filters::{get_weights, Filters, Weights};
 
-type PyHist<'py> = Bound<'py, PyArray3<usize>>;
+type PyHist<'py> = Bound<'py, PyArray3<i32>>;
 
 #[pyclass(from_py_object)]
 #[derive(Clone)]
@@ -18,7 +18,7 @@ pub struct Histogram {
     pub min_time: f32,
     pub max_time: f32,
     pub n_bins: usize,
-    pub hist: Array3<usize>,
+    pub hist: Array3<i32>,
     pub n: usize,
     pub n_frames: Vec<u32>,
     pub n_good_frames: Vec<u32>,
@@ -302,7 +302,7 @@ mod tests {
             1e-3,
         );
 
-        let expected = Array3::<usize>::from_shape_vec((1, 2, 3), vec![1, 1, 2, 1, 0, 1]).unwrap();
+        let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![1, 1, 2, 1, 0, 1]).unwrap();
 
         assert_eq!(result.hist, expected)
     }
@@ -335,7 +335,7 @@ mod tests {
             1e-3,
         );
 
-        let expected = Array3::<usize>::from_shape_vec((1, 2, 3), vec![0, 1, 0, 1, 0, 1]).unwrap();
+        let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![0, 1, 0, 1, 0, 1]).unwrap();
 
         assert_eq!(result.hist, expected)
     }
@@ -370,7 +370,7 @@ mod tests {
         // bins are 0-1000, 1000-2000, 2000-3000
         // period 0: events at times 500 (bin 0, spec 0), 600 (bin 0, spec 1), 2500 (bin 2, spec 0)
         // period 1: events at times 1500 (bin 1, spec 0), 2300 (bin 2, spec 0), 2650 (bin 2, spec 1)
-        let expected = Array3::<usize>::from_shape_vec(
+        let expected = Array3::<i32>::from_shape_vec(
             (2, 2, 3),
             vec![
                 1, 0, 1, // period 0, spec 0
@@ -411,7 +411,7 @@ mod tests {
             1e-3,
         );
 
-        let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 0, 1, 1]).unwrap();
+        let expected = Array3::<i32>::from_shape_vec((1, 2, 2), vec![1, 0, 1, 1]).unwrap();
 
         assert_eq!(result.hist, expected)
     }
@@ -443,7 +443,7 @@ mod tests {
             1e-3,
         );
 
-        let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 1, 0, 1]).unwrap();
+        let expected = Array3::<i32>::from_shape_vec((1, 2, 2), vec![1, 1, 0, 1]).unwrap();
 
         assert_eq!(result.hist, expected)
     }
@@ -475,7 +475,7 @@ mod tests {
             1e-3,
         );
 
-        let expected = Array3::<usize>::from_shape_vec((1, 2, 3), vec![1, 1, 1, 0, 0, 1]).unwrap();
+        let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![1, 1, 1, 0, 0, 1]).unwrap();
 
         assert_eq!(result.hist, expected)
     }
@@ -506,7 +506,7 @@ mod tests {
             1e-3,
         );
 
-        let expected = Array3::<usize>::from_shape_vec((1, 1, 3), vec![2, 0, 1]).unwrap();
+        let expected = Array3::<i32>::from_shape_vec((1, 1, 3), vec![2, 0, 1]).unwrap();
         assert_eq!(result.hist, expected);
 
         // now test with a different conversion factor
@@ -527,7 +527,7 @@ mod tests {
             2e-3,
         );
 
-        let expected2 = Array3::<usize>::from_shape_vec((1, 1, 3), vec![1, 1, 0]).unwrap();
+        let expected2 = Array3::<i32>::from_shape_vec((1, 1, 3), vec![1, 1, 0]).unwrap();
         assert_eq!(result2.hist, expected2)
     }
 }

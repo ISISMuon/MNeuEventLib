@@ -371,6 +371,7 @@ mod tests {
         // logs from data::sample_logs tests
         let simple_times = Array1::<f64>::linspace(0., 4., 4001);
         let simple_log = ValueLog::<f64> {
+            name: "simple".to_string(),
             time: simple_times.clone(),
             value: simple_times.clone(),
         };
@@ -378,6 +379,7 @@ mod tests {
         // add a sample log: f(t) = 2(t-3)^2 from 0 to 4
         let complex_times = Array1::<f64>::linspace(0., 6., 6001);
         let complex_log = ValueLog::<f64> {
+            name: "complex".to_string(),
             time: complex_times.clone(),
             value: Array1::<f64>::from_iter(complex_times.iter().map(|t| 2. * (t - 3.).powi(2))),
         };
@@ -422,6 +424,7 @@ mod tests {
         // logs from data::sample_logs tests
         let simple_times = Array1::<f64>::linspace(0., 4., 4001);
         let simple_log = ValueLog::<f64> {
+            name: "simple".to_string(),
             time: simple_times.clone(),
             value: simple_times.clone(),
         };

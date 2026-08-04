@@ -1,3 +1,4 @@
+use hdf5::types::H5Type;
 use ndarray::Array1;
 
 /// Binary search to find the left bounding index of a target value.
@@ -20,6 +21,33 @@ pub fn binary_search(array: &Array1<usize>, start: usize, stop: usize, target: u
         start
     } else {
         stop
+    }
+}
+
+/// Trait for a 64-bit type that can be converted to a 32-bit one.
+pub trait NarrowTo32 {
+    type Output: H5Type;
+    fn narrow(self) -> Self::Output;
+}
+
+impl NarrowTo32 for f64 {
+    type Output = f32;
+    fn narrow(self) -> f32 {
+        self as f32
+    }
+}
+
+impl NarrowTo32 for i64 {
+    type Output = i32;
+    fn narrow(self) -> i32 {
+        self as i32
+    }
+}
+
+impl NarrowTo32 for u64 {
+    type Output = u32;
+    fn narrow(self) -> u32 {
+        self as u32
     }
 }
 

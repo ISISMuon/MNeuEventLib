@@ -37,6 +37,7 @@ impl SampleLog {
                 match dtype {
                     $(
                         $hdf5_type => SampleLog::$variant(ValueLog::<$type> {
+                            name: log_name.clone(),
                             time,
                             value: value.read_1d()?,
                         }),
@@ -83,7 +84,7 @@ impl SampleLog {
     /// Given a list of filter starts and ends, return the sample log with filter applied.
     ///
     /// Assumes that start_times and end_times are sorted arrays.
-    pub fn apply_filters(&self, start_times: Vec<usize>, end_times: Vec<usize>) -> SampleLog {
+    pub fn apply_filters(&self, start_times: &Vec<usize>, end_times: &Vec<usize>) -> SampleLog {
         // we need to use pattern matching to access the inside of each log, but what we're
         // doing is essentially just
         // sample_log(log) -> sample_log(log.apply_filters())
@@ -113,6 +114,7 @@ impl SampleLog {
 
 #[derive(Clone)]
 pub struct ValueLog<T> {
+    pub name: String,
     pub time: Array1<f64>,
     pub value: Array1<T>,
 }
@@ -153,7 +155,7 @@ where
     T: Clone,
 {
     /// Internal implementation of SampleLog.apply_filters.
-    fn apply_filters(&self, start_times: Vec<usize>, end_times: Vec<usize>) -> ValueLog<T> {
+    fn apply_filters(&self, start_times: &Vec<usize>, end_times: &Vec<usize>) -> ValueLog<T> {
         // we use these indices to ignore overlaps in filters.
         //
         // Note that as the start_times and end_times are sorted, we will never get a scenario
@@ -211,6 +213,7 @@ where
             }
         }
         ValueLog::<T> {
+            name: self.name.clone(),
             time: new_times.into(),
             value: new_values.into(),
         }
@@ -227,6 +230,7 @@ mod tests {
         // add a sample log: f(t) = t from 0 to 4
         let times = Array1::<f64>::linspace(0., 4., 4001);
         let value_log = ValueLog::<f64> {
+            name: "temp".to_string(),
             time: times.clone(),
             value: times.clone(),
         };
@@ -246,6 +250,7 @@ mod tests {
         // add a sample log: f(t) = t from 0 to 4
         let times = Array1::<f64>::linspace(0., 4., 4001);
         let value_log = ValueLog::<f64> {
+            name: "temp".to_string(),
             time: times.clone(),
             value: times.clone(),
         };
@@ -265,6 +270,7 @@ mod tests {
         // add a sample log: f(t) = t from 0 to 4
         let times = Array1::<f64>::linspace(0., 4., 4001);
         let value_log = ValueLog::<f64> {
+            name: "temp".to_string(),
             time: times.clone(),
             value: times.clone(),
         };
@@ -284,6 +290,7 @@ mod tests {
         // add a sample log: f(t) = 2(t-3)^2 from 0 to 4
         let times = Array1::<f64>::linspace(0., 6., 6001);
         let value_log = ValueLog::<f64> {
+            name: "temp".to_string(),
             time: times.clone(),
             value: Array1::<f64>::from_iter(times.iter().map(|t| 2. * (t - 3.).powi(2))),
         };
@@ -299,10 +306,11 @@ mod tests {
 
     /// A sample ValueLog for testing.
     fn sample_log() -> ValueLog<f64> {
+        let name = "temp".to_string();
         let time = Array1::<f64>::from_vec(vec![0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]);
         let value = Array1::<f64>::from_vec(vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
-        ValueLog::<f64> { time, value }
+        ValueLog::<f64> { name, time, value }
     }
 
     /// Test applying filters successfully 'flattens' filtered-out values.
@@ -315,7 +323,7 @@ mod tests {
         //     ^--^        ^--------^     exclude
         let filter_starts = vec![(0.15 * S_TO_NS) as usize, (0.55 * S_TO_NS) as usize];
         let filter_ends = vec![(0.22 * S_TO_NS) as usize, (0.83 * S_TO_NS) as usize];
-        let new_log = log.apply_filters(filter_starts, filter_ends);
+        let new_log = log.apply_filters(&filter_starts, &filter_ends);
 
         let expected_vals = Array1::<f64>::from_vec(vec![0., 1., 3., 4., 5., 9.]);
         assert_eq!(new_log.value, expected_vals)
@@ -340,7 +348,7 @@ mod tests {
             (0.56 * S_TO_NS) as usize,
             (0.89 * S_TO_NS) as usize,
         ];
-        let new_log = log.apply_filters(filter_starts, filter_ends);
+        let new_log = log.apply_filters(&filter_starts, &filter_ends);
 
         let expected_vals = Array1::<f64>::from_vec(vec![0., 6., 7., 9.]);
         assert_eq!(new_log.value, expected_vals)
@@ -356,7 +364,7 @@ mod tests {
         // ^----------------^          exclude
         let filter_starts = vec![0];
         let filter_ends = vec![(0.61 * S_TO_NS) as usize];
-        let new_log = log.apply_filters(filter_starts, filter_ends);
+        let new_log = log.apply_filters(&filter_starts, &filter_ends);
 
         let expected_vals = Array1::<f64>::from_vec(vec![7., 8., 9.]);
         assert_eq!(new_log.value, expected_vals)
@@ -371,7 +379,7 @@ mod tests {
         //              ^------------... exclude
         let filter_starts = vec![(0.45 * S_TO_NS) as usize];
         let filter_ends = vec![usize::MAX];
-        let new_log = log.apply_filters(filter_starts, filter_ends);
+        let new_log = log.apply_filters(&filter_starts, &filter_ends);
 
         let expected_vals = Array1::<f64>::from_vec(vec![0., 1., 2., 3., 4.]);
         assert_eq!(new_log.value, expected_vals)

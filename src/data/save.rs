@@ -1,12 +1,14 @@
 use core::str::FromStr;
 
-use anyhow::Result;
+use anyhow::{Error, Result};
 use hdf5::types::{FixedAscii, VarLenUnicode};
 use hdf5::{File, Group, H5Type, Location};
-use ndarray::{arr0, Array, Array1, Array3, Dimension, s};
+use ndarray::{arr0, s, Array, Array1, Array3, Dimension};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
-use crate::data::SampleLog;
+use crate::data::{SampleLog, ValueLog};
 use crate::interface::Data;
+use crate::utils::NarrowTo32;
 
 // placeholder type for data that will just be copied into the nexus file
 type CopyData<T> = T;
@@ -28,7 +30,11 @@ fn add_scalar<T: H5Type>(group: &Group, scalar: T, name: &str) -> Result<()> {
 }
 
 /// Create a dataset with a scalar in it.
-fn add_array<T: H5Type, D: Dimension>(group: &Group, array: &Array<T, D>, name: &str) -> Result<()> {
+fn add_array<T: H5Type, D: Dimension>(
+    group: &Group,
+    array: &Array<T, D>,
+    name: &str,
+) -> Result<()> {
     let builder = group.new_dataset_builder();
     let builder = builder.with_data(array);
     builder.create(name)?;
@@ -108,6 +114,8 @@ impl SaveFile for WiMDAFile {
         add_nx_class(&hist_data, "NXentry")?;
 
         let unfiltered_frames = data.dataset.periods.size() as u32;
+        // raw frames is all frames that have not been filtered,
+        // good frames is all frames that have not been filtered or vetoed
         let raw_frames = data.results.n_frames.iter().sum::<u32>();
         let good_frames = data.results.n_good_frames.iter().sum::<u32>();
         //let discarded_good_frames = unfiltered_frames - raw_frames;
@@ -147,6 +155,7 @@ impl SaveFile for WiMDAFile {
         };
         // todo: remove periods if empty?
         let period_group = hist_data.create_group("periods")?;
+        add_nx_class(&period_group, "IXperiod")?;
         Periods::save(data, &period_group)?;
 
         add_scalar(&hist_data, raw_frames, "raw_frames")?;
@@ -165,7 +174,10 @@ impl SaveFile for WiMDAFile {
         add_scalar(&sample, FixedAscii::<1>::new(), "id")?;
         add_scalar(&sample, 0, "width")?;
         // todo: actually filter sample logs instead of just copying
-        event_data.group("selog")?.copy_to(&hist_data, "selog")?;
+        hist_data.create_group("selog")?;
+        let selog = hist_data.group("selog")?;
+        save_sample_logs(data, &selog)?;
+        //event_data.group("selog")?.copy_to(&hist_data, "selog")?;
         // todo: start_time to time of first good event?
         copy_time(&event_data, &hist_data, "start_time")?;
         copy_scalar::<VarLenUnicode>(&event_data, &hist_data, "title")?;
@@ -212,11 +224,7 @@ impl Save for Detector1 {
 
         add_array(group, &hist.hist, "counts")?;
         let counts = group.dataset("counts")?;
-        add_str_attr::<44>(
-            &counts,
-            "[period index, spectrum index, raw time bin]",
-            "axes",
-        )?;
+        add_str_attr::<44>(&counts, "period_index,spectrum_index,raw_time", "axes")?;
         add_attr(&counts, (hist.min_time / width).floor(), "t0_bin")?;
         add_attr(&counts, (hist.min_time / width).ceil(), "first_good_bin")?;
         add_attr(
@@ -241,7 +249,7 @@ impl Save for Detector1 {
 
         let n_spec = data.dataset.n_spec;
         let specs_builder = group.new_dataset_builder();
-        let specs = Array1::from_vec((1..=n_spec).collect());
+        let specs: Array1<i32> = Array1::from_vec((1..=n_spec as i32).collect());
         let specs_builder = specs_builder.with_data(&specs);
         specs_builder.create("spectrum_index")?;
 
@@ -262,14 +270,12 @@ struct Periods {
 
 impl Save for Periods {
     fn save(data: &Data, group: &Group) -> Result<()> {
-        // note labels, number, type have already been copied over
-        // todo: make these work
         let n_periods = data.results.hist.shape()[0];
         let n_frames = Array1::from_vec(data.results.n_frames.clone());
 
         add_array(group, &n_frames, "frames_requested")?;
         let labels = (0..n_periods)
-            .map(|n| format!("period {}", n+1))
+            .map(|n| format!("period {}", n + 1))
             .collect::<Vec<String>>()
             .join(",");
         let labels = VarLenUnicode::from_str(&labels)?;
@@ -281,7 +287,7 @@ impl Save for Periods {
         add_array(group, &Array1::from_vec(vec![0; n_periods]), "output")?;
         add_array(group, &n_frames, "raw_frames")?;
         add_array(group, &n_frames, "sequences")?;
-        
+
         let total_counts: Array1<f32> = (0..n_periods)
             .map(|n| {
                 let slice = s![n, .., ..];
@@ -300,8 +306,8 @@ impl Save for Periods {
 }
 
 struct User1 {
-    affiliation: String,
     name: String,
+    affiliation: String,
 }
 
 impl Save for User1 {
@@ -318,4 +324,77 @@ impl Save for User1 {
         };
         Ok(())
     }
+}
+
+/// Save the log to a HDF5 Group
+impl SampleLog {
+    pub fn save_to_group(&self, group: &Group) -> Result<()> {
+        match self {
+            SampleLog::I8(log) => log.save_to_group(group),
+            SampleLog::I16(log) => log.save_to_group(group),
+            SampleLog::I32(log) => log.save_to_group(group),
+            SampleLog::I64(log) => log.save_with_narrowing(group),
+            SampleLog::U8(log) => log.save_to_group(group),
+            SampleLog::U16(log) => log.save_to_group(group),
+            SampleLog::U32(log) => log.save_to_group(group),
+            SampleLog::U64(log) => log.save_with_narrowing(group),
+            SampleLog::F32(log) => log.save_to_group(group),
+            SampleLog::F64(log) => log.save_with_narrowing(group),
+        }
+    }
+}
+
+impl<T> ValueLog<T>
+where
+    T: NarrowTo32 + Copy,
+{
+    /// Save a log to a group, reducing entry size to 32-bit.
+    pub fn save_with_narrowing(&self, group: &Group) -> Result<()> {
+        let times: Array1<f32> = self.time.map(|t| *t as f32);
+        let values = self.value.map(|v| v.narrow());
+        add_array(group, &times, "time")?;
+        add_array(group, &values, "value")?;
+        Ok(())
+    }
+}
+
+impl<T> ValueLog<T>
+where
+    T: H5Type,
+{
+    /// Save a log to a group.
+    pub fn save_to_group(&self, group: &Group) -> Result<()> {
+        let times: Array1<f32> = self.time.map(|t| *t as f32);
+        add_array(group, &times, "time")?;
+        add_array(group, &self.value, "value")?;
+        Ok(())
+    }
+}
+
+fn save_sample_logs(data: &Data, group: &Group) -> Result<()> {
+    let event_data = &data.dataset;
+    let filters = &data.filters;
+    let (mut time_starts, mut time_ends) = filters.get_time_filter_times();
+
+    let log_names = filters.get_required_log_names();
+    let value_logs = match event_data.get_sample_logs(log_names) {
+        Ok(logs) => logs,
+        Err(info) => return Err(Error::msg(format!("Failed to get logs: {info}"))),
+    };
+    let (log_starts, log_ends) = filters.get_log_filter_times(value_logs);
+
+    time_starts.extend(log_starts);
+    time_ends.extend(log_ends);
+
+    event_data.sample_log_names.par_iter().for_each(|name| {
+        let mut log = event_data.get_sample_log(name).unwrap();
+        log = match time_starts.is_empty() {
+            true => log,
+            false => log.apply_filters(&time_starts, &time_ends),
+        };
+        group.create_group(&name).unwrap();
+        let log_group = group.group(&name).unwrap();
+        log.save_to_group(&log_group).unwrap();
+    });
+    Ok(())
 }
