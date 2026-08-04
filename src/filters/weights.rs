@@ -7,6 +7,8 @@ use std::cmp::max;
 /// whereas a weight of 0 means it should not be included.
 use std::ops::{BitAnd, Index, Not};
 
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+
 const BLOCK_SIZE: usize = 64;
 
 // the implementation of weights involves some bit manipulation.
@@ -151,8 +153,8 @@ impl BitAnd for Weights {
         Weights {
             raw_weights: self
                 .raw_weights
-                .iter()
-                .zip(rhs.raw_weights.iter())
+                .par_iter()
+                .zip(rhs.raw_weights.par_iter())
                 .map(|(x, y)| x & y)
                 .collect(),
         }
@@ -164,7 +166,7 @@ impl Not for Weights {
 
     fn not(self) -> Self::Output {
         Weights {
-            raw_weights: self.raw_weights.iter().map(|x| !x).collect(),
+            raw_weights: self.raw_weights.par_iter().map(|x| !x).collect(),
         }
     }
 }

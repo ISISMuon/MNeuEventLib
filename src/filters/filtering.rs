@@ -1,5 +1,4 @@
 use ndarray::Array1;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::filters::weights::Weights;
 use crate::utils::binary_search;
@@ -28,7 +27,6 @@ fn get_indices(
 
     // map each filter to a (start, stop) index pair
     (0..n_filters)
-        .into_par_iter()
         .map(|j| {
             let start = binary_search(start_times, 0, n_frames, filter_starts[j]);
             let end = binary_search(start_times, 0, n_frames, filter_ends[j]) + 1;
