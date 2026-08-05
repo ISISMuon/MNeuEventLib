@@ -19,13 +19,12 @@ const BLOCK_SIZE: usize = 64;
 
 /// Struct to store weights as a bit string.
 /// The bits are stored in 64-bit blocks.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Weights {
     // Note that each block of raw weights is stored in little-endian order;
     // that is, e.g. for the second block (representing weights 64-127)
     // the weight for value 64 would be the rightmost binary digit
     raw_weights: Vec<u64>,
-    offset: usize,
 }
 
 impl Weights {
@@ -37,7 +36,6 @@ impl Weights {
         };
         Weights {
             raw_weights: vec![u64::MAX; max(array_size, 1)],
-            offset: 0,
         }
     }
 
@@ -49,32 +47,6 @@ impl Weights {
         };
         Weights {
             raw_weights: vec![0; max(array_size, 1)],
-            offset: 0,
-        }
-    }
-
-    // this method is used to create expected weights vectors for unit tests,
-    // but is not used in the actual code
-    #[cfg(test)]
-    /// Create a weights array from a raw weight vector.
-    pub fn from_raw(raw_weights: Vec<u64>) -> Self {
-        Weights {
-            raw_weights,
-            offset: 0,
-        }
-    }
-
-    /// Set the weight at a given index to a given value.
-    pub fn set_weight(&mut self, index: usize, set_to: bool) {
-        // bit manipulation patterns:
-        // `x | 1 << n`     sets bit `n` of the binary number `x` to 1
-        // `x & !(1 << n)`  sets bit `n` of the binary number `x` to 0
-        // note `1 << n` is the binary number with all zeroes except a 1 at position n,
-        // and so `!(1 << n)` is all ones except a zero at position n
-
-        match set_to {
-            true => self.raw_weights[index / BLOCK_SIZE] |= 1 << (index % BLOCK_SIZE),
-            false => self.raw_weights[index / BLOCK_SIZE] &= !(1 << (index % BLOCK_SIZE)),
         }
     }
 
@@ -94,34 +66,57 @@ impl Weights {
         //     first        last
         //
         // so for the partial blocks (start until first_block, and last_block until end)
-        // we must individually set each bit. but for full blocks contained in the range,
+        // we must create a bit mask, but for full blocks contained in the range,
         // we can just set the entire block with one integer assignment.
-
-        // round start up to the nearest block
-        let first_block = match start % BLOCK_SIZE {
-            0 => start,
-            _ => start + (BLOCK_SIZE - start % BLOCK_SIZE),
-        };
-        // round end down to the nearest block
-        let last_block = match end % BLOCK_SIZE {
-            0 => end,
-            _ => end - (end % BLOCK_SIZE),
-        };
+        let lower_bit_offset = start % BLOCK_SIZE;
+        let upper_bit_offset = end % BLOCK_SIZE;
 
         // if all weights are within one block, just set and exit.
         if start / BLOCK_SIZE == end / BLOCK_SIZE {
-            for index in start..end {
-                self.set_weight(index, set_to);
+            let block = start / BLOCK_SIZE;
+
+            // mask with 1s in bits [lo, hi)
+            // handle hi == BLOCK_SIZE (i.e. 64) specially since `u64::MAX << 64` overflows
+            let mask = if upper_bit_offset == BLOCK_SIZE {
+                u64::MAX << lower_bit_offset
+            } else {
+                (u64::MAX << lower_bit_offset) & !(u64::MAX << upper_bit_offset)
+            };
+
+            match set_to {
+                true => self.raw_weights[block] |= mask,
+                false => self.raw_weights[block] &= !mask,
             }
             return;
         }
 
+        // round start up to the nearest block
+        let first_block = match lower_bit_offset {
+            0 => start,
+            _ => start + (BLOCK_SIZE - lower_bit_offset),
+        };
+        // round end down to the nearest block
+        let last_block = match upper_bit_offset {
+            0 => end,
+            _ => end - (upper_bit_offset),
+        };
+
         // set bits individually where we aren't setting the full block
-        for index in start..first_block {
-            self.set_weight(index, set_to);
+        if lower_bit_offset != 0 {
+            // mask with 1s from lower bit offset to top of block
+            let first_block_mask = u64::MAX << lower_bit_offset;
+            match set_to {
+                true => self.raw_weights[start / BLOCK_SIZE] |= first_block_mask,
+                false => self.raw_weights[start / BLOCK_SIZE] &= !first_block_mask,
+            }
         }
-        for index in last_block..end {
-            self.set_weight(index, set_to);
+        if upper_bit_offset != 0 {
+            // mask with 1s from upper bit offset to bottom of block
+            let last_block_mask = !(u64::MAX << upper_bit_offset);
+            match set_to {
+                true => self.raw_weights[end / BLOCK_SIZE] |= last_block_mask,
+                false => self.raw_weights[end / BLOCK_SIZE] &= !last_block_mask,
+            }
         }
 
         // get value to set full blocks to and set full blocks
@@ -129,62 +124,9 @@ impl Weights {
             true => u64::MAX,
             false => 0,
         };
-        for block in first_block..last_block {
-            self.raw_weights[block / BLOCK_SIZE] = value
-        }
-    }
-
-    /// Get an interval of weights between indices `start` and `end`.
-    pub fn slice(&self, start: usize, end: usize) -> Weights {
-        // rather than try to copy parts of the blocks and deal with re-chunking the blocks,
-        // we just take the full blocks bounding the range given
-        // and use an offset to fix the indexing
-        // e.g. if the range given is x----x and | is a block boundary:
-        //
-        // |     |  x--|-----|---x |
-        //
-        // we copy the full blocks
-        //
-        // |     |  x--|-----|---x |
-        //       ^                 ^
-        //
-        // and set the offset to 2 so that the 0 index points to the lower x.
-        // note that overflow on the right hand side is possible,
-        // but we don't iterate over these slices in the histogram code
-        // so doesn't happen (we iterate over the times)
-
-        // round start down to the nearest block
-        let lower_block_bound = match start % BLOCK_SIZE {
-            0 => start,
-            _ => start - (start % BLOCK_SIZE),
-        };
-        // round end up to the nearest block
-        let upper_block_bound = match end % BLOCK_SIZE {
-            0 => end,
-            _ => end + (BLOCK_SIZE - start % BLOCK_SIZE),
-        };
-
-        Weights {
-            raw_weights: self.raw_weights
-                [(lower_block_bound / BLOCK_SIZE)..(upper_block_bound / BLOCK_SIZE)]
-                .to_vec(),
-            offset: start - lower_block_bound,
-        }
-    }
-}
-
-// allow conversion of iterators of bools into Weights
-impl<T: ExactSizeIterator> From<T> for Weights
-where
-    T::Item: Into<bool>,
-{
-    fn from(value: T) -> Self {
-        let mut result = Weights::zeros(value.len());
-        value
-            .into_iter()
-            .enumerate()
-            .for_each(|(k, v)| result.set_weight(k, v.into()));
-        result
+        let lo = first_block / BLOCK_SIZE;
+        let hi = last_block / BLOCK_SIZE;
+        self.raw_weights[lo..hi].iter_mut().for_each(|b| *b = value);
     }
 }
 
@@ -196,7 +138,7 @@ impl Index<usize> for Weights {
         // bit manipulation patterns:
         // `x >> n & 1`
 
-        match (self.raw_weights[index / BLOCK_SIZE + self.offset] >> (index % BLOCK_SIZE)) & 1 {
+        match (self.raw_weights[index / BLOCK_SIZE] >> (index % BLOCK_SIZE)) & 1 {
             1 => &true,
             _ => &false,
         }
@@ -207,11 +149,6 @@ impl BitAnd for Weights {
     type Output = Weights;
 
     fn bitand(self, rhs: Self) -> Self::Output {
-        // we shouldn't ever need to combine slices, just full weight sets
-        if (self.offset != 0) | (rhs.offset != 0) {
-            panic!("Can only combine weights with no offset.")
-        };
-
         // we simply iterate bitwise AND over the blocks
         Weights {
             raw_weights: self
@@ -220,7 +157,6 @@ impl BitAnd for Weights {
                 .zip(rhs.raw_weights.par_iter())
                 .map(|(x, y)| x & y)
                 .collect(),
-            offset: 0,
         }
     }
 }
@@ -231,7 +167,31 @@ impl Not for Weights {
     fn not(self) -> Self::Output {
         Weights {
             raw_weights: self.raw_weights.par_iter().map(|x| !x).collect(),
-            offset: self.offset,
+        }
+    }
+}
+
+/// Routines used for unit tests.
+#[cfg(test)]
+impl Weights {
+    // this method is used to create expected weights vectors for unit tests,
+    // but is not used in the actual code
+    /// Create a weights array from a raw weight vector.
+    pub fn from_raw(raw_weights: Vec<u64>) -> Self {
+        Weights { raw_weights }
+    }
+
+    /// Set the weight at a given index to a given value.
+    pub fn set_weight(&mut self, index: usize, set_to: bool) {
+        // bit manipulation patterns:
+        // `x | 1 << n`     sets bit `n` of the binary number `x` to 1
+        // `x & !(1 << n)`  sets bit `n` of the binary number `x` to 0
+        // note `1 << n` is the binary number with all zeroes except a 1 at position n,
+        // and so `!(1 << n)` is all ones except a zero at position n
+
+        match set_to {
+            true => self.raw_weights[index / BLOCK_SIZE] |= 1 << (index % BLOCK_SIZE),
+            false => self.raw_weights[index / BLOCK_SIZE] &= !(1 << (index % BLOCK_SIZE)),
         }
     }
 }
@@ -332,15 +292,6 @@ mod tests {
         })
     }
 
-    /// Test that we can correctly create a weights array from a vector of booleans.
-    #[test]
-    fn test_from_bool_array() {
-        let bools = vec![true, false, true, false].into_iter();
-        let weights: Weights = bools.collect::<Vec<bool>>().into_iter().into();
-
-        assert_eq!(weights.raw_weights, vec![0b101])
-    }
-
     /// Test that bitand works for one block.
     #[test]
     fn test_bitand_simple() {
@@ -361,17 +312,6 @@ mod tests {
         assert_eq!(result.raw_weights, vec![0b0110, 0b1000]);
     }
 
-    /// Test that bitand panics if an offset slice is given.
-    #[test]
-    #[should_panic(expected = "Can only combine weights with no offset")]
-    fn test_bitand_with_offset_panics() {
-        let mut weights1 = Weights::from_raw(vec![u64::MAX, u64::MAX]);
-        let weights2 = Weights::from_raw(vec![u64::MAX, u64::MAX]);
-
-        weights1.offset = 5;
-        let _ = weights1 & weights2;
-    }
-
     /// Test the not operator
     #[test]
     fn test_not() {
@@ -379,46 +319,5 @@ mod tests {
         let result = !weights;
 
         assert_eq!(result.raw_weights, vec![!0b1111_0000, !0b1010]);
-    }
-
-    /// Test the not operator carries over the offset of the original slice.
-    #[test]
-    fn test_not_preserves_offset() {
-        let mut weights = Weights::from_raw(vec![u64::MAX, u64::MAX]);
-        weights.offset = 10;
-        let result = !weights;
-
-        assert_eq!(result.offset, 10);
-    }
-
-    /// Test slice copies correctly for one block.
-    #[test]
-    fn test_slice_same_block() {
-        let weights = Weights::from_raw(vec![u64::MAX]);
-        let sliced = weights.slice(10, 30);
-
-        // Slice should contain the full block but with offset
-        assert_eq!(sliced.raw_weights, vec![u64::MAX]);
-        assert_eq!(sliced.offset, 10);
-    }
-
-    /// Test slice copies correctly for multiple blocks.
-    #[test]
-    fn test_slice_across_blocks() {
-        let weights = Weights::from_raw(vec![u64::MAX, u64::MAX, u64::MAX]);
-        let sliced = weights.slice(70, 150);
-
-        assert_eq!(sliced.raw_weights.len(), 2);
-        assert_eq!(sliced.offset, 6);
-    }
-
-    /// Test slice copies correctly when a full block is given (so no offset)
-    #[test]
-    fn test_slice_at_boundaries() {
-        let weights = Weights::from_raw(vec![u64::MAX, u64::MAX]);
-        let sliced = weights.slice(0, 64);
-
-        assert_eq!(sliced.raw_weights.len(), 1);
-        assert_eq!(sliced.offset, 0);
     }
 }

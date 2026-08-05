@@ -23,7 +23,8 @@ pub struct NexusData {
     pub periods: Dataset,
     pub sample_logs: Group,
     pub sample_log_names: Vec<String>,
-    pub n_events: usize,   // the total number of events
+    pub n_events: usize, // the total number of events
+    pub n_frames: usize,
     pub n_spec: usize,     // the number of detectors
     pub chunk_size: usize, // the size of the data chunks
 }
@@ -100,6 +101,7 @@ fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<NexusD
     let sample_log_names = sample_logs.member_names()?;
 
     let n_events = specs.size();
+    let n_frames = frames.size();
 
     Ok(NexusData {
         file: filename.to_str().unwrap().to_string(),
@@ -112,6 +114,7 @@ fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<NexusD
         sample_logs,
         sample_log_names,
         n_events,
+        n_frames,
         n_spec,
         chunk_size,
     })
