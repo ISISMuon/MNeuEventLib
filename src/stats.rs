@@ -47,8 +47,8 @@ impl Histogram {
 
 impl Histogram {
     pub fn calculate(&self, data: &NexusData, filters: &Filters) -> Result<Histogram> {
-        let periods: Array1<usize> = data.periods.read_1d()?;
-        let n_periods = periods.iter().max().unwrap() + 1;
+        let periods: Array1<u32> = data.periods.read_1d()?;
+        let n_periods = (periods.iter().max().unwrap() + 1) as usize;
 
         let start_index: Array1<usize> = data.frames.read_1d()?;
         let frame_data = FrameData::new(start_index.clone(), data.n_events);
@@ -110,7 +110,7 @@ pub fn calculate_histograms(
     max_time: f32,
     n_bins: usize,
     n_periods: usize,
-    periods: Array1<usize>,
+    periods: Array1<u32>,
     min_amps: Array1<f64>,
     weights: Weights,
     frame_data: FrameData,
@@ -128,11 +128,11 @@ pub fn calculate_histograms(
                 .amps
                 .read_slice_1d(array_slice)
                 .expect("failed to read amplitudes.");
-            let times: Array1<usize> = dataset
+            let times: Array1<u32> = dataset
                 .times
                 .read_slice_1d(array_slice)
                 .expect("Failed to read times.");
-            let specs: Array1<usize> = dataset
+            let specs: Array1<u32> = dataset
                 .specs
                 .read_slice_1d(array_slice)
                 .expect("Failed to read specs.");
@@ -173,11 +173,11 @@ pub fn calculate_histograms(
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 fn make_histogram(
-    times: Array1<usize>,
-    specs: Array1<usize>,
+    times: Array1<u32>,
+    specs: Array1<u32>,
     amps: Array1<f64>,
     n_spec: usize,
-    periods: &Array1<usize>,
+    periods: &Array1<u32>,
     n_periods: usize,
     min_amps: &Array1<f64>,
     weights: &Weights,
@@ -208,13 +208,13 @@ fn make_histogram(
             frame_data.start_index[i + 1]
         };
 
-        let period = periods[*frame];
+        let period = periods[*frame] as usize;
         result.n += 1;
 
         for k in frame_start_event..frame_end_event {
             let t = times[k] as f32 * conversion;
             let amp = amps[k];
-            let spec = specs[k];
+            let spec = specs[k] as usize;
 
             if (t >= min_time) && (t <= max_time) && amp > min_amps[spec] {
                 let bin = ((t - min_time) / width).floor() as usize;
