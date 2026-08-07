@@ -62,6 +62,10 @@ coverage.xml
 # Sphinx documentation
 docs/_build/
 
+# API documentation (should be freshly built when docs built)
+docs/source/_static/api/*
+!docs/source/_static/api/README.md
+
 # PyCharm
 .idea/
 

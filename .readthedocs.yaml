@@ -1,0 +1,10 @@
+version: 2
+
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.13"
+    rust: "1.96" 
+  jobs:
+    pre_build:
+      - cargo doc --document-private-items --no-deps --target-dir "./docs/source/_static/api/"
