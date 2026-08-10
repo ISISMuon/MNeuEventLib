@@ -15,7 +15,6 @@ const FLOAT_EVENT_FIELDS: [&str; 3] = ["event_time_offset", "pulse_height", "eve
 const INT_EVENT_FIELDS: [&str; 3] = ["event_id", "event_index", "period_number"];
 
 /// we don't use `file` but we want it to continue to exist
-/// todo: find out if the file can be deleted while HDF5 is on it
 #[allow(dead_code)]
 pub struct MockData {
     file: NamedTempFile,
@@ -28,7 +27,6 @@ impl MockData {
     pub fn new() -> Result<MockData> {
         let tempfile = NamedTempFile::new()?;
         let file = File::create(tempfile.path())?;
-        //let file = File::create(Path::new("./file.nxs"))?;
         let data = file.create_group("raw_data_1")?;
         let event_data = data.create_group("detector_1_events")?;
         let sample_logs = data.create_group("selog")?;
@@ -45,8 +43,8 @@ impl MockData {
         T: H5Type,
     {
         let builder = self.event_data.new_dataset_builder();
-        let data = builder.with_data(&data);
-        Ok(data.create(name)?)
+        let dataset = builder.with_data(&data);
+        Ok(dataset.create(name)?)
     }
 
     /// Turn the mock data object into a real NexusData object.
@@ -65,6 +63,7 @@ impl MockData {
         }
         let specs = self.event_data.dataset("event_id")?;
         let n_events = specs.size();
+        let n_frames = self.event_data.dataset("period_number")?.size();
         Ok(NexusData {
             file: "temp".to_string(),
             specs,
@@ -76,6 +75,7 @@ impl MockData {
             sample_logs: self.sample_logs.clone(),
             sample_log_names: self.sample_logs.member_names()?,
             n_events,
+            n_frames,
             n_spec,
             chunk_size,
         })

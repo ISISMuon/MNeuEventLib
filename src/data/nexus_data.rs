@@ -197,7 +197,7 @@ impl NexusData {
                 let array_slice = s![start..end];
                 let array: Array1<f64> = dataset
                     .read_slice_1d(array_slice)
-                    .expect("Failed to read amplitude data.");
+                    .expect("Failed to read data.");
                 array
                     .into_iter()
                     .max_by(|a, b| a.partial_cmp(b).unwrap())
