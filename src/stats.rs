@@ -22,6 +22,8 @@ pub struct Histogram {
     pub n: usize,
     pub n_frames: Vec<u32>,
     pub n_good_frames: Vec<u32>,
+    pub start_time: usize,
+    pub end_time: usize,
 }
 
 #[pymethods]
@@ -36,6 +38,8 @@ impl Histogram {
             n: 0,
             n_frames: vec![0],
             n_good_frames: vec![0],
+            start_time: 0,
+            end_time: 0,
         }
     }
 
@@ -51,14 +55,18 @@ impl Histogram {
 
 impl Histogram {
     pub fn calculate(&self, data: &NexusData, filters: &Filters) -> Result<Histogram> {
+        // get period data
         let periods: Array1<u32> = data.periods.read_1d()?;
         let n_periods = (periods.iter().max().unwrap() + 1) as usize;
 
+        // set up data to parse things recorded by frame rather than by event
         let start_index: Array1<usize> = data.frames.read_1d()?;
         let frame_data = FrameData::new(start_index.clone(), data.n_events);
 
+        // get data for time filters
         let (time_starts, time_ends) = filters.get_time_filter_times();
 
+        // get data for all log filters that have been filtered
         let log_names = filters.get_required_log_names();
         let value_logs = match data.get_sample_logs(log_names) {
             Ok(logs) => logs,
@@ -66,10 +74,11 @@ impl Histogram {
         };
         let (log_starts, log_ends) = filters.get_log_filter_times(value_logs);
 
-        let weights = if time_starts.is_empty() && log_starts.is_empty() {
-            Weights::ones(data.n_frames)
-        } else {
-            let frame_start_times: Array1<usize> = data.frame_times.read_1d()?;
+        let filters_exist = !time_starts.is_empty() || !log_starts.is_empty();
+
+        let frame_start_times: Array1<usize> = data.frame_times.read_1d()?;
+
+        let weights = if filters_exist {
             let time_weights = if time_starts.is_empty() {
                 Weights::ones(data.n_frames)
             } else {
@@ -87,6 +96,8 @@ impl Histogram {
                 get_weights(log_starts, log_ends, &frame_start_times, true)
             };
             time_weights & log_weights
+        } else {
+            Weights::ones(data.n_frames)
         };
 
         // todo: once vetos are added, calculate n_good_frames too
@@ -106,11 +117,24 @@ impl Histogram {
             n_periods,
             periods,
             min_amps,
-            weights,
+            &weights,
             frame_data,
         );
         histogram.n_frames = n_frames.clone();
         histogram.n_good_frames = n_frames;
+
+        if filters_exist {
+            // get first and last good frame
+            let start_time = frame_start_times[weights.get_first_one().unwrap()];
+            let end_time = frame_start_times[weights.get_last_one().unwrap()];
+            histogram.start_time = start_time;
+            histogram.end_time = end_time;
+        } else {
+            let start_time = frame_start_times[0];
+            let end_time = *frame_start_times.iter().last().unwrap() + 32;
+            histogram.start_time = start_time;
+            histogram.end_time = end_time;
+        }
 
         Ok(histogram)
     }
@@ -138,7 +162,7 @@ pub fn calculate_histograms(
     n_periods: usize,
     periods: Array1<u32>,
     min_amps: Array1<f64>,
-    weights: Weights,
+    weights: &Weights,
     frame_data: FrameData,
 ) -> Histogram {
     let width: f32 = (max_time - min_time) / n_bins as f32;
@@ -170,7 +194,7 @@ pub fn calculate_histograms(
                 &periods,
                 n_periods,
                 &min_amps,
-                &weights,
+                weights,
                 frame_data.slice(start, end),
                 min_time,
                 max_time,

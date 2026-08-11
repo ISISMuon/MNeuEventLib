@@ -45,6 +45,8 @@ struct Detector1 {
     raw_time: Array1<f32>,
     resolution: i32,
     spectrum_index: Array1<i32>,
+    time_zero: u32,
+    period_index: Array1<u32>,
 }
 
 struct CountsData {
@@ -59,9 +61,10 @@ impl Detector1 {
         let hist = &data.results;
         let width = (hist.max_time - hist.min_time) / hist.n_bins as f32;
 
-        let t0_bin = (hist.min_time / width).floor() as u32;
-        let first_good_bin = (hist.min_time / width).ceil() as u32;
-        let last_good_bin = (hist.max_time / width).floor() as u32 - 1;
+        // these should be replaced when these attrs are added to event data
+        let t0_bin: u32 = 0;
+        let first_good_bin: u32 = 0;
+        let last_good_bin = (hist.max_time / width).floor() as u32;
 
         let counts = CountsData {
             counts: hist.hist.clone(),
@@ -77,11 +80,16 @@ impl Detector1 {
         let n_spec = data.dataset.n_spec;
         let spectrum_index = Array1::from_vec((1..=n_spec as i32).collect());
 
+        let n_periods: u32 = hist.hist.shape()[0] as u32;
+        let period_index = Array1::from_iter(1..n_periods);
+
         Detector1 {
             counts,
             raw_time,
             resolution,
             spectrum_index,
+            time_zero: 0,
+            period_index,
         }
     }
 }
@@ -93,7 +101,7 @@ impl Save for Detector1 {
         add_attr(&counts, self.counts.t0_bin, "t0_bin")?;
         add_attr(&counts, self.counts.first_good_bin, "first_good_bin")?;
         add_attr(&counts, self.counts.last_good_bin, "last_good_bin")?;
-        add_str_attr::<6>(&counts, "counts", "long_name")?;
+        add_str_attr::<15>(&counts, "positron_counts", "long_name")?;
 
         let bins = add_array(group, &self.raw_time, "raw_time")?;
         add_str_attr::<4>(&bins, "time", "long_name")?;
@@ -104,6 +112,10 @@ impl Save for Detector1 {
         add_str_attr::<11>(&res, "picoseconds", "units")?;
 
         add_array(group, &self.spectrum_index, "spectrum_index")?;
+
+        add_scalar(group, self.time_zero, "time_zero")?;
+
+        add_array(group, &self.period_index, "period_index")?;
 
         Ok(())
     }
@@ -191,10 +203,10 @@ mod tests {
         // width = (10 - 0) / 10 = 1
         // t0_bin = floor(min_time / width) = 0
         // first_good_bin = ceil(min_time / width) = 0
-        // last_good_bin = floor(max_time / width) - 1 = 9
+        // last_good_bin = floor(max_time / width) = 10
         assert_eq!(counts.t0_bin, 0);
         assert_eq!(counts.first_good_bin, 0);
-        assert_eq!(counts.last_good_bin, 9);
+        assert_eq!(counts.last_good_bin, 10);
     }
 
     /// `resolution` should be the bin width in microseconds converted to
@@ -230,8 +242,7 @@ mod tests {
         let group = tmp.create_group("instrument").unwrap();
         let event_data = data.dataset.file.group("raw_data_1").unwrap();
 
-        let result = instrument.save(&group, &event_data);
-        assert!(result.is_ok());
+        instrument.save(&group, &event_data).unwrap();
 
         let detector_1 = group.group("detector_1").unwrap();
         let counts = detector_1.dataset("counts").unwrap();

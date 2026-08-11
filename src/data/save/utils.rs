@@ -50,21 +50,6 @@ pub fn copy_scalar<T: H5Type>(from: &Group, to: &Group, item: &str) -> Result<Da
     add_scalar(to, data, item)
 }
 
-pub fn copy_time(from: &Group, to: &Group, item: &str) -> Result<Dataset> {
-    // the event files use RFC3339 formatted time,
-    // but the histogram files don't have a timezone
-    let data: VarLenUnicode = from.dataset(item)?.read()?.into_scalar();
-    let date_string = data.as_str();
-
-    let output = if date_string.len() > 19 {
-        &date_string[..19]
-    } else {
-        date_string
-    };
-
-    add_str_scalar::<20>(to, output, item)
-}
-
 /// Set an attribute of a group.
 pub fn add_attr<T: H5Type>(loc: &Location, data: T, name: &str) -> Result<()> {
     let builder = loc.new_attr_builder();

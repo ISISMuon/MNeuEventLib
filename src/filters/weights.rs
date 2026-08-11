@@ -155,6 +155,30 @@ impl Weights {
         }
         count
     }
+
+    /// Get the index of the first value set to 1 in the array.
+    pub fn get_first_one(&self) -> Option<usize> {
+        for (k, block) in self.raw_weights.iter().enumerate() {
+            if *block == 0 {
+                continue;
+            }
+            // remember u64 is litte-endian, so the blocks go right-to-left
+            return Some(block.trailing_zeros() as usize + (k * BLOCK_SIZE));
+        }
+        None
+    }
+
+    /// Get the index of the last value set to 1 in the array.
+    pub fn get_last_one(&self) -> Option<usize> {
+        for (k, block) in self.raw_weights.iter().enumerate().rev() {
+            if *block == 0 {
+                continue;
+            }
+            // remember u64 is litte-endian, so the blocks go right-to-left
+            return Some(block.leading_zeros() as usize + (k * BLOCK_SIZE));
+        }
+        None
+    }
 }
 
 // allow indexing
@@ -378,5 +402,22 @@ mod tests {
         let count = weights.count();
 
         assert_eq!(count, 70)
+    }
+
+    /// Test that `get_first_one` returns the first 1 value.
+    #[test]
+    fn test_get_first_one() {
+        // remember u64 is litte-endian, so the blocks go right-to-left
+        let weights = Weights::from_raw(vec![0, 0b01000100, 0b111000]);
+
+        assert_eq!(weights.get_first_one(), Some(64 + 2))
+    }
+
+    #[test]
+    fn test_get_last_one() {
+        // remember u64 is litte-endian, so the blocks go right-to-left
+        let weights = Weights::from_raw(vec![0, 0b01000100, 0b111000]);
+
+        assert_eq!(weights.get_last_one(), Some(128 + (64 - 6)))
     }
 }
