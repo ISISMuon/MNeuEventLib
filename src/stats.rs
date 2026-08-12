@@ -131,7 +131,8 @@ impl Histogram {
             histogram.end_time = end_time;
         } else {
             let start_time = frame_start_times[0];
-            let end_time = *frame_start_times.iter().last().unwrap() + 32;
+            // we add 32us to end time to account for the incomplete last frame
+            let end_time = *frame_start_times.iter().last().unwrap() + 32000;
             histogram.start_time = start_time;
             histogram.end_time = end_time;
         }

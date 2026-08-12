@@ -13,26 +13,45 @@ use crate::data::save::{Instrument, Periods};
 use crate::data::SampleLog;
 use crate::interface::Data;
 
+/// A struct containing the full file data for a save file.
 #[allow(dead_code)]
 pub struct WiMDAFile {
+    /// The version of the histogram data format used.
     IDF_version: CopyData,
+    /// The length of time spent counting good frames.
     good_duration: f32,
+    /// The type of source.
     definition: CopyData,
+    /// The number of frames which have been filtered out or vetoed.
     discarded_raw_frames: u32,
+    /// The amount of time between the first and last frame.
     duration: f32,
+    /// The time of the last frame.
     end_time: usize, // stored here in ns from time zero
     experiment_identifier: CopyData,
+    /// The number of frames which have not been filtered out or vetoed.
     good_frames: u32,
+    /// The data collected by the instrument and related metadata.
     instrument: Instrument,
+    /// The name of the instrument.
     name: CopyData,
+    /// Any notes recorded during the experiment.
     notes: CopyData,
+    /// Data about periods recorded during the experiment.
     periods: Periods,
+    /// The number of frames which have not been filtered out.
     raw_frames: u32,
+    /// The run number for the experiment.
     run_number: CopyData,
+    /// Information about the sample used in the experiment.
     sample: CopyData,
+    /// Information about sample logs recorded during the experiment.
     selog: Vec<SampleLog>,
+    /// The time of the first frame.
     start_time: usize, // stored here in seconds from time zero
+    /// The title of the experiment.
     title: CopyData,
+    /// Information about the user performing the experiment.
     user_1: CopyData,
 }
 

@@ -9,13 +9,19 @@ use crate::data::save::utils::*;
 use crate::interface::Data;
 
 pub struct Periods {
+    /// The number of frames in each period.
     frames_requested: Array1<u32>,
+    /// The names of each period.
     labels: String,
+    /// The number of periods.
     number: u32,
     output: Array1<i32>,
+    /// The number of unfiltered frames in each period.
     raw_frames: Array1<u32>,
     sequences: Array1<u32>,
+    /// The number of events in each period.
     total_counts: Array1<f32>,
+    /// The type of period.
     type_: Array1<i32>,
 }
 

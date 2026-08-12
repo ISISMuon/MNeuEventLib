@@ -8,8 +8,11 @@ use crate::interface::Data;
 
 #[allow(dead_code)]
 pub struct Instrument {
+    /// Information collected by the detectors.
     detector_1: Detector1,
+    /// The name of the instrument.
     name: CopyData,
+    /// Information about the instrument's source.
     source: CopyData,
 }
 
@@ -40,19 +43,31 @@ impl Save for Instrument {
     }
 }
 
+/// A struct containing information about detected events.
 struct Detector1 {
+    /// Histogram data about counts recorded by the detectors.
     counts: CountsData,
+    /// The minimum time for each bin of the histogram in microseconds.
     raw_time: Array1<f32>,
+    /// The width of the bins in picoseconds.
     resolution: i32,
+    /// The index for each detector.
     spectrum_index: Array1<i32>,
+    /// The time which is used as 'zero' for the offset in all other times.
     time_zero: u32,
+    /// The index of the periods for each period of the histogram.
     period_index: Array1<u32>,
 }
 
+/// Histogram data about counts recorded by the detectors.
 struct CountsData {
+    /// The histogram of counts, indexed [period index, spec index, bin]
     counts: Array3<i32>,
+    /// The index of the first relevant bin.
     first_good_bin: u32,
+    /// The index of the last relevant bin.
     last_good_bin: u32,
+    /// The index of the bin corresponding to time_zero.
     t0_bin: u32,
 }
 
