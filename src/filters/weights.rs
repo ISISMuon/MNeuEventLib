@@ -1,4 +1,4 @@
-use std::cmp::max;
+use std::cmp::{max, min};
 /// Class representation of an array of binary weights as a string of bits,
 /// stored in 64-bit blocks.
 ///
@@ -19,12 +19,20 @@ const BLOCK_SIZE: usize = 64;
 
 /// Struct to store weights as a bit string.
 /// The bits are stored in 64-bit blocks.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Weights {
     // Note that each block of raw weights is stored in little-endian order;
     // that is, e.g. for the second block (representing weights 64-127)
     // the weight for value 64 would be the rightmost binary digit
     raw_weights: Vec<u64>,
+    // actual length of the array
+    len: usize,
+}
+
+impl PartialEq for Weights {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw_weights == other.raw_weights
+    }
 }
 
 impl Weights {
@@ -36,6 +44,7 @@ impl Weights {
         };
         Weights {
             raw_weights: vec![u64::MAX; max(array_size, 1)],
+            len,
         }
     }
 
@@ -47,6 +56,7 @@ impl Weights {
         };
         Weights {
             raw_weights: vec![0; max(array_size, 1)],
+            len,
         }
     }
 
@@ -128,6 +138,48 @@ impl Weights {
         let hi = last_block / BLOCK_SIZE;
         self.raw_weights[lo..hi].iter_mut().for_each(|b| *b = value);
     }
+
+    /// Count the number of 1s in this array.
+    pub fn count(&self) -> u32 {
+        let mut count = self
+            .raw_weights
+            .par_iter()
+            .map(|block| (*block).count_ones())
+            .sum();
+        // subtract any values in the overhang
+        let overhang_size = self.len % BLOCK_SIZE;
+        if overhang_size != 0 {
+            let last_block = self.raw_weights.last().unwrap();
+            let overhang = last_block & (u64::MAX << overhang_size);
+            count -= overhang.count_ones();
+        }
+        count
+    }
+
+    /// Get the index of the first value set to 1 in the array.
+    pub fn get_first_one(&self) -> Option<usize> {
+        for (k, block) in self.raw_weights.iter().enumerate() {
+            if *block == 0 {
+                continue;
+            }
+            // remember u64 is litte-endian, so the blocks go right-to-left
+            return Some(block.trailing_zeros() as usize + (k * BLOCK_SIZE));
+        }
+        None
+    }
+
+    /// Get the index of the last value set to 1 in the array.
+    pub fn get_last_one(&self) -> Option<usize> {
+        for (k, block) in self.raw_weights.iter().enumerate().rev() {
+            if *block == 0 {
+                continue;
+            }
+            // remember u64 is litte-endian, so the blocks go right-to-left
+            let result = (64 - block.leading_zeros()) as usize + (k * BLOCK_SIZE);
+            return Some(min(result - 1, self.len - 1));
+        }
+        None
+    }
 }
 
 // allow indexing
@@ -157,6 +209,7 @@ impl BitAnd for Weights {
                 .zip(rhs.raw_weights.par_iter())
                 .map(|(x, y)| x & y)
                 .collect(),
+            len: self.len,
         }
     }
 }
@@ -167,6 +220,7 @@ impl Not for Weights {
     fn not(self) -> Self::Output {
         Weights {
             raw_weights: self.raw_weights.par_iter().map(|x| !x).collect(),
+            len: self.len,
         }
     }
 }
@@ -178,7 +232,10 @@ impl Weights {
     // but is not used in the actual code
     /// Create a weights array from a raw weight vector.
     pub fn from_raw(raw_weights: Vec<u64>) -> Self {
-        Weights { raw_weights }
+        Weights {
+            raw_weights: raw_weights.clone(),
+            len: raw_weights.len() * 64,
+        }
     }
 
     /// Set the weight at a given index to a given value.
@@ -319,5 +376,51 @@ mod tests {
         let result = !weights;
 
         assert_eq!(result.raw_weights, vec![!0b1111_0000, !0b1010]);
+    }
+
+    /// Test that `count` returns the correct count for one block.
+    #[test]
+    fn test_count_one_block() {
+        let weights = Weights::from_raw(vec![0b01011010001]);
+        let count = weights.count();
+
+        assert_eq!(count, 5)
+    }
+
+    /// Test that `count` returns the correct count for multiple blocks.
+    #[test]
+    fn test_count_multiple_blocks() {
+        let weights = Weights::from_raw(vec![0b01011010001, 0b111, 0, 0b1]);
+        let count = weights.count();
+
+        assert_eq!(count, 9)
+    }
+
+    /// Test that `count` returns the correct count when there is an overhang.
+    #[test]
+    fn test_count_overhang() {
+        let weights = Weights::ones(70);
+        let count = weights.count();
+
+        assert_eq!(count, 70)
+    }
+
+    /// Test that `get_first_one` returns the first 1 value.
+    #[test]
+    fn test_get_first_one() {
+        // remember u64 is litte-endian, so the blocks go right-to-left
+        let weights = Weights::from_raw(vec![0, 0b01000100, 0b111000]);
+
+        // this should be 2 along in the second block, so 64 + 2
+        assert_eq!(weights.get_first_one(), Some(64 + 2))
+    }
+
+    #[test]
+    fn test_get_last_one() {
+        // remember u64 is litte-endian, so the blocks go right-to-left
+        let weights = Weights::from_raw(vec![0, 0b01000100, 0b111000]);
+
+        // this should be index 5 in the last block, so 128 + 5
+        assert_eq!(weights.get_last_one(), Some(128 + 5))
     }
 }

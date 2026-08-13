@@ -10,7 +10,7 @@ use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIter
 use crate::data::{FrameData, NexusData};
 use crate::filters::{get_weights, Filters, Weights};
 
-type PyHist<'py> = Bound<'py, PyArray3<usize>>;
+type PyHist<'py> = Bound<'py, PyArray3<i32>>;
 
 #[pyclass(from_py_object)]
 #[derive(Clone)]
@@ -18,8 +18,12 @@ pub struct Histogram {
     pub min_time: f32,
     pub max_time: f32,
     pub n_bins: usize,
-    pub hist: Array3<usize>,
+    pub hist: Array3<i32>,
     pub n: usize,
+    pub n_frames: Vec<u32>,
+    pub n_good_frames: Vec<u32>,
+    pub start_time: usize,
+    pub end_time: usize,
 }
 
 #[pymethods]
@@ -32,6 +36,10 @@ impl Histogram {
             n_bins,
             hist: Array3::zeros((0, 0, 0)),
             n: 0,
+            n_frames: vec![0],
+            n_good_frames: vec![0],
+            start_time: 0,
+            end_time: 0,
         }
     }
 
@@ -47,14 +55,18 @@ impl Histogram {
 
 impl Histogram {
     pub fn calculate(&self, data: &NexusData, filters: &Filters) -> Result<Histogram> {
+        // get period data
         let periods: Array1<u32> = data.periods.read_1d()?;
         let n_periods = (periods.iter().max().unwrap() + 1) as usize;
 
+        // set up data to parse things recorded by frame rather than by event
         let start_index: Array1<usize> = data.frames.read_1d()?;
         let frame_data = FrameData::new(start_index.clone(), data.n_events);
 
+        // get data for time filters
         let (time_starts, time_ends) = filters.get_time_filter_times();
 
+        // get data for all log filters that have been filtered
         let log_names = filters.get_required_log_names();
         let value_logs = match data.get_sample_logs(log_names) {
             Ok(logs) => logs,
@@ -62,10 +74,11 @@ impl Histogram {
         };
         let (log_starts, log_ends) = filters.get_log_filter_times(value_logs);
 
-        let weights = if time_starts.is_empty() && log_starts.is_empty() {
-            Weights::ones(data.n_frames)
-        } else {
-            let frame_start_times: Array1<usize> = data.frame_times.read_1d()?;
+        let filters_exist = !time_starts.is_empty() || !log_starts.is_empty();
+
+        let frame_start_times: Array1<usize> = data.frame_times.read_1d()?;
+
+        let weights = if filters_exist {
             let time_weights = if time_starts.is_empty() {
                 Weights::ones(data.n_frames)
             } else {
@@ -83,11 +96,20 @@ impl Histogram {
                 get_weights(log_starts, log_ends, &frame_start_times, true)
             };
             time_weights & log_weights
+        } else {
+            Weights::ones(data.n_frames)
+        };
+
+        // todo: once vetos are added, calculate n_good_frames too
+        let n_frames = if n_periods == 1 {
+            vec![weights.count()]
+        } else {
+            get_period_frames(&periods, n_periods, &weights)
         };
 
         let min_amps = filters.get_amps(data.n_spec)?;
 
-        Ok(calculate_histograms(
+        let mut histogram = calculate_histograms(
             data,
             self.min_time,
             self.max_time,
@@ -95,10 +117,36 @@ impl Histogram {
             n_periods,
             periods,
             min_amps,
-            weights,
+            &weights,
             frame_data,
-        ))
+        );
+        histogram.n_frames = n_frames.clone();
+        histogram.n_good_frames = n_frames;
+
+        (histogram.start_time, histogram.end_time) =
+            get_experiment_times(weights, frame_start_times);
+
+        Ok(histogram)
     }
+}
+
+/// Calculate the number of kept frames for each period.
+pub fn get_period_frames(periods: &Array1<u32>, n_periods: usize, weights: &Weights) -> Vec<u32> {
+    let mut output = vec![0; n_periods];
+    for (k, period) in periods.iter().enumerate() {
+        if weights[k] {
+            output[*period as usize] += 1
+        }
+    }
+    output
+}
+
+/// Get the start and end times of the (optionally filtered) experiment.
+pub fn get_experiment_times(weights: Weights, frame_start_times: Array1<usize>) -> (usize, usize) {
+    (
+        frame_start_times[weights.get_first_one().unwrap()],
+        frame_start_times[weights.get_last_one().unwrap()],
+    )
 }
 
 /// Calculate histograms and output the result.
@@ -112,7 +160,7 @@ pub fn calculate_histograms(
     n_periods: usize,
     periods: Array1<u32>,
     min_amps: Array1<f64>,
-    weights: Weights,
+    weights: &Weights,
     frame_data: FrameData,
 ) -> Histogram {
     let width: f32 = (max_time - min_time) / n_bins as f32;
@@ -144,7 +192,7 @@ pub fn calculate_histograms(
                 &periods,
                 n_periods,
                 &min_amps,
-                &weights,
+                weights,
                 frame_data.slice(start, end),
                 min_time,
                 max_time,
@@ -276,7 +324,7 @@ mod tests {
             1e-3,
         );
 
-        let expected = Array3::<usize>::from_shape_vec((1, 2, 3), vec![1, 1, 2, 1, 0, 1]).unwrap();
+        let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![1, 1, 2, 1, 0, 1]).unwrap();
 
         assert_eq!(result.hist, expected)
     }
@@ -309,7 +357,7 @@ mod tests {
             1e-3,
         );
 
-        let expected = Array3::<usize>::from_shape_vec((1, 2, 3), vec![0, 1, 0, 1, 0, 1]).unwrap();
+        let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![0, 1, 0, 1, 0, 1]).unwrap();
 
         assert_eq!(result.hist, expected)
     }
@@ -344,7 +392,7 @@ mod tests {
         // bins are 0-1000, 1000-2000, 2000-3000
         // period 0: events at times 500 (bin 0, spec 0), 600 (bin 0, spec 1), 2500 (bin 2, spec 0)
         // period 1: events at times 1500 (bin 1, spec 0), 2300 (bin 2, spec 0), 2650 (bin 2, spec 1)
-        let expected = Array3::<usize>::from_shape_vec(
+        let expected = Array3::<i32>::from_shape_vec(
             (2, 2, 3),
             vec![
                 1, 0, 1, // period 0, spec 0
@@ -385,7 +433,7 @@ mod tests {
             1e-3,
         );
 
-        let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 0, 1, 1]).unwrap();
+        let expected = Array3::<i32>::from_shape_vec((1, 2, 2), vec![1, 0, 1, 1]).unwrap();
 
         assert_eq!(result.hist, expected)
     }
@@ -417,7 +465,7 @@ mod tests {
             1e-3,
         );
 
-        let expected = Array3::<usize>::from_shape_vec((1, 2, 2), vec![1, 1, 0, 1]).unwrap();
+        let expected = Array3::<i32>::from_shape_vec((1, 2, 2), vec![1, 1, 0, 1]).unwrap();
 
         assert_eq!(result.hist, expected)
     }
@@ -449,7 +497,7 @@ mod tests {
             1e-3,
         );
 
-        let expected = Array3::<usize>::from_shape_vec((1, 2, 3), vec![1, 1, 1, 0, 0, 1]).unwrap();
+        let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![1, 1, 1, 0, 0, 1]).unwrap();
 
         assert_eq!(result.hist, expected)
     }
@@ -480,7 +528,7 @@ mod tests {
             1e-3,
         );
 
-        let expected = Array3::<usize>::from_shape_vec((1, 1, 3), vec![2, 0, 1]).unwrap();
+        let expected = Array3::<i32>::from_shape_vec((1, 1, 3), vec![2, 0, 1]).unwrap();
         assert_eq!(result.hist, expected);
 
         // now test with a different conversion factor
@@ -501,7 +549,64 @@ mod tests {
             2e-3,
         );
 
-        let expected2 = Array3::<usize>::from_shape_vec((1, 1, 3), vec![1, 1, 0]).unwrap();
+        let expected2 = Array3::<i32>::from_shape_vec((1, 1, 3), vec![1, 1, 0]).unwrap();
         assert_eq!(result2.hist, expected2)
     }
+}
+
+/// Test that `get_period_frames` correctly counts kept frames per period
+/// when all weights are set (no filtering).
+#[test]
+fn test_get_period_frames_no_filter() {
+    // 6 frames across 2 periods: [0, 1, 0, 1, 0, 1]
+    let periods = Array1::<u32>::from_vec(vec![0, 1, 0, 1, 0, 1]);
+    let weights = Weights::ones(6);
+
+    let result = get_period_frames(&periods, 2, &weights);
+
+    assert_eq!(result, vec![3, 3]);
+}
+
+/// Test that `get_period_frames` correctly ignores frames whose weight
+/// bit is unset (i.e. filtered/vetoed frames).
+#[test]
+fn test_get_period_frames_with_filter() {
+    // 6 frames across 2 periods: [0, 1, 0, 1, 0, 1]
+    let periods = Array1::<u32>::from_vec(vec![0, 1, 0, 1, 0, 1]);
+    // keep frames 0, 1, 2, 4 -> raw bits: 0b010111 (little-endian, LSB = frame 0)
+    let weights = Weights::from_raw(vec![0b010111]);
+
+    let result = get_period_frames(&periods, 2, &weights);
+
+    // period 0 frames: indices 0, 2, 4 -> kept: 0, 2, 4 => 3 kept
+    // period 1 frames: indices 1, 3, 5 -> kept: 1 only => 1 kept
+    assert_eq!(result, vec![3, 1]);
+}
+
+/// Test that `get_experiment_times` returns the start and end frame
+/// times corresponding to the first and last set bits in the weights,
+/// when all frames are kept.
+#[test]
+fn test_get_experiment_times_no_filter() {
+    let frame_start_times = Array1::<usize>::from_vec(vec![100, 200, 300, 400, 500]);
+    let weights = Weights::ones(5);
+
+    let (start, end) = get_experiment_times(weights, frame_start_times);
+
+    assert_eq!(start, 100);
+    assert_eq!(end, 500);
+}
+
+/// Test that `get_experiment_times` correctly identifies the start and
+/// end times when only a subset of frames are kept (filtered).
+#[test]
+fn test_get_experiment_times_with_filter() {
+    let frame_start_times = Array1::<usize>::from_vec(vec![100, 200, 300, 400, 500]);
+    // keep frames 1, 2, 3 only -> raw bits: 0b01110
+    let weights = Weights::from_raw(vec![0b01110]);
+
+    let (start, end) = get_experiment_times(weights, frame_start_times);
+
+    assert_eq!(start, 200);
+    assert_eq!(end, 400);
 }

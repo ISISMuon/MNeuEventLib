@@ -1,7 +1,7 @@
 use anyhow::{Error, Result};
 use pyo3::prelude::{pyclass, pymethods};
 
-use crate::data::NexusData;
+use crate::data::{NexusData, SaveFile, WiMDAFile};
 use crate::filters::Filters;
 use crate::stats::Histogram;
 
@@ -20,7 +20,7 @@ impl Data {
     /// Create a new Data object.
     #[new]
     #[pyo3(signature = (filename, n_spec, chunk_size=1048576))]
-    fn new(filename: String, n_spec: usize, chunk_size: usize) -> Result<Self> {
+    pub fn new(filename: String, n_spec: usize, chunk_size: usize) -> Result<Self> {
         let dataset = NexusData::new(filename, n_spec, chunk_size)?;
         let results = Histogram::new(0., 32.768, 2048);
         Ok(Data {
@@ -38,10 +38,12 @@ impl Data {
     /// Histogram
     ///     A Histogram object containing the resulting histogram
     ///     and number of events.
-    fn calculate(&mut self) -> Result<Histogram> {
+    pub fn calculate(&mut self) -> Result<Histogram> {
         if self.data_changed {
             self.data_changed = false;
-            self.results.calculate(&self.dataset, &self.filters)
+            let results = self.results.calculate(&self.dataset, &self.filters)?;
+            self.results = results.clone();
+            Ok(results)
         } else {
             // if data hasn't changed, just return the existing saved results
             Ok(self.results.clone())
@@ -99,7 +101,7 @@ impl Data {
     ///     The start point for the time filter.
     /// end: float
     ///     The end point for the time filter.
-    fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> Result<()> {
+    pub fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> Result<()> {
         self.data_changed = true;
         self.filters.add_time_filter(name, start, end)
     }
@@ -127,7 +129,13 @@ impl Data {
     ///     The lower bound for the log filter.
     /// upper: float
     ///     The upper bound for the log filter.
-    fn add_log_filter(&mut self, name: String, log: String, lower: f64, upper: f64) -> Result<()> {
+    pub fn add_log_filter(
+        &mut self,
+        name: String,
+        log: String,
+        lower: f64,
+        upper: f64,
+    ) -> Result<()> {
         self.data_changed = true;
         self.filters
             .add_log_filter(name, log, Some(lower), Some(upper))
@@ -196,5 +204,17 @@ impl Data {
     fn set_amps_baseline(&mut self, amp: f64) {
         self.data_changed = true;
         self.filters.set_amps_baseline(amp)
+    }
+
+    /// Save to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename for the saved file.
+    fn save(&self, filename: String) -> Result<()> {
+        let wimda_file = WiMDAFile::new(self)?;
+        wimda_file.save(filename, &self.dataset.file)?;
+        Ok(())
     }
 }
