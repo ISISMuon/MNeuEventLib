@@ -49,6 +49,8 @@ struct Detector1 {
     counts: CountsData,
     /// The minimum time for each bin of the histogram in microseconds.
     raw_time: Array1<f32>,
+    /// The time centres for each bin in microseconds.
+    corrected_time: Array1<f32>,
     /// The width of the bins in picoseconds.
     resolution: i32,
     /// The index for each detector.
@@ -89,6 +91,7 @@ impl Detector1 {
         };
 
         let raw_time = Array1::linspace(hist.min_time, hist.max_time, hist.n_bins + 1);
+        let corrected_time = raw_time.clone().map(|t| t + width / 2.);
 
         let resolution = (width * 1e6) as i32;
 
@@ -101,6 +104,7 @@ impl Detector1 {
         Detector1 {
             counts,
             raw_time,
+            corrected_time,
             resolution,
             spectrum_index,
             time_zero: 0,
@@ -122,6 +126,10 @@ impl Save for Detector1 {
         let bins = add_array(group, &self.raw_time, "raw_time")?;
         add_str_attr::<4>(&bins, "time", "long_name")?;
         add_str_attr::<12>(&bins, "microseconds", "units")?;
+
+        let centres = add_array(group, &self.corrected_time, "corrected_time")?;
+        add_str_attr::<4>(&centres, "time", "long_name")?;
+        add_str_attr::<12>(&centres, "microseconds", "units")?;
 
         // min_time and max_time are in microseconds so we convert to picoseconds
         let res = add_scalar(group, self.resolution, "resolution")?;

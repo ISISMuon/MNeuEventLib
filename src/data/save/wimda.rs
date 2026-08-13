@@ -105,7 +105,7 @@ impl WiMDAFile {
 
 impl SaveFile for WiMDAFile {
     fn save(&self, filename: String, input_file: &File) -> Result<()> {
-        let output = File::create(filename)?;
+        let output = File::create(&filename)?;
         let hist_data = output.create_group("raw_data_1")?;
         let event_data = input_file.group("raw_data_1")?;
         add_nx_class(&hist_data, "NXEntry")?;
@@ -231,6 +231,7 @@ impl SaveFile for WiMDAFile {
                 add_str_scalar::<3>(&user_1, "RAL", "affiliation")?;
             }
         };
+        println!("Saved to output file {filename}");
         Ok(())
     }
 }
@@ -271,7 +272,9 @@ mod tests {
         tmp_path.push("wimda_test_structure.nxs");
         let tmp_path_str = tmp_path.to_str().unwrap().to_string();
 
-        wimda.save(tmp_path_str.clone(), &data.dataset.file).unwrap();
+        wimda
+            .save(tmp_path_str.clone(), &data.dataset.file)
+            .unwrap();
 
         let output = File::open(tmp_path_str).unwrap();
         let hist_data = output.group("raw_data_1").unwrap();
@@ -307,13 +310,20 @@ mod tests {
         tmp_path.push("wimda_test_sample_name.nxs");
         let tmp_path_str = tmp_path.to_str().unwrap().to_string();
 
-        wimda.save(tmp_path_str.clone(), &data.dataset.file).unwrap();
+        wimda
+            .save(tmp_path_str.clone(), &data.dataset.file)
+            .unwrap();
 
         let output = File::open(tmp_path_str).unwrap();
         let hist_data = output.group("raw_data_1").unwrap();
         let sample = hist_data.group("sample").unwrap();
 
-        let name: VarLenUnicode = sample.dataset("name").unwrap().read().unwrap().into_scalar();
+        let name: VarLenUnicode = sample
+            .dataset("name")
+            .unwrap()
+            .read()
+            .unwrap()
+            .into_scalar();
         assert!(!name.is_empty());
     }
 
@@ -328,7 +338,9 @@ mod tests {
         tmp_path.push("wimda_test_user_1.nxs");
         let tmp_path_str = tmp_path.to_str().unwrap().to_string();
 
-        wimda.save(tmp_path_str.clone(), &data.dataset.file).unwrap();
+        wimda
+            .save(tmp_path_str.clone(), &data.dataset.file)
+            .unwrap();
 
         let output = File::open(tmp_path_str).unwrap();
         let hist_data = output.group("raw_data_1").unwrap();
