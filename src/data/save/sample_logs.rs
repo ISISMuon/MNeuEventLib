@@ -120,6 +120,7 @@ mod tests {
             name: "temp".to_string(),
             time: Array1::from_vec(vec![0., 0.1, 0.2, 0.3]),
             value: Array1::from_vec(vec![1.0f32, 2.0, 3.0, 4.0]),
+            unit: "".to_string()
         }
     }
 
@@ -129,6 +130,7 @@ mod tests {
             name: "pressure".to_string(),
             time: Array1::from_vec(vec![0., 0.1, 0.2, 0.3]),
             value: Array1::from_vec(vec![1.5f64, 2.5, 3.5, 4.5]),
+            unit: "".to_string()
         }
     }
 

@@ -18,6 +18,7 @@ const INT_EVENT_FIELDS: [&str; 3] = ["event_id", "event_index", "period_number"]
 #[allow(dead_code)]
 pub struct MockData {
     file: NamedTempFile,
+    nxs_file: File,
     pub event_data: Group,
     pub sample_logs: Group,
 }
@@ -32,6 +33,7 @@ impl MockData {
         let sample_logs = data.create_group("selog")?;
         Ok(MockData {
             file: tempfile,
+            nxs_file: file,
             event_data,
             sample_logs,
         })
@@ -65,7 +67,8 @@ impl MockData {
         let n_events = specs.size();
         let n_frames = self.event_data.dataset("period_number")?.size();
         Ok(NexusData {
-            file: "temp".to_string(),
+            filename: "temp".to_string(),
+            file: self.nxs_file.clone(),
             specs,
             times: self.event_data.dataset("event_time_offset")?,
             amps: self.event_data.dataset("pulse_height")?,

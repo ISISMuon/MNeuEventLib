@@ -114,7 +114,7 @@ impl SampleLog {
     /// Given a list of filter starts and ends, return the sample log with filter applied.
     ///
     /// Assumes that start_times and end_times are sorted arrays.
-    pub fn apply_filters(&self, start_times: &Vec<usize>, end_times: &Vec<usize>) -> SampleLog {
+    pub fn apply_filters(&self, start_times: &[usize], end_times: &[usize]) -> SampleLog {
         bind! {self, apply_filters(start_times, end_times)}
     }
 }
