@@ -132,6 +132,8 @@ impl SaveFile for WiMDAFile {
         let unfiltered_start_time =
             DateTime::parse_from_str(start_time_string.as_ref(), "%Y-%m-%dT%H:%M:%S%z")?;
 
+        // for some weird reason Chrono doesn't let you create a timedelta with more
+        // than 1 second worth of nanoseconds, so we convert to seconds and nanoseconds
         let start_time = unfiltered_start_time
             + TimeDelta::new(
                 (self.start_time / 1_000_000_000) as i64,
@@ -183,7 +185,7 @@ impl SaveFile for WiMDAFile {
                 add_str_scalar::<1>(&hist_data, "", "notes")?;
             }
         };
-        // todo: remove periods if empty?
+
         let period_group = hist_data.create_group("periods")?;
         add_nx_class(&period_group, "IXperiod")?;
         self.periods.save(&period_group, &event_data)?;

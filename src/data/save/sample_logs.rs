@@ -37,7 +37,8 @@ where
         let value_log = log_group.create_group("value_log")?;
         let times: Array1<f32> = self.time.map(|t| *t as f32);
         let values = self.value.map(|v| v.narrow());
-        add_array(&value_log, &times, "time")?;
+        let time_dataset = add_array(&value_log, &times, "time")?;
+        add_str_attr::<7>(&time_dataset, "seconds", "units")?;
         add_array(&value_log, &values, "value")?;
         Ok(())
     }
@@ -52,7 +53,8 @@ where
         let log_group = group.create_group(&self.name)?;
         let value_log = log_group.create_group("value_log")?;
         let times: Array1<f32> = self.time.map(|t| *t as f32);
-        add_array(&value_log, &times, "time")?;
+        let time_dataset = add_array(&value_log, &times, "time")?;
+        add_str_attr::<7>(&time_dataset, "seconds", "units")?;
         add_array(&value_log, &self.value, "value")?;
         Ok(())
     }
@@ -197,6 +199,7 @@ mod tests {
     #[test]
     fn test_get_all_sample_logs_applies_time_filters() {
         let mut data = calculated_data();
+        let unfiltered_logs = get_all_sample_logs(&data).unwrap();
         // Add a time filter matching the pattern used in other tests in the repo.
         data.add_time_filter("test_filter".to_string(), 0.0, 1.0)
             .unwrap();
@@ -205,6 +208,10 @@ mod tests {
         let logs = get_all_sample_logs(&data);
         assert!(logs.is_ok());
         // sanity check: filtering shouldn't change the number of logs, only their contents
-        assert_eq!(logs.unwrap().len(), data.dataset.sample_log_names.len());
+        let filtered_logs = logs.unwrap();
+        assert_eq!(filtered_logs.len(), unfiltered_logs.len());
+        for i in 0..filtered_logs.len() {
+            assert!(filtered_logs[i] != unfiltered_logs[i])
+        }
     }
 }

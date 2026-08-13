@@ -5,6 +5,7 @@ use ndarray::Array1;
 
 use crate::consts::S_TO_NS;
 
+#[derive(PartialEq)]
 pub enum SampleLog {
     I8(ValueLog<i8>),
     I16(ValueLog<i16>),
@@ -112,7 +113,7 @@ impl SampleLog {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct ValueLog<T> {
     pub name: String,
     pub time: Array1<f64>,

@@ -251,7 +251,6 @@ mod tests {
         let data = calculated_data();
         let instrument = Instrument::new(&data);
 
-        // todo: this needs to be done properly
         let mut tmp_path = temp_dir();
         tmp_path.push("instrument_test.nxs");
         let tmp = File::create(tmp_path).unwrap();

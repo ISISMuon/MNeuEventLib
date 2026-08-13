@@ -15,6 +15,7 @@ pub struct Periods {
     labels: String,
     /// The number of periods.
     number: u32,
+    /// Output bit pattern on period card.
     output: Array1<i32>,
     /// The number of unfiltered frames in each period.
     raw_frames: Array1<u32>,
@@ -35,7 +36,7 @@ impl Periods {
             .map(|n| format!("period {}", n + 1))
             .collect::<Vec<String>>()
             .join(",");
-        // don't know what output does but WiMDA doesn't use it
+        // this seems to be unused or needs to be read from data (but doesn't exist in data)
         let output = Array1::from_vec(vec![0; n_periods]);
         let total_counts: Array1<f32> = (0..n_periods)
             .map(|n| {
@@ -139,12 +140,10 @@ mod tests {
     #[test]
     fn test_periods_labels() {
         let data = calculated_data();
-        // ensure we're actually looking at a single-period histogram, since
-        // this test asserts a specific single-period label
         assert_eq!(
             data.results.hist.shape()[0],
             2,
-            "fixture is expected to have exactly one period"
+            "fixture is expected to have exactly two periods"
         );
 
         let periods = Periods::new(&data);

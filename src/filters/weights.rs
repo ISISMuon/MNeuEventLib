@@ -410,6 +410,7 @@ mod tests {
         // remember u64 is litte-endian, so the blocks go right-to-left
         let weights = Weights::from_raw(vec![0, 0b01000100, 0b111000]);
 
+        // this should be 2 along in the second block, so 64 + 2
         assert_eq!(weights.get_first_one(), Some(64 + 2))
     }
 
@@ -418,6 +419,7 @@ mod tests {
         // remember u64 is litte-endian, so the blocks go right-to-left
         let weights = Weights::from_raw(vec![0, 0b01000100, 0b111000]);
 
-        assert_eq!(weights.get_last_one(), Some(128 + (64 - 6)))
+        // this should be 58 along in the 3rd block, so 128 + 58
+        assert_eq!(weights.get_last_one(), Some(128 + 58))
     }
 }

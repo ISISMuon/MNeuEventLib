@@ -123,19 +123,8 @@ impl Histogram {
         histogram.n_frames = n_frames.clone();
         histogram.n_good_frames = n_frames;
 
-        if filters_exist {
-            // get first and last good frame
-            let start_time = frame_start_times[weights.get_first_one().unwrap()];
-            let end_time = frame_start_times[weights.get_last_one().unwrap()];
-            histogram.start_time = start_time;
-            histogram.end_time = end_time;
-        } else {
-            let start_time = frame_start_times[0];
-            // we add 32us to end time to account for the incomplete last frame
-            let end_time = *frame_start_times.iter().last().unwrap() + 32000;
-            histogram.start_time = start_time;
-            histogram.end_time = end_time;
-        }
+        (histogram.start_time, histogram.end_time) =
+            get_experiment_times(weights, frame_start_times);
 
         Ok(histogram)
     }
@@ -150,6 +139,14 @@ pub fn get_period_frames(periods: &Array1<u32>, n_periods: usize, weights: &Weig
         }
     }
     output
+}
+
+/// Get the start and end times of the (optionally filtered) experiment.
+pub fn get_experiment_times(weights: Weights, frame_start_times: Array1<usize>) -> (usize, usize) {
+    (
+        frame_start_times[weights.get_first_one().unwrap()],
+        frame_start_times[weights.get_last_one().unwrap()],
+    )
 }
 
 /// Calculate histograms and output the result.
