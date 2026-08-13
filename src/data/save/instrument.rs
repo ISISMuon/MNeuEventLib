@@ -96,7 +96,7 @@ impl Detector1 {
         let spectrum_index = Array1::from_vec((1..=n_spec as i32).collect());
 
         let n_periods: u32 = hist.hist.shape()[0] as u32;
-        let period_index = Array1::from_iter(1..n_periods);
+        let period_index = Array1::from_iter(1..=n_periods);
 
         Detector1 {
             counts,

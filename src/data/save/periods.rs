@@ -186,21 +186,12 @@ mod tests {
         assert!(result.is_ok());
 
         // number
-        let number: u32 = group
-            .dataset("number")
-            .unwrap()
-            .read()
-            .unwrap()
-            .into_scalar();
+        let number: u32 = group.dataset("number").unwrap().read_1d().unwrap()[0];
         assert_eq!(number, periods.number);
 
         // labels + separator attribute
-        let labels: hdf5::types::VarLenUnicode = group
-            .dataset("labels")
-            .unwrap()
-            .read()
-            .unwrap()
-            .into_scalar();
+        let labels: &hdf5::types::VarLenUnicode =
+            &group.dataset("labels").unwrap().read_1d().unwrap()[0];
         assert_eq!(labels.as_str(), periods.labels);
 
         let separator: hdf5::types::FixedAscii<1> = group

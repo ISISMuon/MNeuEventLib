@@ -3,7 +3,7 @@ use std::str::FromStr;
 use anyhow::Result;
 use hdf5::types::{FixedAscii, H5Type, VarLenUnicode};
 use hdf5::{Dataset, File, Group, Location};
-use ndarray::{arr0, Array, Array0, Dimension};
+use ndarray::{arr0, Array, Array1, Dimension};
 
 // placeholder type for data that will just be copied into the nexus file
 pub type CopyData = ();
@@ -20,7 +20,8 @@ pub trait Save {
 
 /// Create a dataset with a scalar in it.
 pub fn add_scalar<T: H5Type>(group: &Group, scalar: T, name: &str) -> Result<Dataset> {
-    let data: Array0<T> = arr0(scalar);
+    // note the 'scalars' in histogram files are actually just length-1 vectors
+    let data: Array1<T> = Array1::from_vec(vec![scalar]);
     add_array(group, &data, name)
 }
 
@@ -45,8 +46,14 @@ pub fn add_str_scalar<const LEN: usize>(
     add_scalar(group, string, name)
 }
 
-pub fn copy_scalar<T: H5Type>(from: &Group, to: &Group, item: &str) -> Result<Dataset> {
-    let data: T = from.dataset(item)?.read()?.into_scalar();
+pub fn copy_scalar<T: H5Type + Clone>(from: &Group, to: &Group, item: &str) -> Result<Dataset> {
+    let dataset = from.dataset(item)?.read_1d::<T>();
+    // some 'scalars' are 1D arrays with 1 element, so we need to handle it...
+    let data: T = if let Ok(array) = dataset {
+        array[0].clone()
+    } else {
+        from.dataset(item)?.read()?.into_scalar()
+    };
     add_scalar(to, data, item)
 }
 
@@ -107,7 +114,7 @@ mod tests {
 
         add_scalar(&group, 42i32, "answer").unwrap();
 
-        let value: i32 = group.dataset("answer").unwrap().read_scalar().unwrap();
+        let value: i32 = group.dataset("answer").unwrap().read_1d().unwrap()[0];
         assert_eq!(value, 42);
     }
 
@@ -119,7 +126,7 @@ mod tests {
 
         add_scalar(&group, 3.1, "scalar").unwrap();
 
-        let value: f32 = group.dataset("scalar").unwrap().read_scalar().unwrap();
+        let value: f32 = group.dataset("scalar").unwrap().read_1d().unwrap()[0];
         assert_eq!(value, 3.1);
     }
 
@@ -133,7 +140,7 @@ mod tests {
         add_str_scalar::<8>(&group, "hello", "greeting").unwrap();
 
         let value: hdf5::types::FixedAscii<8> =
-            group.dataset("greeting").unwrap().read_scalar().unwrap();
+            group.dataset("greeting").unwrap().read_1d().unwrap()[0];
         assert_eq!(value.as_str(), "hello");
     }
 
@@ -155,11 +162,13 @@ mod tests {
         let source = file.create_group("source").unwrap();
         let dest = file.create_group("dest").unwrap();
 
-        add_scalar(&source, 99i32, "count").unwrap();
+        // the scalars in event files are actually scalars, but add_scalar adds a 1d array
+        // so we need to do this differently here
+        add_array(&source, &arr0(99i32), "count").unwrap();
 
         copy_scalar::<i32>(&source, &dest, "count").unwrap();
 
-        let value: i32 = dest.dataset("count").unwrap().read_scalar().unwrap();
+        let value: i32 = dest.dataset("count").unwrap().read_1d().unwrap()[0];
         assert_eq!(value, 99);
     }
 
@@ -171,12 +180,14 @@ mod tests {
         let dest = file.create_group("dest").unwrap();
 
         let text = hdf5::types::VarLenUnicode::from_str("hello world").unwrap();
-        add_scalar(&source, text, "title").unwrap();
+        // the scalars in event files are actually scalars, but add_scalar adds a 1d array
+        // so we need to do this differently here
+        add_array(&source, &arr0(text), "title").unwrap();
 
         copy_scalar::<hdf5::types::VarLenUnicode>(&source, &dest, "title").unwrap();
 
-        let value: hdf5::types::VarLenUnicode =
-            dest.dataset("title").unwrap().read_scalar().unwrap();
+        let value: &hdf5::types::VarLenUnicode =
+            &dest.dataset("title").unwrap().read_1d().unwrap()[0];
         assert_eq!(value.as_str(), "hello world");
     }
 
