@@ -42,7 +42,11 @@ where
         let time_dataset = add_array(&value_log, &times, "time")?;
         add_str_attr::<7>(&time_dataset, "seconds", "units")?;
         let value_dataset = add_array(&value_log, &values, "value")?;
-        add_attr(&value_dataset, VarLenUnicode::from_str(&self.unit)?, "units")?;
+        add_attr(
+            &value_dataset,
+            VarLenUnicode::from_str(&self.unit)?,
+            "units",
+        )?;
         Ok(())
     }
 }
@@ -59,7 +63,11 @@ where
         let time_dataset = add_array(&value_log, &times, "time")?;
         add_str_attr::<7>(&time_dataset, "seconds", "units")?;
         let value_dataset = add_array(&value_log, &self.value, "value")?;
-        add_attr(&value_dataset, VarLenUnicode::from_str(&self.unit)?, "units")?;
+        add_attr(
+            &value_dataset,
+            VarLenUnicode::from_str(&self.unit)?,
+            "units",
+        )?;
         Ok(())
     }
 }
@@ -103,8 +111,8 @@ pub fn get_all_sample_logs(data: &Data) -> Result<Vec<SampleLog>> {
 mod tests {
     use super::*;
     use crate::interface::Data;
-    use hdf5::File;
     use hdf5::types::FixedAscii;
+    use hdf5::File;
     use ndarray::Array1;
     use std::env::temp_dir;
 
@@ -125,7 +133,7 @@ mod tests {
             name: "temp".to_string(),
             time: Array1::from_vec(vec![0., 0.1, 0.2, 0.3]),
             value: Array1::from_vec(vec![1.0f32, 2.0, 3.0, 4.0]),
-            unit: "gas mark".to_string()
+            unit: "gas mark".to_string(),
         }
     }
 
@@ -135,7 +143,7 @@ mod tests {
             name: "pressure".to_string(),
             time: Array1::from_vec(vec![0., 0.1, 0.2, 0.3]),
             value: Array1::from_vec(vec![1.5f64, 2.5, 3.5, 4.5]),
-            unit: "fathoms".to_string()
+            unit: "fathoms".to_string(),
         }
     }
 
@@ -163,8 +171,20 @@ mod tests {
         assert_eq!(time, expected_time);
         assert_eq!(value, log.value);
 
-        let time_unit: FixedAscii<7> = value_log.dataset("time").unwrap().attr("units").unwrap().read_scalar().unwrap();
-        let unit: VarLenUnicode = value_log.dataset("value").unwrap().attr("units").unwrap().read_scalar().unwrap();
+        let time_unit: FixedAscii<7> = value_log
+            .dataset("time")
+            .unwrap()
+            .attr("units")
+            .unwrap()
+            .read_scalar()
+            .unwrap();
+        let unit: VarLenUnicode = value_log
+            .dataset("value")
+            .unwrap()
+            .attr("units")
+            .unwrap()
+            .read_scalar()
+            .unwrap();
         assert_eq!(time_unit.to_string(), "seconds".to_string());
         assert_eq!(unit.to_string(), "gas mark".to_string())
     }
@@ -193,8 +213,20 @@ mod tests {
         assert_eq!(time, expected_time);
         assert_eq!(value, expected_value);
 
-        let time_unit: FixedAscii<7> = value_log.dataset("time").unwrap().attr("units").unwrap().read_scalar().unwrap();
-        let unit: VarLenUnicode = value_log.dataset("value").unwrap().attr("units").unwrap().read_scalar().unwrap();
+        let time_unit: FixedAscii<7> = value_log
+            .dataset("time")
+            .unwrap()
+            .attr("units")
+            .unwrap()
+            .read_scalar()
+            .unwrap();
+        let unit: VarLenUnicode = value_log
+            .dataset("value")
+            .unwrap()
+            .attr("units")
+            .unwrap()
+            .read_scalar()
+            .unwrap();
         assert_eq!(time_unit.to_string(), "seconds".to_string());
         assert_eq!(unit.to_string(), "fathoms".to_string())
     }
