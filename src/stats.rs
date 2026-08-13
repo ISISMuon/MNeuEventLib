@@ -553,3 +553,60 @@ mod tests {
         assert_eq!(result2.hist, expected2)
     }
 }
+
+/// Test that `get_period_frames` correctly counts kept frames per period
+/// when all weights are set (no filtering).
+#[test]
+fn test_get_period_frames_no_filter() {
+    // 6 frames across 2 periods: [0, 1, 0, 1, 0, 1]
+    let periods = Array1::<u32>::from_vec(vec![0, 1, 0, 1, 0, 1]);
+    let weights = Weights::ones(6);
+
+    let result = get_period_frames(&periods, 2, &weights);
+
+    assert_eq!(result, vec![3, 3]);
+}
+
+/// Test that `get_period_frames` correctly ignores frames whose weight
+/// bit is unset (i.e. filtered/vetoed frames).
+#[test]
+fn test_get_period_frames_with_filter() {
+    // 6 frames across 2 periods: [0, 1, 0, 1, 0, 1]
+    let periods = Array1::<u32>::from_vec(vec![0, 1, 0, 1, 0, 1]);
+    // keep frames 0, 1, 2, 4 -> raw bits: 0b010111 (little-endian, LSB = frame 0)
+    let weights = Weights::from_raw(vec![0b010111]);
+
+    let result = get_period_frames(&periods, 2, &weights);
+
+    // period 0 frames: indices 0, 2, 4 -> kept: 0, 2, 4 => 3 kept
+    // period 1 frames: indices 1, 3, 5 -> kept: 1 only => 1 kept
+    assert_eq!(result, vec![3, 1]);
+}
+
+/// Test that `get_experiment_times` returns the start and end frame
+/// times corresponding to the first and last set bits in the weights,
+/// when all frames are kept.
+#[test]
+fn test_get_experiment_times_no_filter() {
+    let frame_start_times = Array1::<usize>::from_vec(vec![100, 200, 300, 400, 500]);
+    let weights = Weights::ones(5);
+
+    let (start, end) = get_experiment_times(weights, frame_start_times);
+
+    assert_eq!(start, 100);
+    assert_eq!(end, 500);
+}
+
+/// Test that `get_experiment_times` correctly identifies the start and
+/// end times when only a subset of frames are kept (filtered).
+#[test]
+fn test_get_experiment_times_with_filter() {
+    let frame_start_times = Array1::<usize>::from_vec(vec![100, 200, 300, 400, 500]);
+    // keep frames 1, 2, 3 only -> raw bits: 0b01110
+    let weights = Weights::from_raw(vec![0b01110]);
+
+    let (start, end) = get_experiment_times(weights, frame_start_times);
+
+    assert_eq!(start, 200);
+    assert_eq!(end, 400);
+}
