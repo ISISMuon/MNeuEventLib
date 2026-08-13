@@ -68,6 +68,7 @@ impl NexusData {
                         $type(log) => {
                             output.set_item("time".to_string(), log.time.to_pyarray(py))?;
                             output.set_item("value".to_string(), log.value.to_pyarray(py))?;
+                            output.set_item("unit".to_string(), log.unit)?;
                         }
                     )+
                 }

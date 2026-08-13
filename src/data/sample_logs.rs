@@ -1,9 +1,31 @@
+use std::str::FromStr;
+
 use anyhow::{Error, Result};
-use hdf5::types::{FloatSize, IntSize, TypeDescriptor};
+use hdf5::types::{FloatSize, IntSize, TypeDescriptor, VarLenUnicode};
 use hdf5::Dataset;
 use ndarray::Array1;
 
 use crate::consts::S_TO_NS;
+
+// Pattern-matching is the only way to access the internal value log,
+// so this macro lets you call a method of ValueLog from inside the
+// SampleLog and return the new SampleLog
+macro_rules! bind {
+    ( $self_:expr, $method:ident ( $($arg:expr),* ) ) => {
+        match $self_ {
+            SampleLog::I8(log) => SampleLog::I8(log.$method($($arg),*)),
+            SampleLog::I16(log) => SampleLog::I16(log.$method($($arg),*)),
+            SampleLog::I32(log) => SampleLog::I32(log.$method($($arg),*)),
+            SampleLog::I64(log) => SampleLog::I64(log.$method($($arg),*)),
+            SampleLog::U8(log) => SampleLog::U8(log.$method($($arg),*)),
+            SampleLog::U16(log) => SampleLog::U16(log.$method($($arg),*)),
+            SampleLog::U32(log) => SampleLog::U32(log.$method($($arg),*)),
+            SampleLog::U64(log) => SampleLog::U64(log.$method($($arg),*)),
+            SampleLog::F32(log) => SampleLog::F32(log.$method($($arg),*)),
+            SampleLog::F64(log) => SampleLog::F64(log.$method($($arg),*)),
+        }
+    }
+}
 
 #[derive(PartialEq)]
 pub enum SampleLog {
@@ -37,11 +59,18 @@ impl SampleLog {
             ( $( $hdf5_type:pat => $variant:ident : $type:ty ),+ $(,)? ) => {
                 match dtype {
                     $(
-                        $hdf5_type => SampleLog::$variant(ValueLog::<$type> {
+                        $hdf5_type => {
+                            let unit: VarLenUnicode = match value.attr("units") {
+                                Ok(units) => units.read().unwrap().into_scalar(),
+                                Err(_) => VarLenUnicode::from_str("").unwrap(),
+                            };
+                            SampleLog::$variant(ValueLog::<$type> {
                             name: log_name.clone(),
                             time,
                             value: value.read_1d()?,
-                        }),
+                            unit: unit.to_string()
+                            })
+                        },
                     )+
                     other_type => return Err(Error::msg(format!(
                             "Sample log type {other_type} for log {log_name} is not supported.
@@ -85,31 +114,8 @@ impl SampleLog {
     /// Given a list of filter starts and ends, return the sample log with filter applied.
     ///
     /// Assumes that start_times and end_times are sorted arrays.
-    pub fn apply_filters(&self, start_times: &[usize], end_times: &[usize]) -> SampleLog {
-        // we need to use pattern matching to access the inside of each log, but what we're
-        // doing is essentially just
-        // sample_log(log) -> sample_log(log.apply_filters())
-        macro_rules! apply_filters_for_type {
-            ( $($type:path),+ ) => {
-                match self {
-                    $(
-                        $type(log) => $type(log.apply_filters(start_times, end_times)),
-                    )+
-                }
-            }
-        }
-        apply_filters_for_type! {
-            SampleLog::I8,
-            SampleLog::I16,
-            SampleLog::I32,
-            SampleLog::I64,
-            SampleLog::U8,
-            SampleLog::U16,
-            SampleLog::U32,
-            SampleLog::U64,
-            SampleLog::F32,
-            SampleLog::F64
-        }
+    pub fn apply_filters(&self, start_times: &Vec<usize>, end_times: &Vec<usize>) -> SampleLog {
+        bind! {self, apply_filters(start_times, end_times)}
     }
 }
 
@@ -118,6 +124,7 @@ pub struct ValueLog<T> {
     pub name: String,
     pub time: Array1<f64>,
     pub value: Array1<T>,
+    pub unit: String,
 }
 
 impl<T> ValueLog<T>
@@ -217,6 +224,7 @@ where
             name: self.name.clone(),
             time: new_times.into(),
             value: new_values.into(),
+            unit: self.unit.clone(),
         }
     }
 }
@@ -234,6 +242,7 @@ mod tests {
             name: "temp".to_string(),
             time: times.clone(),
             value: times.clone(),
+            unit: "".to_string(),
         };
 
         let (starts, ends) = value_log.to_time_ranges(&1., &2.);
@@ -254,6 +263,7 @@ mod tests {
             name: "temp".to_string(),
             time: times.clone(),
             value: times.clone(),
+            unit: "".to_string(),
         };
 
         let (starts, ends) = value_log.to_time_ranges(&0., &2.);
@@ -274,6 +284,7 @@ mod tests {
             name: "temp".to_string(),
             time: times.clone(),
             value: times.clone(),
+            unit: "".to_string(),
         };
 
         let (starts, ends) = value_log.to_time_ranges(&1., &4.);
@@ -294,6 +305,7 @@ mod tests {
             name: "temp".to_string(),
             time: times.clone(),
             value: Array1::<f64>::from_iter(times.iter().map(|t| 2. * (t - 3.).powi(2))),
+            unit: "".to_string(),
         };
 
         // f(t) is between 2 and 8 for t = 1-2 and 4-5
@@ -311,7 +323,12 @@ mod tests {
         let time = Array1::<f64>::from_vec(vec![0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]);
         let value = Array1::<f64>::from_vec(vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
-        ValueLog::<f64> { name, time, value }
+        ValueLog::<f64> {
+            name,
+            time,
+            value,
+            unit: "".to_string(),
+        }
     }
 
     /// Test applying filters successfully 'flattens' filtered-out values.

@@ -19,6 +19,12 @@ def plot_sample_log(data: Data, log_name: str):
     """
     sample_log = data.dataset.get_sample_log(log_name)
     fig, ax = plt.subplots()
+    ax.set_xlabel("Time (seconds)")
+    if units := sample_log['unit'] == "":
+        unit_string = ""
+    else:
+        unit_string = f"({units})"
+    ax.set_ylabel(f"Value {unit_string}")
     ax.plot(sample_log['time'], sample_log['value'])
 
     plt.show()
