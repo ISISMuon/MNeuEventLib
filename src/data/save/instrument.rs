@@ -116,6 +116,7 @@ impl Save for Detector1 {
         add_attr(&counts, self.counts.t0_bin, "t0_bin")?;
         add_attr(&counts, self.counts.first_good_bin, "first_good_bin")?;
         add_attr(&counts, self.counts.last_good_bin, "last_good_bin")?;
+        add_attr(&counts, 1, "signal")?;
         add_str_attr::<15>(&counts, "positron_counts", "long_name")?;
 
         let bins = add_array(group, &self.raw_time, "raw_time")?;

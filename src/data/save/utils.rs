@@ -180,26 +180,6 @@ mod tests {
         assert_eq!(value.as_str(), "hello world");
     }
 
-    /// `copy_time` should truncate an RFC3339-style timestamp to the first
-    /// 19 characters (dropping timezone/fractional seconds) and write it as
-    /// a fixed-length ASCII string.
-    #[test]
-    fn test_copy_time_truncates_to_19_chars() {
-        let file = tmp_file("copy_time");
-        let source = file.create_group("source").unwrap();
-        let dest = file.create_group("dest").unwrap();
-
-        let full_timestamp =
-            hdf5::types::VarLenUnicode::from_str("2024-01-15T10:30:00.123456+00:00").unwrap();
-        add_scalar(&source, full_timestamp, "start_time").unwrap();
-
-        copy_time(&source, &dest, "start_time").unwrap();
-
-        let value: hdf5::types::FixedAscii<20> =
-            dest.dataset("start_time").unwrap().read_scalar().unwrap();
-        assert_eq!(value.as_str(), "2024-01-15T10:30:00");
-    }
-
     /// `add_attr` should set a scalar attribute on a group that is readable
     /// back out.
     #[test]

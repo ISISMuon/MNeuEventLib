@@ -130,7 +130,7 @@ impl SaveFile for WiMDAFile {
         let start_time_string: VarLenUnicode =
             event_data.dataset("start_time")?.read()?.into_scalar();
         let unfiltered_start_time =
-            DateTime::parse_from_str(&start_time_string.to_string(), "%Y-%m-%dT%H:%M:%S%z")?;
+            DateTime::parse_from_str(start_time_string.as_ref(), "%Y-%m-%dT%H:%M:%S%z")?;
 
         let start_time = unfiltered_start_time
             + TimeDelta::new(
@@ -164,7 +164,18 @@ impl SaveFile for WiMDAFile {
         self.instrument.save(&instrument_group, &event_data)?;
 
         copy_scalar::<VarLenUnicode>(&instrument_group, &hist_data, "name")?;
-        hist_data.link_hard("instrument/detector_1", "detector_1")?;
+
+        // the raw_data_1/detector_1 group has different NX class, so we link the internal data
+        let instrument_detector_1 = instrument_group.group("detector_1")?;
+        let detector_1 = hist_data.create_group("detector_1")?;
+        add_nx_class(&detector_1, "NXdata")?;
+
+        for member in instrument_detector_1.member_names()? {
+            hist_data.link_hard(
+                &format!("instrument/detector_1/{member}"),
+                &format!("detector_1/{member}"),
+            )?;
+        }
 
         match event_data.dataset("notes") {
             Ok(notes) => notes.copy_to(&hist_data, "notes")?,
