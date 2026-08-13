@@ -24,6 +24,8 @@ pub struct WiMDAFile {
     definition: CopyData,
     /// The number of frames which have been filtered out or vetoed.
     discarded_raw_frames: u32,
+    /// The number of frames which have filtered out (but may or may not be vetoed)
+    discarded_good_frames: u32,
     /// The amount of time between the first and last frame.
     duration: f32,
     /// The time of the last frame.
@@ -62,7 +64,7 @@ impl WiMDAFile {
         // good frames is all frames that have not been filtered or vetoed
         let raw_frames = data.results.n_frames.iter().sum::<u32>();
         let good_frames = data.results.n_good_frames.iter().sum::<u32>();
-        //let discarded_good_frames = unfiltered_frames - raw_frames;
+        let discarded_good_frames = unfiltered_frames - raw_frames;
         let discarded_raw_frames = unfiltered_frames - good_frames;
 
         let good_duration = good_frames as f32 * 0.025;
@@ -81,6 +83,7 @@ impl WiMDAFile {
             good_duration,
             definition: (),
             discarded_raw_frames,
+            discarded_good_frames,
             duration,
             end_time,
             experiment_identifier: (),
@@ -123,6 +126,11 @@ impl SaveFile for WiMDAFile {
             &hist_data,
             self.discarded_raw_frames,
             "discarded_raw_frames",
+        )?;
+        add_scalar(
+            &hist_data,
+            self.discarded_good_frames,
+            "discarded_good_frames",
         )?;
         let duration = add_scalar(&hist_data, self.duration, "duration")?;
         add_str_attr::<7>(&duration, "seconds", "units")?;
