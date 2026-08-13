@@ -66,6 +66,7 @@ impl NexusData {
                 match sample_log {
                     $(
                         $type(log) => {
+                            output.set_item("name".to_string(), log.name)?;
                             output.set_item("time".to_string(), log.time.to_pyarray(py))?;
                             output.set_item("value".to_string(), log.value.to_pyarray(py))?;
                             output.set_item("unit".to_string(), log.unit)?;
