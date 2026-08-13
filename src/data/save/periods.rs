@@ -19,6 +19,8 @@ pub struct Periods {
     output: Array1<i32>,
     /// The number of unfiltered frames in each period.
     raw_frames: Array1<u32>,
+    /// The number of unfiltered and unvetoed frames in each period.
+    good_frames: Array1<u32>,
     sequences: Array1<u32>,
     /// The number of events in each period.
     total_counts: Array1<f32>,
@@ -30,6 +32,7 @@ impl Periods {
     pub fn new(data: &Data) -> Periods {
         let n_periods = data.results.hist.shape()[0];
         let n_frames = Array1::from_vec(data.results.n_frames.clone());
+        let n_good_frames = Array1::from_vec(data.results.n_good_frames.clone());
 
         let frames_requested = Array1::from_vec(data.results.n_frames.clone());
         let labels = (0..n_periods)
@@ -52,6 +55,7 @@ impl Periods {
             number: n_periods as u32,
             output,
             raw_frames: n_frames.clone(),
+            good_frames: n_good_frames,
             sequences: n_frames,
             total_counts,
             type_,
@@ -70,6 +74,7 @@ impl Save for Periods {
         add_scalar(group, self.number, "number")?;
         add_array(group, &self.output, "output")?;
         add_array(group, &self.raw_frames, "raw_frames")?;
+        add_array(group, &self.good_frames, "good_frames")?;
         add_array(group, &self.sequences, "sequences")?;
 
         add_array(group, &self.total_counts, "total_counts")?;

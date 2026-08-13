@@ -24,6 +24,8 @@ pub struct WiMDAFile {
     definition: CopyData,
     /// The number of frames which have been filtered out or vetoed.
     discarded_raw_frames: u32,
+    /// The number of frames which have filtered out (but may or may not be vetoed)
+    discarded_good_frames: u32,
     /// The amount of time between the first and last frame.
     duration: f32,
     /// The time of the last frame.
@@ -62,7 +64,7 @@ impl WiMDAFile {
         // good frames is all frames that have not been filtered or vetoed
         let raw_frames = data.results.n_frames.iter().sum::<u32>();
         let good_frames = data.results.n_good_frames.iter().sum::<u32>();
-        //let discarded_good_frames = unfiltered_frames - raw_frames;
+        let discarded_good_frames = unfiltered_frames - raw_frames;
         let discarded_raw_frames = unfiltered_frames - good_frames;
 
         let good_duration = good_frames as f32 * 0.025;
@@ -81,6 +83,7 @@ impl WiMDAFile {
             good_duration,
             definition: (),
             discarded_raw_frames,
+            discarded_good_frames,
             duration,
             end_time,
             experiment_identifier: (),
@@ -102,7 +105,7 @@ impl WiMDAFile {
 
 impl SaveFile for WiMDAFile {
     fn save(&self, filename: String, input_file: &File) -> Result<()> {
-        let output = File::create(filename)?;
+        let output = File::create(&filename)?;
         let hist_data = output.create_group("raw_data_1")?;
         let event_data = input_file.group("raw_data_1")?;
         add_nx_class(&hist_data, "NXEntry")?;
@@ -123,6 +126,11 @@ impl SaveFile for WiMDAFile {
             &hist_data,
             self.discarded_raw_frames,
             "discarded_raw_frames",
+        )?;
+        add_scalar(
+            &hist_data,
+            self.discarded_good_frames,
+            "discarded_good_frames",
         )?;
         let duration = add_scalar(&hist_data, self.duration, "duration")?;
         add_str_attr::<7>(&duration, "seconds", "units")?;
@@ -223,6 +231,127 @@ impl SaveFile for WiMDAFile {
                 add_str_scalar::<3>(&user_1, "RAL", "affiliation")?;
             }
         };
+        println!("Saved to output file {filename}");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::interface::Data;
+    use std::env::temp_dir;
+
+    /// Fixture event file used elsewhere in the crate's tests.
+    const TEST_FILE: &str = "./tests/test_data/HIFI00195790.nxs";
+
+    fn calculated_data() -> Data {
+        let mut data = Data::new(TEST_FILE.to_string(), 64, 1048576).unwrap();
+        data.calculate().unwrap();
+        data
+    }
+
+    /// `selog` should contain one `SampleLog` per name in the dataset's
+    /// `sample_log_names`.
+    #[test]
+    fn test_wimda_file_new_selog_length() {
+        let data = calculated_data();
+        let wimda = WiMDAFile::new(&data).unwrap();
+
+        assert_eq!(wimda.selog.len(), data.dataset.sample_log_names.len());
+    }
+
+    /// Saving a `WiMDAFile` should produce a valid file with the expected
+    /// top-level `raw_data_1` group and key datasets.
+    #[test]
+    fn test_wimda_save_creates_expected_structure() {
+        let data = calculated_data();
+        let wimda = WiMDAFile::new(&data).unwrap();
+
+        let mut tmp_path = temp_dir();
+        tmp_path.push("wimda_test_structure.nxs");
+        let tmp_path_str = tmp_path.to_str().unwrap().to_string();
+
+        wimda
+            .save(tmp_path_str.clone(), &data.dataset.file)
+            .unwrap();
+
+        let output = File::open(tmp_path_str).unwrap();
+        let hist_data = output.group("raw_data_1").unwrap();
+
+        let nx_class: VarLenUnicode = hist_data.attr("NX_class").unwrap().read_scalar().unwrap();
+        assert_eq!(nx_class.as_str(), "NXEntry");
+
+        let raw_frames: u32 = hist_data.dataset("raw_frames").unwrap().read_1d().unwrap()[0];
+        assert_eq!(raw_frames, wimda.raw_frames);
+
+        let good_frames: u32 = hist_data.dataset("good_frames").unwrap().read_1d().unwrap()[0];
+        assert_eq!(good_frames, wimda.good_frames);
+
+        let definition: hdf5::types::FixedAscii<8> =
+            hist_data.dataset("definition").unwrap().read_1d().unwrap()[0];
+        assert_eq!(definition.as_str(), "pulsedTD");
+
+        // instrument and periods subgroups should exist and be linked correctly
+        assert!(hist_data.group("instrument").is_ok());
+        assert!(hist_data.group("periods").is_ok());
+        assert!(hist_data.group("detector_1").is_ok());
+        assert!(hist_data.group("selog").is_ok());
+    }
+
+    /// If the sample's `name` dataset is empty, saving should overwrite it
+    /// with "unknown" (WiMDA crashes on an empty sample name).
+    #[test]
+    fn test_wimda_save_sample_name_defaults_to_unknown_when_empty() {
+        let data = calculated_data();
+        let wimda = WiMDAFile::new(&data).unwrap();
+
+        let mut tmp_path = temp_dir();
+        tmp_path.push("wimda_test_sample_name.nxs");
+        let tmp_path_str = tmp_path.to_str().unwrap().to_string();
+
+        wimda
+            .save(tmp_path_str.clone(), &data.dataset.file)
+            .unwrap();
+
+        let output = File::open(tmp_path_str).unwrap();
+        let hist_data = output.group("raw_data_1").unwrap();
+        let sample = hist_data.group("sample").unwrap();
+
+        let name: VarLenUnicode = sample
+            .dataset("name")
+            .unwrap()
+            .read()
+            .unwrap()
+            .into_scalar();
+        assert!(!name.is_empty());
+    }
+
+    /// When the event file has no `user_1` group, saving should create a
+    /// default one attributing the file to MNeuEventLib/RAL.
+    #[test]
+    fn test_wimda_save_user_1_default_when_missing() {
+        let data = calculated_data();
+        let wimda = WiMDAFile::new(&data).unwrap();
+
+        let mut tmp_path = temp_dir();
+        tmp_path.push("wimda_test_user_1.nxs");
+        let tmp_path_str = tmp_path.to_str().unwrap().to_string();
+
+        wimda
+            .save(tmp_path_str.clone(), &data.dataset.file)
+            .unwrap();
+
+        let output = File::open(tmp_path_str).unwrap();
+        let hist_data = output.group("raw_data_1").unwrap();
+        let user_1 = hist_data.group("user_1").unwrap();
+
+        let name: hdf5::types::FixedAscii<12> =
+            user_1.dataset("name").unwrap().read_1d().unwrap()[0];
+        assert_eq!(name.as_str(), "MNeuEventLib");
+
+        let affiliation: hdf5::types::FixedAscii<3> =
+            user_1.dataset("affiliation").unwrap().read_1d().unwrap()[0];
+        assert_eq!(affiliation.as_str(), "RAL");
     }
 }

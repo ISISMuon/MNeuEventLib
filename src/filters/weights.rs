@@ -1,4 +1,4 @@
-use std::cmp::max;
+use std::cmp::{max, min};
 /// Class representation of an array of binary weights as a string of bits,
 /// stored in 64-bit blocks.
 ///
@@ -175,7 +175,8 @@ impl Weights {
                 continue;
             }
             // remember u64 is litte-endian, so the blocks go right-to-left
-            return Some(block.leading_zeros() as usize + (k * BLOCK_SIZE));
+            let result = (64 - block.leading_zeros()) as usize + (k * BLOCK_SIZE);
+            return Some(min(result - 1, self.len - 1));
         }
         None
     }
@@ -419,7 +420,7 @@ mod tests {
         // remember u64 is litte-endian, so the blocks go right-to-left
         let weights = Weights::from_raw(vec![0, 0b01000100, 0b111000]);
 
-        // this should be 58 along in the 3rd block, so 128 + 58
-        assert_eq!(weights.get_last_one(), Some(128 + 58))
+        // this should be index 5 in the last block, so 128 + 5
+        assert_eq!(weights.get_last_one(), Some(128 + 5))
     }
 }
