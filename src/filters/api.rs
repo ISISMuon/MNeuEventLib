@@ -374,6 +374,7 @@ mod tests {
             name: "simple".to_string(),
             time: simple_times.clone(),
             value: simple_times.clone(),
+            unit: "".to_string(),
         };
 
         // add a sample log: f(t) = 2(t-3)^2 from 0 to 4
@@ -382,6 +383,7 @@ mod tests {
             name: "complex".to_string(),
             time: complex_times.clone(),
             value: Array1::<f64>::from_iter(complex_times.iter().map(|t| 2. * (t - 3.).powi(2))),
+            unit: "".to_string(),
         };
 
         let mut logs = HashMap::<String, SampleLog>::new();
@@ -427,6 +429,7 @@ mod tests {
             name: "simple".to_string(),
             time: simple_times.clone(),
             value: simple_times.clone(),
+            unit: "".to_string(),
         };
 
         let mut logs = HashMap::<String, SampleLog>::new();

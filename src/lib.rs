@@ -23,9 +23,12 @@ use interface::Data;
 mod consts;
 mod utils;
 
+#[cfg(test)]
+mod test_utils;
+
 /// A Python module implemented in Rust.
 #[pymodule]
-fn MNeuEventLib(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NexusData>()?;
     m.add_class::<Histogram>()?;
     m.add_class::<Filters>()?;

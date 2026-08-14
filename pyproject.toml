@@ -12,10 +12,11 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-  "numpy"
+  "numpy", 
+  "matplotlib",
 ]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-module-name = "MNeuEventLib"
+module-name = "MNeuEventLib.core"
 universal2 = true  # makes arm64 + x86_64 wheels for mac
