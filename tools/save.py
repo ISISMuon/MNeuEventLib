@@ -59,53 +59,9 @@ def set_defaults(source, dest, name=None):
  
 def clean_up(new_file):
 
-        #del new_file['raw_data_1/IDF_version']
-        #new_file.create_dataset('raw_data_1/IDF_version', data=[2])
-        
-        # alpha is 1 not 0
-        
-        #new_file['raw_data_1/instrument/detector_1'].attrs['NX_class'] = 'NXdetector'
-        #del new_file['raw_data_1/detector_1']
-        
-        #det = new_file.require_group('raw_data_1/detector_1')
-
-        #ref = new_file['raw_data_1/instrument/detector_1']
-        #for key in ref.keys():
-            
-        #    data = det.create_dataset(key, data=ref[key][()], shape=ref[key].shape, dtype=str(ref[key].dtype))
-        #    set_attributes(ref[key], data)
-        #det.create_dataset('period_index', data=[1, 2])
-        #del new_file['raw_data_1/experiment_identifier'] 
-        #new_file.create_dataset('raw_data_1/experiment_identifier', data=[2432])
-
-        #del new_file['raw_data_1/periods/number']
-        #new_file.create_dataset('raw_data_1/periods/number', [2])
-
-        #det.attrs['NX_class'] = "NXdata"
-
-        #for tmp in [det, new_file['raw_data_1/instrument/detector_1']]:
-        #    d = tmp['raw_time']
-        #    tmp.create_dataset('corrected_time', data = (d[1:] - d[:-1])/2.)
-        #    tmp['corrected_time'].attrs['axis'] = "1"
-
-
-        #    tmp = tmp['counts']
-        #    tmp.attrs['first_good_bin'] = '8'
-        #    tmp.attrs['last_good_bin'] = '2048'
-        #    tmp.attrs['long_name'] = "positron_counts"
-        #    tmp.attrs['offset'] = 8000
-        #    #tmp.attrs['signal'] = "1"
-        #    tmp.attrs['t0_bin'] = 2
-        #    tmp.attrs['units'] = "counts"
-        #    tmp.attrs['target'] = "/raw_data_1/instrument/detector_1/counts"
-
         tmp = new_file['raw_data_1/periods']
-        tmp.create_dataset('good_frames', data=[999, 888], dtype='int32')
+        #tmp.create_dataset('good_frames', data=[999, 888], dtype='int32')
         
-        #tmp = new_file['raw_data_1/good_frames'][()]
-        #del new_file['raw_data_1/good_frames']
-        #new_file.create_dataset('raw_data_1/good_frames', data=[tmp])
-
         new_file['raw_data_1/detector_1/counts'].attrs['first_good_bin'] = '1'
         new_file['raw_data_1/detector_1/counts'].attrs['last_good_bin'] = '1000'
         del new_file['raw_data_1/name']
@@ -138,16 +94,13 @@ def clean_up(new_file):
         tmp = new_file['raw_data_1/instrument/source']
         # maybe we delete it and add it back in?
         for name in tmp.keys():
-            print('moo', name, tmp[name][()], 'boo')
             if name in ['muon_energy', 'muon_momentum', 'muon_pulse_width', 'name', 'notes', 'pion_momentum', 'probe', 'source_current', 'source_energy', 'source_frequency', 'source_pulse_width', 'target_material', 'target_thickness', 'type']:
-                print('yay')
                 data = copy.copy(tmp[name][()])
                 att = copy.copy(tmp[name].attrs)
                 del tmp[name]
                 tmp.create_dataset(name, data=[data])
                 for a in att.keys():
                     tmp.attrs[a] = att[a]
-        #    print('check', name, tmp[name][()])
 
 def save_default(file_name):
     with h5py.File('REF_file.nxs', 'r') as file:
@@ -189,6 +142,7 @@ input_file = 'HIFI00207745_events.nxs'
 #input_file = 'HIFI00200977_events.nxs'
 #input_file = os.path.join('..', '..', 'save_test', 'HIFI00206202_events.nxs')
 #input_file = 'ZOOM00040384.nxs'
+
 
 #input_file = os.path.join('..', '..', 'data_cf', 'events', 'HIFI00209192.nxs')
 
