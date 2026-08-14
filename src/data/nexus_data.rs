@@ -353,4 +353,15 @@ mod tests {
         // [0, 0.61, 1.22, 1.83, 2.44, 3.05, 3.66, 4.27, 4.88, 5.49]
         assert_eq!(hist, Array1::from_vec(vec![0, 2, 1, 1, 0, 1, 1, 0, 0, 1]))
     }
+
+    /// Test that `__repr__` includes the filename.
+    #[test]
+    fn test_repr_includes_filename() {
+        let data = test_data();
+        let repr = data.__repr__();
+        assert_eq!(
+            repr,
+            "Dataset: ./tests/test_data/HIFI00195790.nxs".to_string()
+        );
+    }
 }

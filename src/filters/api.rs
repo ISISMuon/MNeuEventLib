@@ -871,4 +871,96 @@ mod tests {
         let filters = _load("./fake_dir/fake_filters.json".to_string());
         assert!(filters.is_err())
     }
+
+    /// Test `__repr__` reports the correct time filter type.
+    #[test]
+    fn test_repr_time_filter_type() {
+        let mut filters = Filters::new();
+        let repr = filters.__repr__();
+        assert!(repr.starts_with("Time filter type: include"));
+        filters.set_time_type("exclude".to_string()).unwrap();
+        let repr = filters.__repr__();
+        assert!(repr.starts_with("Time filter type: exclude"));
+    }
+
+    /// Test `__repr__` includes each time filter's name and bounds.
+    #[test]
+    fn test_repr_includes_time_filters() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        let repr = filters.__repr__();
+        assert!(repr.contains("filter1"));
+        assert!(repr.contains("Time filters:"));
+    }
+
+    /// Test `__repr__` includes each log filter's name, log, min and max.
+    #[test]
+    fn test_repr_includes_log_filters() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter(
+                "logfilter".to_string(),
+                "temp".to_string(),
+                Some(1.0),
+                Some(2.0),
+            )
+            .unwrap();
+
+        let repr = filters.__repr__();
+        assert!(repr.contains("Log filters:"));
+        assert!(repr.contains("logfilter"));
+        assert!(repr.contains("temp"));
+        assert!(repr.contains('1'));
+        assert!(repr.contains('2'));
+    }
+
+    /// Test `__repr__` labels an unbounded lower log filter with -inf.
+    #[test]
+    fn test_repr_log_filter_unbounded_lower() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter_below("logfilter".to_string(), "temp".to_string(), 5.0)
+            .unwrap();
+
+        let repr = filters.__repr__();
+        assert!(repr.to_lowercase().contains("-inf"));
+    }
+
+    /// Test `__repr__` labels an unbounded upper log filter with inf.
+    #[test]
+    fn test_repr_log_filter_unbounded_upper() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter_above("logfilter".to_string(), "temp".to_string(), 5.0)
+            .unwrap();
+
+        let repr = filters.__repr__();
+        assert!(repr.to_lowercase().contains("inf"));
+    }
+
+    /// Test `__repr__` shows "baseline" for the usize::MAX amplitude key
+    /// instead of the raw number.
+    #[test]
+    fn test_repr_amplitude_baseline_label() {
+        let mut filters = Filters::new();
+        filters.set_amps_baseline(3.5);
+
+        let repr = filters.__repr__();
+        assert!(repr.contains("baseline"));
+        assert!(repr.contains("3.5"));
+    }
+
+    /// Test `__repr__` shows the detector number for non-baseline amplitude filters.
+    #[test]
+    fn test_repr_amplitude_detector_label() {
+        let mut filters = Filters::new();
+        filters.set_amp(7, 2.2);
+
+        let repr = filters.__repr__();
+        assert!(repr.contains("7"));
+        assert!(repr.contains("2.2"));
+    }
 }
