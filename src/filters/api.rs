@@ -888,12 +888,14 @@ mod tests {
     fn test_repr_includes_time_filters() {
         let mut filters = Filters::new();
         filters
-            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .add_time_filter("filter1".to_string(), 1.0, 2.3)
             .unwrap();
 
         let repr = filters.__repr__();
-        assert!(repr.contains("filter1"));
         assert!(repr.contains("Time filters:"));
+        assert!(repr.contains("filter1"));
+        assert!(repr.contains('1'));
+        assert!(repr.contains("2.3"));
     }
 
     /// Test `__repr__` includes each log filter's name, log, min and max.
@@ -962,5 +964,19 @@ mod tests {
         let repr = filters.__repr__();
         assert!(repr.contains("7"));
         assert!(repr.contains("2.2"));
+    }
+
+    /// Test `__repr__` shows the detector number for non- and baseline amplitude filters.
+    #[test]
+    fn test_repr_amplitude_detector_mixed() {
+        let mut filters = Filters::new();
+        filters.set_amp(7, 2.2);
+        filters.set_amps_baseline(1.5);
+
+        let repr = filters.__repr__();
+        assert!(repr.contains("7"));
+        assert!(repr.contains("2.2"));
+        assert!(repr.contains("baseline"));
+        assert!(repr.contains("1.5"));
     }
 }
