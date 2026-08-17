@@ -7,6 +7,7 @@ use ndarray::Array1;
 use pyo3::prelude::{pyclass, pymethods, Bound};
 use pyo3::types::PyType;
 use serde::{Deserialize, Serialize};
+use tabled::{builder::Builder, Table, Tabled};
 
 use crate::consts::S_TO_NS;
 use crate::data::SampleLog;
@@ -17,7 +18,7 @@ enum FilterType {
     Exclude,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Tabled)]
 pub struct Filter {
     name: String,
     start: f64,
@@ -237,6 +238,39 @@ impl Filters {
     #[classmethod]
     pub fn load(_cls: &Bound<'_, PyType>, filename: String) -> Result<Filters> {
         _load(filename)
+    }
+
+    /// Create a string describing the filter data.
+    pub fn __repr__(&self) -> String {
+        let times_table = Table::new(&self.time_filters);
+
+        let mut log_builder = Builder::new();
+        log_builder.push_record(["name", "log", "min", "max"]);
+        for filter in &self.sample_log_filters {
+            log_builder.push_record([
+                &filter.name,
+                &filter.log,
+                &filter.lower.unwrap_or(-f64::INFINITY).to_string(),
+                &filter.upper.unwrap_or(f64::INFINITY).to_string(),
+            ]);
+        }
+        let log_table = log_builder.build();
+
+        let mut amps_builder = Builder::new();
+        amps_builder.push_record(["detector", "amplitude"]);
+        for (detector, amp) in self.amplitudes.iter() {
+            if detector == &usize::MAX {
+                amps_builder.push_record(["baseline", &amp.to_string()]);
+            } else {
+                amps_builder.push_record([detector.to_string(), amp.to_string()]);
+            }
+        }
+        let amps_table = amps_builder.build();
+        let time_type = match self.time_filter_type {
+            FilterType::Include => "include",
+            FilterType::Exclude => "exclude",
+        };
+        format!("Time filter type: {time_type}\n\nTime filters:\n{times_table}\n\nLog filters:\n{log_table}\n\nAmplitude filters:\n{amps_table}")
     }
 }
 
@@ -836,5 +870,113 @@ mod tests {
     fn test_load_nonexistent_file() {
         let filters = _load("./fake_dir/fake_filters.json".to_string());
         assert!(filters.is_err())
+    }
+
+    /// Test `__repr__` reports the correct time filter type.
+    #[test]
+    fn test_repr_time_filter_type() {
+        let mut filters = Filters::new();
+        let repr = filters.__repr__();
+        assert!(repr.starts_with("Time filter type: include"));
+        filters.set_time_type("exclude".to_string()).unwrap();
+        let repr = filters.__repr__();
+        assert!(repr.starts_with("Time filter type: exclude"));
+    }
+
+    /// Test `__repr__` includes each time filter's name and bounds.
+    #[test]
+    fn test_repr_includes_time_filters() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.3)
+            .unwrap();
+
+        let repr = filters.__repr__();
+        assert!(repr.contains("Time filters:"));
+        assert!(repr.contains("filter1"));
+        assert!(repr.contains('1'));
+        assert!(repr.contains("2.3"));
+    }
+
+    /// Test `__repr__` includes each log filter's name, log, min and max.
+    #[test]
+    fn test_repr_includes_log_filters() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter(
+                "logfilter".to_string(),
+                "temp".to_string(),
+                Some(1.0),
+                Some(2.0),
+            )
+            .unwrap();
+
+        let repr = filters.__repr__();
+        assert!(repr.contains("Log filters:"));
+        assert!(repr.contains("logfilter"));
+        assert!(repr.contains("temp"));
+        assert!(repr.contains('1'));
+        assert!(repr.contains('2'));
+    }
+
+    /// Test `__repr__` labels an unbounded lower log filter with -inf.
+    #[test]
+    fn test_repr_log_filter_unbounded_lower() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter_below("logfilter".to_string(), "temp".to_string(), 5.0)
+            .unwrap();
+
+        let repr = filters.__repr__();
+        assert!(repr.to_lowercase().contains("-inf"));
+    }
+
+    /// Test `__repr__` labels an unbounded upper log filter with inf.
+    #[test]
+    fn test_repr_log_filter_unbounded_upper() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter_above("logfilter".to_string(), "temp".to_string(), 5.0)
+            .unwrap();
+
+        let repr = filters.__repr__();
+        assert!(repr.to_lowercase().contains("inf"));
+    }
+
+    /// Test `__repr__` shows "baseline" for the usize::MAX amplitude key
+    /// instead of the raw number.
+    #[test]
+    fn test_repr_amplitude_baseline_label() {
+        let mut filters = Filters::new();
+        filters.set_amps_baseline(3.5);
+
+        let repr = filters.__repr__();
+        assert!(repr.contains("baseline"));
+        assert!(repr.contains("3.5"));
+    }
+
+    /// Test `__repr__` shows the detector number for non-baseline amplitude filters.
+    #[test]
+    fn test_repr_amplitude_detector_label() {
+        let mut filters = Filters::new();
+        filters.set_amp(7, 2.2);
+
+        let repr = filters.__repr__();
+        assert!(repr.contains("7"));
+        assert!(repr.contains("2.2"));
+    }
+
+    /// Test `__repr__` shows the detector number for non- and baseline amplitude filters.
+    #[test]
+    fn test_repr_amplitude_detector_mixed() {
+        let mut filters = Filters::new();
+        filters.set_amp(7, 2.2);
+        filters.set_amps_baseline(1.5);
+
+        let repr = filters.__repr__();
+        assert!(repr.contains("7"));
+        assert!(repr.contains("2.2"));
+        assert!(repr.contains("baseline"));
+        assert!(repr.contains("1.5"));
     }
 }

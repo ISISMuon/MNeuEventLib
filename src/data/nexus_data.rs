@@ -34,13 +34,6 @@ pub struct NexusData {
 
 #[pymethods]
 impl NexusData {
-    #[new]
-    #[pyo3(signature = (filename, n_spec, chunk_size=1048576))]
-    pub fn new(filename: String, n_spec: usize, chunk_size: usize) -> Result<Self> {
-        let path = Path::new(&filename);
-        load_data(path, n_spec, chunk_size)
-    }
-
     /// used for testing
     fn get_frame_times<'py>(slf: &Bound<'py, NexusData>) -> Bound<'py, PyArray1<u32>> {
         let py = slf.py();
@@ -102,10 +95,18 @@ impl NexusData {
         let (results, max) = self.get_amp_histogram(max_height, n_bins)?;
         Ok((results.to_pyarray(py), max))
     }
+
+    pub fn __repr__(&self) -> String {
+        "Dataset: ".to_owned() + &self.filename.clone()
+    }
 }
 
 impl NexusData {
     /// Retreve the data for a sample log.
+    pub fn new(filename: String, n_spec: usize, chunk_size: usize) -> Result<Self> {
+        let path = Path::new(&filename);
+        load_data(path, n_spec, chunk_size)
+    }
     pub fn get_sample_log(&self, log_name: &String) -> Result<SampleLog> {
         let log = match self.sample_logs.group(log_name) {
             Ok(group) => group,
@@ -351,5 +352,16 @@ mod tests {
         // 10 bins from 0 to 6.1, which means the left bin edges are
         // [0, 0.61, 1.22, 1.83, 2.44, 3.05, 3.66, 4.27, 4.88, 5.49]
         assert_eq!(hist, Array1::from_vec(vec![0, 2, 1, 1, 0, 1, 1, 0, 0, 1]))
+    }
+
+    /// Test that `__repr__` includes the filename.
+    #[test]
+    fn test_repr_includes_filename() {
+        let data = test_data();
+        let repr = data.__repr__();
+        assert_eq!(
+            repr,
+            "Dataset: ./tests/test_data/HIFI00195790.nxs".to_string()
+        );
     }
 }

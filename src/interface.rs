@@ -217,4 +217,13 @@ impl Data {
         wimda_file.save(filename, &self.dataset.file)?;
         Ok(())
     }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "{}\n\n{}\n\n{}",
+            self.dataset.__repr__(),
+            self.filters.__repr__(),
+            self.results.__repr__()
+        )
+    }
 }
