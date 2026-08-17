@@ -2,6 +2,11 @@
 name = "MNeuEventLib"
 version = "0.1.0"
 edition = "2021"
+description = "Event data filtering library for the ISIS Neutron and Muon Source"
+license-file = "LICENSE"
+documentation = "https://mneueventlib.readthedocs.io/en/latest/"
+homepage = "https://mneueventlib.readthedocs.io/en/latest/"
+repository = "https://github.com/ISISMuon/MNeuEventLib"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
