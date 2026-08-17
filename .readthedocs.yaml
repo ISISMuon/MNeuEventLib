@@ -5,6 +5,8 @@ sphinx:
 
 build:
   os: ubuntu-24.04
+  apt_packages:
+    - cmake
   tools:
     python: "3.13"
     rust: "1.96" 
