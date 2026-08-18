@@ -384,6 +384,32 @@ impl BatchData {
         Ok(())
     }
 
+    /// Save a set of filters to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: usize
+    ///     The index of a specific filter set.
+    /// filename: str
+    ///     The filename for the saved file.
+    pub fn save_filters(&self, index: usize, filename: String) -> Result<()> {
+        self.filters[index].save(filename)
+    }
+
+    /// Load a set of filters from a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: usize
+    ///     The index to load the filter set into.
+    /// filename: str
+    ///     The filename for the filters.
+    pub fn load_filters(&mut self, index: usize, filename: String) -> Result<()> {
+        let filters = Filters::load(filename)?;
+        self.filters[index] = filters;
+        Ok(())
+    }
+
     /// Get a calculated histogram.
     ///
     /// Parameters

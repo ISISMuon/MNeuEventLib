@@ -208,6 +208,26 @@ impl Data {
         self.inner.results[0].n
     }
 
+    /// Save the current set of filters to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename for the saved file.
+    fn save_filters(&self, filename: String) -> Result<()> {
+        self.inner.save_filters(0, filename)
+    }
+
+    /// Load a set of filters from a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename for the filters.
+    fn load_filters(&mut self, filename: String) -> Result<()> {
+        self.inner.load_filters(0, filename)
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "{}\n\n{}\n\n{}",

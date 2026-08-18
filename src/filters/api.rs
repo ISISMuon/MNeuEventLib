@@ -224,6 +224,7 @@ impl Filters {
     pub fn save(&self, filename: String) -> Result<()> {
         let file = File::create(&filename)?;
         serde_json::to_writer_pretty(file, &self)?;
+        println!("Saved filters to {filename}");
         Ok(())
     }
 
@@ -264,6 +265,12 @@ impl Filters {
             FilterType::Exclude => "exclude",
         };
         format!("Time filter type: {time_type}\n\nTime filters:\n{times_table}\n\nLog filters:\n{log_table}\n\nAmplitude filters:\n{amps_table}")
+    }
+}
+
+impl Default for Filters {
+    fn default() -> Self {
+        Filters::new()
     }
 }
 
