@@ -142,11 +142,9 @@ where
                     starts.push(self.time[index].to_ns());
                     in_range = true;
                 }
-            } else {
-                if value > upper || value < lower {
-                    ends.push(self.time[index - 1].to_ns());
-                    in_range = false;
-                }
+            } else if value > upper || value < lower {
+                ends.push(self.time[index - 1].to_ns());
+                in_range = false;
             }
         }
 
