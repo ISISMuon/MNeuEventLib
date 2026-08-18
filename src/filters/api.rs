@@ -243,35 +243,59 @@ impl Filters {
 
     /// Create a string describing the filter data.
     pub fn __repr__(&self) -> String {
-        let times_table = Table::new(&self.time_filters);
+        let no_times = self.time_filters.is_empty();
+        let no_logs = self.sample_log_filters.is_empty();
+        let no_amps = self.amplitudes.is_empty();
 
-        let mut log_builder = Builder::new();
-        log_builder.push_record(["name", "log", "min", "max"]);
-        for filter in &self.sample_log_filters {
-            log_builder.push_record([
-                &filter.name,
-                &filter.log,
-                &filter.lower.unwrap_or(-f64::INFINITY).to_string(),
-                &filter.upper.unwrap_or(f64::INFINITY).to_string(),
-            ]);
+        if no_times && no_logs && no_amps {
+            return "No filters applied\n\n".to_string()
         }
-        let log_table = log_builder.build();
 
-        let mut amps_builder = Builder::new();
-        amps_builder.push_record(["detector", "amplitude"]);
-        for (detector, amp) in self.amplitudes.iter() {
-            if detector == &usize::MAX {
-                amps_builder.push_record(["baseline", &amp.to_string()]);
-            } else {
-                amps_builder.push_record([detector.to_string(), amp.to_string()]);
-            }
-        }
-        let amps_table = amps_builder.build();
-        let time_type = match self.time_filter_type {
-            FilterType::Include => "include",
-            FilterType::Exclude => "exclude",
+        let time_string = if no_times {
+            "".to_string()
+        } else {
+            let times_table = Table::new(&self.time_filters);
+            let time_type = match self.time_filter_type {
+                FilterType::Include => "include",
+                FilterType::Exclude => "exclude",
+            };
+            format!("Time filter type: {time_type}\n\nTime filters:\n{times_table}\n\n")
         };
-        format!("Time filter type: {time_type}\n\nTime filters:\n{times_table}\n\nLog filters:\n{log_table}\n\nAmplitude filters:\n{amps_table}")
+
+        let log_string = if no_logs {
+            "".to_string()
+        } else {
+            let mut log_builder = Builder::new();
+            log_builder.push_record(["name", "log", "min", "max"]);
+            for filter in &self.sample_log_filters {
+                log_builder.push_record([
+                    &filter.name,
+                    &filter.log,
+                    &filter.lower.unwrap_or(-f64::INFINITY).to_string(),
+                    &filter.upper.unwrap_or(f64::INFINITY).to_string(),
+                ]);
+            }
+            let log_table = log_builder.build();
+            format!("Sample log filters:\n{log_table}\n\n")
+        };
+
+        let amps_string = if no_amps {
+            "".to_string()
+        } else {
+            let mut amps_builder = Builder::new();
+            amps_builder.push_record(["detector", "amplitude"]);
+            for (detector, amp) in self.amplitudes.iter() {
+                if detector == &usize::MAX {
+                    amps_builder.push_record(["baseline", &amp.to_string()]);
+                } else {
+                    amps_builder.push_record([detector.to_string(), amp.to_string()]);
+                }
+            }
+            let amps_table = amps_builder.build();
+            format!("Amplitude filters:\n{amps_table}\n\n")
+        };
+
+        format!("{time_string}{log_string}{amps_string}")
     }
 }
 
