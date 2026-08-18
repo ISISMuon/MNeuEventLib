@@ -230,7 +230,7 @@ impl Data {
 
     fn __repr__(&self) -> String {
         format!(
-            "{}\n\n{}\n\n{}",
+            "{}\n\n{}{}",
             self.inner.dataset.__repr__(),
             self.inner.filters[0].__repr__(),
             self.inner.results[0].__repr__()

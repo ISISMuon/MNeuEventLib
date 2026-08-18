@@ -447,7 +447,7 @@ impl BatchData {
         let mut string = self.dataset.__repr__();
         for (i, (filters, results)) in self.filters.iter().zip(self.results.iter()).enumerate() {
             string += &format!(
-                "\n\nFilter set {i}:\n{}\n\n{}",
+                "\n\nFilter set {i}:\n{}{}",
                 filters.__repr__(),
                 results.__repr__()
             );
