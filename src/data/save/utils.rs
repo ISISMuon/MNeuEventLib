@@ -77,6 +77,33 @@ pub fn add_nx_class(group: &Group, class: &str) -> Result<()> {
     add_attr(group, string, "NX_class")
 }
 
+pub fn replace_str_dataset<const LEN: usize>(
+    group: &Group,
+    name: &str,
+    new_value: &str,
+    bad_value: &str,
+) -> Result<()> {
+    let value: &hdf5::types::VarLenUnicode =
+        &group.dataset(name).unwrap().read_1d().unwrap()[0];
+    if value.as_str() !=bad_value {
+        return Ok(())
+    }
+    // collect attributes
+    let dataset = group.dataset(name).unwrap();
+    //alet names: Vec<String> = dataset.attr_names()?;
+    //let mut attrs: Vec<(String, )> = Vec::new();
+    //for name in names {
+    //    let value = dataset.attr(&name).unwrap();//.read_scalar().unwrap();
+    //    attrs.push((name, value));
+    //}
+    group.unlink(name)?;
+    add_str_scalar::<LEN>(group, new_value, name)?;
+    //for attr in attrs {
+    //    add_attr(group.dataset(name).unwrap(), attr.1, &attr.0)?;
+    //}
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
