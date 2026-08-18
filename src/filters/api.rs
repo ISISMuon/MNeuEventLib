@@ -231,6 +231,7 @@ impl Filters {
     pub fn save(&self, filename: String) -> Result<()> {
         let file = File::create(&filename)?;
         serde_json::to_writer_pretty(file, &self)?;
+        println!("Saved filters to {filename}");
         Ok(())
     }
 
@@ -276,9 +277,15 @@ impl Filters {
 
 /// Internal of load function so we can call it from Rust.
 #[inline(always)]
-fn _load(filename: String) -> Result<Filters> {
+pub fn _load(filename: String) -> Result<Filters> {
     let file = File::open(&filename)?;
     Ok(serde_json::from_reader(file)?)
+}
+
+impl Default for Filters {
+    fn default() -> Self {
+        Filters::new()
+    }
 }
 
 #[cfg(test)]

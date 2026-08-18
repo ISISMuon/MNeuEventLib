@@ -2,6 +2,7 @@ use anyhow::{Error, Result};
 use pyo3::prelude::{pyclass, pymethods};
 
 use crate::data::{NexusData, SaveFile, WiMDAFile};
+use crate::filters;
 use crate::filters::Filters;
 use crate::stats::Histogram;
 
@@ -215,6 +216,28 @@ impl Data {
     fn save(&self, filename: String) -> Result<()> {
         let wimda_file = WiMDAFile::new(self)?;
         wimda_file.save(filename, &self.dataset.file)?;
+        Ok(())
+    }
+
+    /// Save the current set of filters to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename for the saved file.
+    fn save_filters(&self, filename: String) -> Result<()> {
+        self.filters.save(filename)
+    }
+
+    /// Load a set of filters from a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename for the filters.
+    fn load_filters(&mut self, filename: String) -> Result<()> {
+        let filters = filters::_load(filename)?;
+        self.filters = filters;
         Ok(())
     }
 
