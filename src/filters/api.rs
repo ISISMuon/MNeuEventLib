@@ -18,6 +18,14 @@ enum FilterType {
     Exclude,
 }
 
+/// Filter overwrite behaviours.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+enum OverwriteType {
+    Strict,
+    Relaxed,
+    Free,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Tabled)]
 pub struct Filter {
     name: String,
@@ -39,6 +47,7 @@ pub struct LogFilter {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Filters {
     time_filter_type: FilterType,
+    overwrite_type: OverwriteType,
     time_filters: Vec<Filter>,
     sample_log_filters: Vec<LogFilter>,
     amplitudes: HashMap<usize, f64>,
@@ -130,6 +139,7 @@ impl Filters {
             time_filters: Vec::<Filter>::new(),
             sample_log_filters: Vec::<LogFilter>::new(),
             amplitudes: HashMap::<usize, f64>::new(),
+            overwrite_type: OverwriteType::Relaxed,
         }
     }
 
@@ -148,14 +158,29 @@ impl Filters {
         }
     }
 
+    /// Set the filter overwrite type.
+    pub fn set_overwrite_type(&mut self, overwrite_type: String) -> Result<()> {
+        match overwrite_type.to_lowercase().as_str() {
+            "strict" => {
+                self.overwrite_type = OverwriteType::Strict;
+                Ok(())
+            }
+            "relaxed" => {
+                self.overwrite_type = OverwriteType::Relaxed;
+                Ok(())
+            }
+            "free" => {
+                self.overwrite_type = OverwriteType::Free;
+                Ok(())
+            }
+            _ => Err(Error::msg(
+                "Overwrite type must be 'strict', 'relaxed', or 'free'",
+            )),
+        }
+    }
+
     /// Add a time filter.
     pub fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> Result<()> {
-        // check name isn't already in use
-        if self.time_filters.iter().any(|f| f.name == name) {
-            return Err(Error::msg(
-                "Name already exists! Use `Filters.report()` to see a list of all filters.",
-            ));
-        }
         if !start.is_finite() || !end.is_finite() {
             return Err(Error::msg("start and end must be finite."));
         }
@@ -165,6 +190,29 @@ impl Filters {
         if end <= start {
             return Err(Error::msg("end must be greater than start."));
         }
+
+        // check name isn't already in use
+        if self.time_filters.iter().any(|f| f.name == name) {
+            match self.overwrite_type {
+                OverwriteType::Strict => {
+                    return Err(Error::msg(
+                        "Name already exists! Use `Filters.report()` to see a list of all filters.",
+                    ));
+                }
+                OverwriteType::Relaxed => {
+                    println!(
+                        "Warning: overwriting filter {name}. 
+                    To suppress this warning, call set_overwrite_type('free'). 
+                    To turn this warning into an error, call set_overwrite_type('strict')."
+                    );
+                    self.remove_time_filter(name.clone())?;
+                }
+                OverwriteType::Free => {
+                    self.remove_time_filter(name.clone())?;
+                }
+            }
+        }
+
         self.time_filters.push(Filter { name, start, end });
         Ok(())
     }
@@ -175,7 +223,9 @@ impl Filters {
                 self.time_filters.swap_remove(i);
                 Ok(())
             }
-            None => Err(Error::msg("No such name in time filters. Use `Filters.report()` to see a list of all filters.")),
+            None => Err(Error::msg(
+                "No such name in time filters. Use `print(filters)` to see a list of all filters.",
+            )),
         }
     }
 
@@ -187,8 +237,30 @@ impl Filters {
         lower: Option<f64>,
         upper: Option<f64>,
     ) -> Result<()> {
+        if upper.is_some() && lower.is_some() && upper <= lower {
+            return Err(Error::msg("upper must be greater than lower."));
+        }
+
+        // check name isn't already in use
         if self.sample_log_filters.iter().any(|f| f.name == name) {
-            return Err(Error::msg("Name already exists!"));
+            match self.overwrite_type {
+                OverwriteType::Strict => {
+                    return Err(Error::msg(
+                        "Name already exists! Use `print(filters)` to see a list of all filters.",
+                    ));
+                }
+                OverwriteType::Relaxed => {
+                    println!(
+                        "Warning: overwriting filter {name}. 
+                    To suppress this warning, call set_overwrite_type('free'). 
+                    To turn this warning into an error, call set_overwrite_type('strict')."
+                    );
+                    self.remove_log_filter(name.clone())?;
+                }
+                OverwriteType::Free => {
+                    self.remove_log_filter(name.clone())?;
+                }
+            }
         }
         self.sample_log_filters.push(LogFilter {
             name,
@@ -248,7 +320,7 @@ impl Filters {
         let no_amps = self.amplitudes.is_empty();
 
         if no_times && no_logs && no_amps {
-            return "No filters applied\n\n".to_string()
+            return "No filters applied\n\n".to_string();
         }
 
         let time_string = if no_times {
@@ -345,6 +417,7 @@ mod tests {
             ],
             sample_log_filters: Vec::<LogFilter>::new(),
             amplitudes: HashMap::new(),
+            overwrite_type: OverwriteType::Free,
         };
 
         let (starts, ends) = filters.get_time_filter_times();
@@ -390,6 +463,7 @@ mod tests {
                 },
             ],
             amplitudes: HashMap::new(),
+            overwrite_type: OverwriteType::Free,
         };
         let logs = filters.get_required_log_names();
         assert_eq!(
@@ -431,6 +505,7 @@ mod tests {
                 },
             ],
             amplitudes: HashMap::new(),
+            overwrite_type: OverwriteType::Free,
         };
 
         // logs from data::sample_logs tests
@@ -486,6 +561,7 @@ mod tests {
                 },
             ],
             amplitudes: HashMap::new(),
+            overwrite_type: OverwriteType::Free,
         };
 
         // logs from data::sample_logs tests
@@ -591,16 +667,40 @@ mod tests {
         );
     }
 
-    /// Test an error is given when a time filter is given a duplicate name.
+    /// Test an error is given when a time filter is given a duplicate name in strict mode.
     #[test]
-    fn test_add_time_filter_duplicate_name() {
+    fn test_add_time_filter_duplicate_name_strict() {
         let mut filters = Filters::new();
+        filters.set_overwrite_type("strict".to_string()).unwrap();
         filters
             .add_time_filter("filter1".to_string(), 1.0, 2.0)
             .unwrap();
 
         let result = filters.add_time_filter("filter1".to_string(), 3.0, 4.0);
         assert!(result.is_err());
+    }
+
+    /// Test no error is given when a time filter is given a duplicate name in relaxed/free mode.
+    #[test]
+    fn test_add_time_filter_duplicate_name_otherwise() {
+        for overwrite_type in ["free".to_string(), "relaxed".to_string()] {
+            let mut filters = Filters::new();
+            filters.set_overwrite_type(overwrite_type).unwrap();
+            filters
+                .add_time_filter("filter1".to_string(), 1.0, 2.0)
+                .unwrap();
+
+            let result = filters.add_time_filter("filter1".to_string(), 3.0, 4.0);
+            assert!(result.is_ok());
+            assert_eq!(
+                filters.time_filters,
+                vec![Filter {
+                    name: "filter1".to_string(),
+                    start: 3.0,
+                    end: 4.0
+                }]
+            )
+        }
     }
 
     /// Test time filters can be removed correctly.
@@ -690,10 +790,11 @@ mod tests {
         )
     }
 
-    /// Test an error is given when a log filter is given a duplicate name.
+    /// Test an error is given when a log filter is given a duplicate name in strict mode.
     #[test]
-    fn test_add_log_filter_duplicate_name() {
+    fn test_add_log_filter_duplicate_name_strict() {
         let mut filters = Filters::new();
+        filters.set_overwrite_type("strict".to_string()).unwrap();
         filters
             .add_log_filter(
                 "filter1".to_string(),
@@ -710,6 +811,40 @@ mod tests {
             Some(4.0),
         );
         assert!(result.is_err());
+    }
+
+    /// Test no error is given when a log filter is given a duplicate name in relaxed/free mode.
+    #[test]
+    fn test_add_log_filter_duplicate_name_otherwise() {
+        for overwrite_type in ["free".to_string(), "relaxed".to_string()] {
+            let mut filters = Filters::new();
+            filters.set_overwrite_type(overwrite_type).unwrap();
+            filters
+                .add_log_filter(
+                    "filter1".to_string(),
+                    "temp".to_string(),
+                    Some(1.0),
+                    Some(2.0),
+                )
+                .unwrap();
+
+            let result = filters.add_log_filter(
+                "filter1".to_string(),
+                "temp".to_string(),
+                Some(3.0),
+                Some(4.0),
+            );
+            assert!(result.is_ok());
+            assert_eq!(
+                filters.sample_log_filters,
+                vec![LogFilter {
+                    name: "filter1".to_string(),
+                    log: "temp".to_string(),
+                    lower: Some(3.0),
+                    upper: Some(4.0),
+                }]
+            )
+        }
     }
 
     /// Test time filters can be removed correctly.
@@ -840,6 +975,7 @@ mod tests {
                 upper: Some(6.),
             }],
             amplitudes: HashMap::new(),
+            overwrite_type: OverwriteType::Free,
         };
         filters.amplitudes.insert(3, 5.);
 
@@ -880,6 +1016,7 @@ mod tests {
                 upper: None,
             }],
             amplitudes: HashMap::new(),
+            overwrite_type: OverwriteType::Free,
         };
         filters.amplitudes.insert(3, 5.);
 
@@ -903,10 +1040,21 @@ mod tests {
         assert!(filters.is_err())
     }
 
+    /// Test `__repr__` says there are no filters when none are there.e
+    #[test]
+    fn test_repr_no_filters() {
+        let filters = Filters::new();
+        let repr = filters.__repr__();
+        assert!(repr == "No filters applied\n\n");
+    }
+
     /// Test `__repr__` reports the correct time filter type.
     #[test]
     fn test_repr_time_filter_type() {
         let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.3)
+            .unwrap();
         let repr = filters.__repr__();
         assert!(repr.starts_with("Time filter type: include"));
         filters.set_time_type("exclude".to_string()).unwrap();
@@ -943,7 +1091,7 @@ mod tests {
             .unwrap();
 
         let repr = filters.__repr__();
-        assert!(repr.contains("Log filters:"));
+        assert!(repr.contains("Sample log filters:"));
         assert!(repr.contains("logfilter"));
         assert!(repr.contains("temp"));
         assert!(repr.contains('1'));

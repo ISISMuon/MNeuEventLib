@@ -92,6 +92,19 @@ impl Data {
         self.filters.set_time_type(filter_type)
     }
 
+    /// Set the overwrite behaviour for filters.
+    ///
+    /// Parameters
+    /// ----------
+    /// overwrite_type: str
+    ///     The overwrite behaviour. Must be 'strict', 'relaxed', or 'free':  
+    ///     - 'strict' produces an error on attempted overwrite;
+    ///     - 'relaxed' allows and produces a warning;
+    ///     - 'free' allows with no warning.
+    fn set_overwrite_type(&mut self, overwrite_type: String) -> Result<()> {
+        self.filters.set_overwrite_type(overwrite_type)
+    }
+
     /// Add a time filter.
     ///
     /// Parameters

@@ -143,8 +143,8 @@ where
                     in_range = true;
                 }
             } else if value > upper || value < lower {
-                    ends.push((self.time[index - 1] * S_TO_NS) as usize);
-                    in_range = false;
+                ends.push((self.time[index - 1] * S_TO_NS) as usize);
+                in_range = false;
             }
         }
 
