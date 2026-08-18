@@ -16,6 +16,10 @@ dependencies = [
   "matplotlib",
 ]
 
+[project.optional-dependencies]
+# Dependencies required to build the documentation.
+docs = ["ipykernel", "nbsphinx"]
+
 [tool.maturin]
 features = ["pyo3/extension-module"]
 module-name = "MNeuEventLib.core"
