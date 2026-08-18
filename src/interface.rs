@@ -226,5 +226,28 @@ impl Data {
             self.filters.__repr__(),
             self.results.__repr__()
         )
+    /// Save to a Nexus version 2 file.
+    #[pyo3(signature = (filename, ref_file))]
+    pub fn save_nexus(&self, filename: String, ref_file: String) -> Result<()> {
+        // 1. Save using the existing WiMDA save logic to `filename`
+        let wimda_file = WiMDAFile::new(self)?;
+        wimda_file.save(filename.clone(), &self.dataset.file)?;
+
+        // 2. Read p_info from input file
+        let (periods, dwell) = crate::data::save::nexus_data::get_p_info(&self.dataset.filename)?;
+
+        // 3. Setup shapes map
+        let mut shapes = std::collections::HashMap::new();
+        let n = self.dataset.n_spec;
+        shapes.insert("N".to_string(), n);
+        shapes.insert("P".to_string(), periods);
+        shapes.insert("NP".to_string(), n * periods);
+        shapes.insert("PD".to_string(), periods + dwell);
+        shapes.insert("NPD".to_string(), n * (periods + dwell));
+
+        // 4. Run save_default to merge/copy from ref_file
+        crate::data::save::nexus_data::save_default(&filename, &ref_file, &shapes)?;
+
+        Ok(())
     }
 }
