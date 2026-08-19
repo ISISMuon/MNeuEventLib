@@ -6,7 +6,8 @@ use crate::filters::Filters;
 use crate::stats::Histogram;
 
 /// The main MNeuEventLib interface.
-#[pyclass]
+#[pyclass(from_py_object)]
+#[derive(Clone)]
 pub struct Data {
     #[pyo3(get)]
     pub dataset: NexusData,
@@ -38,15 +39,15 @@ impl Data {
     /// Histogram
     ///     A Histogram object containing the resulting histogram
     ///     and number of events.
-    pub fn calculate(&mut self) -> Result<Histogram> {
+    pub fn calculate(&mut self) -> Result<Data> {
         if self.data_changed {
             self.data_changed = false;
             let results = self.results.calculate(&self.dataset, &self.filters)?;
             self.results = results.clone();
-            Ok(results)
+            Ok(self.clone())
         } else {
             // if data hasn't changed, just return the existing saved results
-            Ok(self.results.clone())
+            Ok(self.clone())
         }
     }
 
