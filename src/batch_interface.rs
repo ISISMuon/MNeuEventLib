@@ -685,7 +685,7 @@ mod tests {
         assert!(batch.filters[1].get_required_log_names().is_empty());
         assert_eq!(
             batch.filters[2].get_required_log_names(),
-            vec!["temp".to_string()]
+            ["temp".to_string()].into()
         );
     }
 
@@ -705,7 +705,10 @@ mod tests {
             .unwrap();
 
         for filters in &batch.filters {
-            assert_eq!(filters.get_required_log_names(), vec!["temp".to_string()]);
+            assert_eq!(
+                filters.get_required_log_names(),
+                ["temp".to_string()].into()
+            );
         }
     }
 
@@ -730,7 +733,7 @@ mod tests {
 
         assert_eq!(
             batch.filters[0].get_required_log_names(),
-            vec!["temp".to_string()]
+            ["temp".to_string()].into()
         );
         assert!(batch.filters[1].get_required_log_names().is_empty());
     }
