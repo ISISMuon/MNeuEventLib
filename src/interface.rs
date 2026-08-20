@@ -11,7 +11,9 @@ use crate::stats::Histogram;
 pub struct Data {
     #[pyo3(get)]
     pub dataset: NexusData,
+    #[pyo3(get)]
     pub results: Histogram,
+    #[pyo3(get)]
     pub filters: Filters,
     data_changed: bool, // whether data has changed since last calculation
 }
@@ -79,6 +81,17 @@ impl Data {
         self.data_changed = true;
         self.results = Histogram::new(min_time, max_time, n_bins);
         Ok(())
+    }
+
+    /// Set the filters to a given Filters object.
+    ///
+    /// Parameters
+    /// ----------
+    /// filters: Filters
+    ///     The filters object to set.
+    fn set_filters(&mut self, filters: Filters) {
+        self.data_changed = true;
+        self.filters = filters;
     }
 
     /// Set the type for the time filters.
