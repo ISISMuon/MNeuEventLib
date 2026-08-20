@@ -5,6 +5,13 @@ use hdf5::types::{FixedAscii, H5Type, VarLenUnicode};
 use hdf5::{Dataset, File, Group, Location};
 use ndarray::{arr0, Array, Array1, Dimension};
 
+
+//use hdf5_metno as hdf5;
+use hdf5_metno_sys::{h5a, h5p, h5t, h5s, h5d};
+use hdf5::{Result as OtherResult};
+use std::ffi::CString;
+use std::os::raw::c_void;
+
 // placeholder type for data that will just be copied into the nexus file
 pub type CopyData = ();
 
@@ -75,33 +82,6 @@ pub fn add_str_attr<const LEN: usize>(loc: &Location, data: &str, name: &str) ->
 pub fn add_nx_class(group: &Group, class: &str) -> Result<()> {
     let string = VarLenUnicode::from_str(class)?;
     add_attr(group, string, "NX_class")
-}
-
-pub fn replace_str_dataset<const LEN: usize>(
-    group: &Group,
-    name: &str,
-    new_value: &str,
-    bad_value: &str,
-) -> Result<()> {
-    let value: &hdf5::types::VarLenUnicode =
-        &group.dataset(name).unwrap().read_1d().unwrap()[0];
-    if value.as_str() !=bad_value {
-        return Ok(())
-    }
-    // collect attributes
-    let dataset = group.dataset(name).unwrap();
-    //alet names: Vec<String> = dataset.attr_names()?;
-    //let mut attrs: Vec<(String, )> = Vec::new();
-    //for name in names {
-    //    let value = dataset.attr(&name).unwrap();//.read_scalar().unwrap();
-    //    attrs.push((name, value));
-    //}
-    group.unlink(name)?;
-    add_str_scalar::<LEN>(group, new_value, name)?;
-    //for attr in attrs {
-    //    add_attr(group.dataset(name).unwrap(), attr.1, &attr.0)?;
-    //}
-    Ok(())
 }
 
 #[cfg(test)]

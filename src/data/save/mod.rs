@@ -8,4 +8,4 @@ mod wimda;
 pub use wimda::WiMDAFile;
 mod utils;
 pub use utils::SaveFile;
-pub mod nexus_data;
+pub mod sanitise;
