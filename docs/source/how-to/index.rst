@@ -10,4 +10,4 @@ These how-to guides explore specific functionality available in MNeuEventLib.
    
    filtering.ipynb
    create_plots.ipynb
-
+   batch_processing.ipynb
