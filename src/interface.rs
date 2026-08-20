@@ -1,6 +1,7 @@
 use anyhow::{Error, Result};
 use pyo3::prelude::{pyclass, pymethods};
 
+use crate::data::save::sanitise::nexus_data::{save_default, get_p_info};
 use crate::data::{NexusData, SaveFile, WiMDAFile};
 use crate::filters::Filters;
 use crate::stats::Histogram;
@@ -226,7 +227,7 @@ impl Data {
         wimda_file.save(filename.clone(), &self.dataset.file)?;
 
         // 2. Read p_info from input file
-        let (periods, dwell) = crate::data::save::nexus_data::get_p_info(&self.dataset.filename)?;
+        let (periods, dwell) = get_p_info(&self.dataset.filename)?;
 
         // 3. Setup shapes map
         let mut shapes = std::collections::HashMap::new();
@@ -238,7 +239,7 @@ impl Data {
         shapes.insert("NPD".to_string(), n * (periods + dwell));
 
         // 4. Run save_default to merge/copy from ref_file
-        crate::data::save::nexus_data::save_default(&filename, &ref_file, &shapes)?;
+        save_default(&filename, &ref_file, &shapes)?;
 
         Ok(())
     }

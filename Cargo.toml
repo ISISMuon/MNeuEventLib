@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 hdf5 = { package = "hdf5-metno", version = "0.12.4", features = ["static"] }
+hdf5-metno-sys = "0.12.2"
 ndarray = "0.17.2"
 rayon = "1.12.0"
 anyhow = "1.0.102"

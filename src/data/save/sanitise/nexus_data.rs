@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 use hdf5::types::{FixedAscii, VarLenUnicode};
 use hdf5::{Dataset, File, Group, Location};
 use ndarray::Array1;
+use crate::data::save::sanitise::utils::*;
 use crate::data::save::utils::*;
 
 //struct AttrVal {
@@ -73,67 +74,7 @@ use crate::data::save::utils::*;
 //    Ok(())
 //}
 //
-//fn copy_attr<L: Location>(from: &hdf5::Attribute, to: &L, name: &str) -> Result<()> {
-//    let dtype = from.dtype()?;
-//    let desc = dtype.to_descriptor()?;
-//    let shape = from.shape();
 //
-//    match desc {
-//        hdf5::types::TypeDescriptor::Integer(_) => {
-//            if shape.is_empty() {
-//                let val = from.read_scalar::<i32>()?;
-//                let mut writer = to.new_attr::<i32>().shape([]).create(name)?;
-//                writer.write_scalar(&val)?;
-//            } else {
-//                let val = from.read_raw::<i32>()?;
-//                let mut writer = to.new_attr::<i32>().shape(shape.clone()).create(name)?;
-//                writer.write(&ndarray::Array::from_shape_vec(shape, val)?)?;
-//            }
-//        }
-//        hdf5::types::TypeDescriptor::Unsigned(_) => {
-//            if shape.is_empty() {
-//                let val = from.read_scalar::<u32>()?;
-//                let mut writer = to.new_attr::<u32>().shape([]).create(name)?;
-//                writer.write_scalar(&val)?;
-//            } else {
-//                let val = from.read_raw::<u32>()?;
-//                let mut writer = to.new_attr::<u32>().shape(shape.clone()).create(name)?;
-//                writer.write(&ndarray::Array::from_shape_vec(shape, val)?)?;
-//            }
-//        }
-//        hdf5::types::TypeDescriptor::Float(_) => {
-//            if shape.is_empty() {
-//                let val = from.read_scalar::<f64>()?;
-//                let mut writer = to.new_attr::<f64>().shape([]).create(name)?;
-//                writer.write_scalar(&val)?;
-//            } else {
-//                let val = from.read_raw::<f64>()?;
-//                let mut writer = to.new_attr::<f64>().shape(shape.clone()).create(name)?;
-//                writer.write(&ndarray::Array::from_shape_vec(shape, val)?)?;
-//            }
-//        }
-//        hdf5::types::TypeDescriptor::VarLenUnicode | hdf5::types::TypeDescriptor::FixedAscii(_) => {
-//            if shape.is_empty() {
-//                let val = from.read_scalar::<VarLenUnicode>()?;
-//                let mut writer = to.new_attr::<VarLenUnicode>().shape([]).create(name)?;
-//                writer.write_scalar(&val)?;
-//            } else {
-//                let val = from.read_raw::<VarLenUnicode>()?;
-//                let mut writer = to.new_attr::<VarLenUnicode>().shape(shape.clone()).create(name)?;
-//                writer.write(&ndarray::Array::from_shape_vec(shape, val)?)?;
-//            }
-//        }
-//        _ => {
-//            if let Ok(val) = from.read_scalar::<VarLenUnicode>() {
-//                let mut writer = to.new_attr::<VarLenUnicode>().shape([]).create(name)?;
-//                writer.write_scalar(&val)?;
-//            } else {
-//                println!("Warning: skipping attribute {} due to unsupported type {:?}", name, desc);
-//            }
-//        }
-//    }
-//    Ok(())
-//}
 //
 //fn copy_dataset(from: &Dataset, to: &Group, name: &str) -> Result<()> {
 //    let dtype = from.dtype()?;
@@ -322,91 +263,57 @@ use crate::data::save::utils::*;
 fn clean_up(new_file: &File) -> Result<()> {
     let hist_data = new_file.group("raw_data_1")?;
 
-    replace_str_dataset::<4>(&hist_data, "name", "HIFI", "name")?;
-    replace_str_dataset::<4>(&hist_data, "title", "Data", "")?;
+    let _ = replace_str_dataset::<4>(&hist_data, "name", "HIFI", "name")?;
+    let _ = replace_str_dataset::<4>(&hist_data, "title", "Data", "");
 
 
-   // let sample = hist_data.group("sample")?;
-   // for name in sample.member_names()? {
-   //     if let Ok(_group) = sample.group(&name) {
-   //         continue;
-   //     } else if let Ok(dataset) = sample.dataset(&name) {
-   //         if name == "thickness" {
-   //             let attrs = get_dataset_attrs(&dataset)?;
-   //             sample.unlink(&name)?;
-   //             let ds = sample.new_dataset::<f32>().shape([]).create(&name)?;
-   //             s.write_scalar(&0.0f32)?;
-   //             write_dataset_attrs(&ds, attrs)?;
-   //         } else if name == "type" || name == "description" {
-   //             let val = dataset.read_scalar::<VarLenUnicode>()?;
-   //             let attrs = get_dataset_attrs(&dataset)?;
-   //             sample.unlink(&name)?;
-   //             let ds = sample.new_dataset::<VarLenUnicode>().shape([]).create(&name)?;
-   //             ds.write_scalar(&val)?;
-   //             write_dataset_attrs(&ds, attrs)?;
-   //         }
-   //     }
-   // }
+    let sample = hist_data.group("sample")?;
+    for name in sample.member_names()? {
+        if let Ok(_group) = sample.group(&name) {
+            continue;
+        } else if let Ok(dataset) = sample.dataset(&name) {
+            if name == "thickness" {
+                let default = Array1::from_shape_vec(1, vec![0.0f32]).unwrap();
+                let _ = replace_dataset(&sample, "thickness", &default);
+            } else if name == "type" || name == "description" {
+                let _ = clean_str_dataset::<256>(&sample, &name);
+            }
+        }
+    }
 
-   // let source_keys = [
-   //     "muon_energy",
-   //     "muon_momentum",
-   //     "muon_pulse_width",
-   //     "name",
-   //     "notes",
-   //     "pion_momentum",
-   //     "probe",
-   //     "source_current",
-   //     "source_energy",
-   //     "source_frequency",
-   //     "source_pulse_width",
-   //     "target_material",
-   //     "target_thickness",
-   //     "type",
-   // ];
+    // list of source keys that fail in Mantid
+    let source_keys = [
+        "muon_energy",
+        "muon_momentum",
+        "muon_pulse_width",
+        "name",
+        "notes",
+        "pion_momentum",
+        "probe",
+        "source_current",
+        "source_energy",
+        "source_frequency",
+        "source_pulse_width",
+        "target_material",
+        "target_thickness",
+        "type",
+    ];
 
-   // let source = hist_data.group("instrument/source")?;
-   // for name in source.member_names()? {
-   //     if source_keys.contains(&name.as_str()) {
-   //         if let Ok(dataset) = source.dataset(&name) {
-   //             let dtype = dataset.dtype()?;
-   //             let desc = dtype.to_descriptor()?;
-   //             let attrs = get_dataset_attrs(&dataset)?;
-
-   //             match desc {
-   //                 hdf5::types::TypeDescriptor::Integer(_) => {
-   //                     let val = dataset.read_scalar::<i32>()?;
-   //                     source.unlink(&name)?;
-   //                     let ds = source.new_dataset::<i32>().shape([1]).create(&name)?;
-   //                     ds.write(&ndarray::arr1(&[val]))?;
-   //                     write_dataset_attrs(&ds, attrs)?;
-   //                 }
-   //                 hdf5::types::TypeDescriptor::Unsigned(_) => {
-   //                     let val = dataset.read_scalar::<u32>()?;
-   //                     source.unlink(&name)?;
-   //                     let ds = source.new_dataset::<u32>().shape([1]).create(&name)?;
-   //                     ds.write(&ndarray::arr1(&[val]))?;
-   //                     write_dataset_attrs(&ds, attrs)?;
-   //                 }
-   //                 hdf5::types::TypeDescriptor::Float(_) => {
-   //                     let val = dataset.read_scalar::<f64>()?;
-   //                     source.unlink(&name)?;
-   //                     let ds = source.new_dataset::<f64>().shape([1]).create(&name)?;
-   //                     ds.write(&ndarray::arr1(&[val]))?;
-   //                     write_dataset_attrs(&ds, attrs)?;
-   //                 }
-   //                 hdf5::types::TypeDescriptor::VarLenUnicode | hdf5::types::TypeDescriptor::FixedAscii(_) => {
-   //                     let val = dataset.read_scalar::<VarLenUnicode>()?;
-   //                     source.unlink(&name)?;
-   //                     let ds = source.new_dataset::<VarLenUnicode>().shape([1]).create(&name)?;
-   //                     ds.write(&ndarray::arr1(&[val]))?;
-   //                     write_dataset_attrs(&ds, attrs)?;
-   //                 }
-   //                 _ => {}
-   //             }
-   //         }
-   //     }
-    //}
+    let source = hist_data.group("instrument/source")?;
+    for name in source.member_names()? {
+        if source_keys.contains(&name.as_str()) {
+            if let Ok(dataset) = source.dataset(&name) {
+                let dtype = dataset.dtype()?;
+                let desc = dtype.to_descriptor()?;
+                match desc {
+                    hdf5::types::TypeDescriptor::VarLenUnicode | hdf5::types::TypeDescriptor::FixedAscii(_) => {
+                        let _ = clean_str_dataset::<100>(&source, &name);
+                   }
+                    _ => {println!("Unsupported dataset type: {:?}", desc);}
+                }
+            }
+        }
+   }
 
     Ok(())
 }
