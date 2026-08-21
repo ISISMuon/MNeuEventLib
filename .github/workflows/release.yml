@@ -1,0 +1,29 @@
+name: Publish release
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build:
+    name: Build and publish release 
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build project with `maturin`
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release
+      - name: Create release from artifact
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "target/wheels/,*.whl"
