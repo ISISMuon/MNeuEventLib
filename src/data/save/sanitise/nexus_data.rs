@@ -194,19 +194,91 @@ use crate::data::save::utils::*;
 //    Ok(())
 //}
 //
-//fn set_defaults(
-//    source_parent: &Group,
-//    dest: &Group,
-//    name: &str,
-//    shapes: &HashMap<String, usize>,
-//) -> Result<()> {
-//    let is_template = name.contains("dataset_");
-//    let target_name = if is_template {
-//        name.split("dataset_").nth(1).unwrap_or("").to_string()
-//    } else {
-//        name.to_string()
-//    };
-//
+
+// need to make a method to replace the dataset
+
+
+fn create_default_dataset(default: &Group, dest: &Group, name: &str, shapes: &HashMap<String, usize>) -> Result<()> {
+    let name = default.name().split("dataset_").last().unwrap().to_string();
+    let key: String = default.dataset("shape").unwrap().read_scalar::<hdf5::types::VarLenUnicode>().unwrap().as_str().to_string();
+    let len: usize = *shapes.get(&key).unwrap();
+    let dtype: &hdf5::types::VarLenUnicode = &default.dataset("dtype").unwrap().read_scalar().unwrap();
+    if dtype.as_str() == "int32"{
+        let default_value = default.dataset("default").unwrap().read_scalar::<i32>()?;
+        add_array(dest, &Array1::from_elem(len, default_value), &name);
+    }else if dtype.as_str() == "float32"{
+        let default_value = default.dataset("default").unwrap().read_scalar::<f32>()?;
+        add_array(dest, &Array1::from_elem(len, default_value), &name);
+    }else if dtype.as_str() == "float64"{
+        let default_value = default.dataset("default").unwrap().read_scalar::<f64>()?;
+        add_array(dest, &Array1::from_elem(len, default_value), &name);
+    }else{
+        return Err(anyhow!("Unsupported default dataset type {:?}", dtype));
+    };
+    for att_name in default.attr_names()?{
+        let attr = default.attr(&att_name).unwrap();
+        let data = dest.dataset(name.as_str()).unwrap();
+        println!("copy attribute {}", att_name);
+        unsafe {copy_attr(&attr, &data, &att_name)};
+    };
+    return Ok(());
+}
+
+fn set_defaults(
+    source_parent: &Group,
+    dest: &Group,
+    name: &str,
+    shapes: &HashMap<String, usize>,
+) -> Result<()> {
+    if name.contains("dataset_") && dest.dataset(name).is_err() {
+        /* we know this is a group that defines a period
+        dependent dataset */
+        println!("create default {}", name);
+        create_default_dataset(&source_parent.group(name).unwrap(), dest, name, shapes)?;
+        return Ok(());
+    }else if source_parent.dataset(name).is_ok() && dest.dataset(name).is_ok() {
+        // if dataset exists in both files
+       println!("{} dataset already exists", name);
+       for att_name in source_parent.attr_names()?{
+           let attr = source_parent.attr(&att_name).unwrap();
+           let data = dest.dataset(name).unwrap();
+           println!("copy attribute {}", att_name);
+           unsafe {copy_attr(&attr, &data, &att_name)};
+       };
+ 
+        return Ok(());
+    }else if source_parent.dataset(name).is_ok() && dest.dataset(name).is_err() {
+        // if dataset exists in source but not in destination
+        println!("copy dataset {}", name);
+        source_parent.dataset(name)?.copy_to(dest, name)?;
+        return Ok(());
+    }else if source_parent.group(name).is_ok() && dest.group(name).is_ok() {
+        // if group exists in both files
+        println!("group {} exists in both files, going deeper", name);
+        for member in source_parent.group(name).unwrap().member_names()? {
+            set_defaults(&source_parent.group(name).unwrap(),
+              &dest.group(name).unwrap(),
+              member.as_str(),
+               shapes)?;
+        }
+        return Ok(());
+    }else if source_parent.group(name).is_ok() && dest.group(name).is_err() {
+        // copy group
+        println!("make a copy of group {}", name);
+        /* this works for muons as non of the datasets from the missing group have a
+        length that depends on the number of periods. */
+        source_parent.group(name)?.copy_to(dest, name)?;
+        return Ok(());
+    }else{
+        return Err(anyhow!("{} does not exist", name));
+    }
+     // take just the last path segment, in case name() returns a full path like "/group/data_foo"
+    //let basename = name.rsplit('/').next().unwrap_or(&name.as_str());
+    //println!("base {}", basename);
+    // strip_prefix only removes it if it's actually there, and only once
+    //let new_name = basename.strip_prefix("data_").unwrap_or(basename);   
+    //println!("set_defaults: {}, {}, {}", basename, is_dataset, new_name);
+
 //    let dest_keys = dest.member_names()?;
 //
 //    if let Ok(source_group) = source_parent.group(name) {
@@ -257,8 +329,8 @@ use crate::data::save::utils::*;
 //        }
 //    }
 //
-//    Ok(())
-//}
+    Ok(())
+}
 
 fn clean_up(new_file: &File) -> Result<()> {
     let hist_data = new_file.group("raw_data_1")?;
@@ -342,29 +414,31 @@ pub fn save_default(
 
     clean_up(&new_file)?;
 
-   // for key in file.member_names()? {
-   //     let new_keys = new_file.member_names()?;
-   //     let dest_group = if !new_keys.contains(&key) {
-   //         new_file.create_group(&key)?
-   //     } else {
-   //         new_file.group(&key)?
-   //     };
+    for key in file.member_names()? {
+        let new_keys = new_file.member_names()?;
+        let dest_group = if !new_keys.contains(&key) {
+            new_file.create_group(&key)?
+        } else {
+            new_file.group(&key)?
+        };
 
-   //     let src_group = file.group(&key)?;
-   //     for attr_name in src_group.attr_names()? {
-   //         let attr = src_group.attr(&attr_name)?;
-   //         copy_attr(&attr, &dest_group, &attr_name)?;
-   //     }
-
-   //     let dest_group_keys = dest_group.member_names()?;
-   //     for tmp_name in src_group.member_names()? {
-   //         if tmp_name == "selog" {
-   //             println!("skip");
-   //         } else if !dest_group_keys.contains(&tmp_name) {
-   //             set_defaults(&src_group, &dest_group, &tmp_name, shapes)?;
-   //         }
-   //     }
-   // }
+        let src_group = file.group(&key)?;
+        
+        let dest_group_keys = dest_group.member_names()?;
+        for tmp_name in src_group.member_names()? {
+            if tmp_name == "selog" {
+                println!("skip");
+            } else if src_group.group(&tmp_name.as_str()).is_ok() || src_group.dataset(&tmp_name.as_str()).is_ok() {
+                // if a group
+                 set_defaults(&src_group,
+                  &dest_group,
+                  tmp_name.as_str(),
+                   shapes)?;
+            }else{
+                println!("not implemented for {}", tmp_name);
+            }
+        }
+    }
 
     Ok(())
 }

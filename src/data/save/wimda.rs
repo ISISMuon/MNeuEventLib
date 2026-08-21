@@ -108,7 +108,7 @@ impl SaveFile for WiMDAFile {
         let output = File::create(&filename)?;
         let hist_data = output.create_group("raw_data_1")?;
         let event_data = input_file.group("raw_data_1")?;
-        add_nx_class(&hist_data, "NXEntry")?;
+        add_nx_class(&hist_data, "NXentry")?;
 
         copy_scalar::<i32>(&event_data, &hist_data, "IDF_version")?;
 
