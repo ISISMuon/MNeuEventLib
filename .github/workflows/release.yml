@@ -1,5 +1,8 @@
 name: Publish release
 
+permissions:
+  contents: write
+
 on:
   push:
     tags:
@@ -13,17 +16,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v6
-      - name: Build project wtih `maturin`
+        with:
+          python-version: "3.12"
+      - name: Build project with `maturin`
         uses: PyO3/maturin-action@v1
         with:
           command: build
           args: --release
-      - name: Upload as artifact 
-      uses: actions/upload-artifact@v5
-      with:
-        name: release 
-        path: target/wheels/
       - name: Create release from artifact
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "release,*.whl"
+          artifacts: "target/wheels/,*.whl"
