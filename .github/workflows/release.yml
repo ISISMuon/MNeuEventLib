@@ -26,4 +26,4 @@ jobs:
       - name: Create release from artifact
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "target/wheels/,*.whl"
+          artifacts: "target/wheels/*.whl"
