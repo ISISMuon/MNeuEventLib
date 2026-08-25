@@ -20,6 +20,8 @@ mod filters;
 use filters::Filters;
 mod interface;
 use interface::Data;
+mod batch_interface;
+use batch_interface::BatchData;
 mod consts;
 mod utils;
 
@@ -33,5 +35,6 @@ fn core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Histogram>()?;
     m.add_class::<Filters>()?;
     m.add_class::<Data>()?;
+    m.add_class::<BatchData>()?;
     Ok(())
 }
