@@ -1,8 +1,8 @@
 use anyhow::{Error, Result};
-use pyo3::prelude::{Borrowed, pyclass, pymethods, FromPyObject, PyAny};
+use pyo3::prelude::{pyclass, pymethods, Borrowed, FromPyObject, PyAny};
 use pyo3::types::{PyInt, PyString};
 
-use crate::data::{NexusData};
+use crate::data::NexusData;
 use crate::filters::Filters;
 use crate::stats::Histogram;
 
@@ -24,7 +24,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for FilterIndex {
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self> {
         // If index is given as an integer, turn into Index integer
         if let Ok(index) = obj.cast::<PyInt>() {
-            return Ok(FilterIndex::Index(index.extract()?))
+            return Ok(FilterIndex::Index(index.extract()?));
         // If index is given as a string, check it is 'all' or fail
         } else if let Ok(string) = obj.cast::<PyString>() {
             if string.extract::<String>()?.to_lowercase() == "all" {
@@ -36,7 +36,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for FilterIndex {
     }
 }
 
-/// An interface for processing multiple batches of data. 
+/// An interface for processing multiple batches of data.
 ///
 /// Each filter set `i` has its own corresponding result `i`; when
 /// `calculate` is run, `results[i]` is calculated from `dataset` using
@@ -388,5 +388,299 @@ impl BatchData {
             )));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::MockData;
+    use ndarray::Array1;
+
+    /// Build a BatchData with `n` filter sets using MockData as the
+    /// underlying dataset (no real .nxs file needed).
+    fn make_batch(n_filter_sets: usize) -> BatchData {
+        let mock = MockData::new().unwrap();
+        let dataset = mock.create(64, 1048576).unwrap();
+        BatchData {
+            dataset,
+            results: (0..n_filter_sets)
+                .map(|_| Histogram::new(0., 32.768, 2048))
+                .collect(),
+            filters: (0..n_filter_sets).map(|_| Filters::new()).collect(),
+            data_changed: vec![true; n_filter_sets],
+        }
+    }
+
+    /// resolve_indices(All) should return every index in range.
+    #[test]
+    fn test_resolve_indices_all() {
+        let batch = make_batch(3);
+        let indices = batch.resolve_indices(&FilterIndex::All).unwrap();
+        assert_eq!(indices, vec![0, 1, 2]);
+    }
+
+    /// resolve_indices(Index) should return a single valid index.
+    #[test]
+    fn test_resolve_indices_single_valid() {
+        let batch = make_batch(3);
+        let indices = batch.resolve_indices(&FilterIndex::Index(1)).unwrap();
+        assert_eq!(indices, vec![1]);
+    }
+
+    /// resolve_indices(Index) should error for an out-of-range index.
+    #[test]
+    fn test_resolve_indices_out_of_range() {
+        let batch = make_batch(3);
+        let result = batch.resolve_indices(&FilterIndex::Index(3));
+        assert!(result.is_err());
+    }
+
+    /// BatchData::new should error when n_filter_sets is 0.
+    #[test]
+    fn test_new_zero_filter_sets_errors() {
+        let result = BatchData::new("dummy.nxs".to_string(), 64, 0, 1048576);
+        assert!(result.is_err());
+    }
+
+    /// Adding a time filter at a single index should only affect that
+    /// filter set, leaving the others untouched.
+    #[test]
+    fn test_add_time_filter_single_index() {
+        let mut batch = make_batch(3);
+        batch
+            .add_time_filter(FilterIndex::Index(1), "f1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        let (starts0, ends0) = batch.filters[0].get_time_filter_times();
+        let (starts1, ends1) = batch.filters[1].get_time_filter_times();
+        let (starts2, ends2) = batch.filters[2].get_time_filter_times();
+
+        assert!(starts0.is_empty() && ends0.is_empty());
+        assert_eq!(starts1, vec![1e9 as usize]);
+        assert_eq!(ends1, vec![2e9 as usize]);
+        assert!(starts2.is_empty() && ends2.is_empty());
+    }
+
+    /// Adding a time filter with index "All" should apply it to every
+    /// filter set.
+    #[test]
+    fn test_add_time_filter_all_indices() {
+        let mut batch = make_batch(3);
+        batch
+            .add_time_filter(FilterIndex::All, "f1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        for filters in &batch.filters {
+            let (starts, ends) = filters.get_time_filter_times();
+            assert_eq!(starts, vec![1e9 as usize]);
+            assert_eq!(ends, vec![2e9 as usize]);
+        }
+    }
+
+    /// Adding a time filter at an out-of-range index should error and not
+    /// modify any filter set.
+    #[test]
+    fn test_add_time_filter_out_of_range() {
+        let mut batch = make_batch(3);
+        let result = batch.add_time_filter(FilterIndex::Index(5), "f1".to_string(), 1.0, 2.0);
+        assert!(result.is_err());
+
+        for filters in &batch.filters {
+            let (starts, _) = filters.get_time_filter_times();
+            assert!(starts.is_empty());
+        }
+    }
+
+    /// Removing a time filter at a single index should only affect that
+    /// filter set.
+    #[test]
+    fn test_remove_time_filter_single_index() {
+        let mut batch = make_batch(2);
+        batch
+            .add_time_filter(FilterIndex::All, "f1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        batch
+            .remove_time_filter(FilterIndex::Index(0), "f1".to_string())
+            .unwrap();
+
+        let (starts0, _) = batch.filters[0].get_time_filter_times();
+        let (starts1, _) = batch.filters[1].get_time_filter_times();
+
+        assert!(starts0.is_empty());
+        assert_eq!(starts1, vec![1e9 as usize]);
+    }
+
+    /// Removing a time filter with index "All" should remove it from
+    /// every filter set.
+    #[test]
+    fn test_remove_time_filter_all_indices() {
+        let mut batch = make_batch(3);
+        batch
+            .add_time_filter(FilterIndex::All, "f1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        batch
+            .remove_time_filter(FilterIndex::All, "f1".to_string())
+            .unwrap();
+
+        for filters in &batch.filters {
+            let (starts, ends) = filters.get_time_filter_times();
+            assert!(starts.is_empty() && ends.is_empty());
+        }
+    }
+
+    /// Adding a log filter at a single index should only affect that
+    /// filter set.
+    #[test]
+    fn test_add_log_filter_single_index() {
+        let mut batch = make_batch(3);
+        batch
+            .add_log_filter(
+                FilterIndex::Index(2),
+                "lf1".to_string(),
+                "temp".to_string(),
+                1.0,
+                2.0,
+            )
+            .unwrap();
+
+        assert!(batch.filters[0].get_required_log_names().is_empty());
+        assert!(batch.filters[1].get_required_log_names().is_empty());
+        assert_eq!(
+            batch.filters[2].get_required_log_names(),
+            vec!["temp".to_string()]
+        );
+    }
+
+    /// Adding a log filter with index "All" should apply it to every
+    /// filter set.
+    #[test]
+    fn test_add_log_filter_all_indices() {
+        let mut batch = make_batch(3);
+        batch
+            .add_log_filter(
+                FilterIndex::All,
+                "lf1".to_string(),
+                "temp".to_string(),
+                1.0,
+                2.0,
+            )
+            .unwrap();
+
+        for filters in &batch.filters {
+            assert_eq!(filters.get_required_log_names(), vec!["temp".to_string()]);
+        }
+    }
+
+    /// Removing a log filter at a single index should only affect that
+    /// filter set.
+    #[test]
+    fn test_remove_log_filter_single_index() {
+        let mut batch = make_batch(2);
+        batch
+            .add_log_filter(
+                FilterIndex::All,
+                "lf1".to_string(),
+                "temp".to_string(),
+                1.0,
+                2.0,
+            )
+            .unwrap();
+
+        batch
+            .remove_log_filter(FilterIndex::Index(1), "lf1".to_string())
+            .unwrap();
+
+        assert_eq!(
+            batch.filters[0].get_required_log_names(),
+            vec!["temp".to_string()]
+        );
+        assert!(batch.filters[1].get_required_log_names().is_empty());
+    }
+
+    /// Removing a log filter with index "All" should remove it from every
+    /// filter set.
+    #[test]
+    fn test_remove_log_filter_all_indices() {
+        let mut batch = make_batch(3);
+        batch
+            .add_log_filter(
+                FilterIndex::All,
+                "lf1".to_string(),
+                "temp".to_string(),
+                1.0,
+                2.0,
+            )
+            .unwrap();
+
+        batch
+            .remove_log_filter(FilterIndex::All, "lf1".to_string())
+            .unwrap();
+
+        for filters in &batch.filters {
+            assert!(filters.get_required_log_names().is_empty());
+        }
+    }
+
+    /// Setting an amplitude filter at a single index should only affect
+    /// that filter set's amplitude array.
+    #[test]
+    fn test_set_amp_single_index() {
+        let mut batch = make_batch(2);
+        batch.set_amp(FilterIndex::Index(1), 3, 5.0).unwrap();
+
+        let amps0 = batch.filters[0].get_amps(6).unwrap();
+        let amps1 = batch.filters[1].get_amps(6).unwrap();
+
+        assert_eq!(amps0, Array1::<f64>::zeros(6));
+        assert_eq!(
+            amps1,
+            ndarray::Array1::from_vec(vec![0., 0., 0., 5., 0., 0.])
+        );
+    }
+
+    /// Setting an amplitude filter with index "All" should apply it to
+    /// every filter set.
+    #[test]
+    fn test_set_amp_all_indices() {
+        let mut batch = make_batch(3);
+        batch.set_amp(FilterIndex::All, 2, 4.4).unwrap();
+
+        for filters in &batch.filters {
+            let amps = filters.get_amps(6).unwrap();
+            assert_eq!(
+                amps,
+                ndarray::Array1::from_vec(vec![0., 0., 4.4, 0., 0., 0.])
+            );
+        }
+    }
+
+    /// Setting the time filter type at a single index should only affect
+    /// that filter set.
+    #[test]
+    fn test_set_time_type_single_index() {
+        let mut batch = make_batch(2);
+        batch
+            .set_time_type(FilterIndex::Index(1), "exclude".to_string())
+            .unwrap();
+
+        assert!(batch.filters[0].is_include());
+        assert!(!batch.filters[1].is_include());
+    }
+
+    /// Setting the time filter type with index "All" should apply it to
+    /// every filter set.
+    #[test]
+    fn test_set_time_type_all_indices() {
+        let mut batch = make_batch(3);
+        batch
+            .set_time_type(FilterIndex::All, "exclude".to_string())
+            .unwrap();
+
+        for filters in &batch.filters {
+            assert!(!filters.is_include());
+        }
     }
 }
