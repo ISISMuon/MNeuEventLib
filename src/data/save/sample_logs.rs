@@ -7,9 +7,9 @@ use ndarray::Array1;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use crate::data::save::utils::*;
-use crate::data::{SampleLog, ValueLog};
-use crate::interface::Data;
+use crate::data::{NexusData, SampleLog, ValueLog};
 use crate::utils::NarrowTo32;
+use crate::Filters;
 
 /// Save the log to a HDF5 Group
 impl Save for SampleLog {
@@ -72,9 +72,7 @@ where
     }
 }
 
-pub fn get_all_sample_logs(data: &Data) -> Result<Vec<SampleLog>> {
-    let event_data = &data.dataset;
-    let filters = &data.filters;
+pub fn get_all_sample_logs(event_data: &NexusData, filters: &Filters) -> Result<Vec<SampleLog>> {
     let (mut time_starts, mut time_ends) = filters.get_time_filter_times();
 
     let log_names = filters.get_required_log_names();
@@ -237,7 +235,7 @@ mod tests {
     #[test]
     fn test_get_all_sample_logs_returns_all_logs_unfiltered() {
         let data = calculated_data();
-        let logs = get_all_sample_logs(&data).unwrap();
+        let logs = get_all_sample_logs(&data.dataset, &data.filters).unwrap();
 
         assert_eq!(logs.len(), data.dataset.sample_log_names.len());
     }
@@ -248,13 +246,13 @@ mod tests {
     #[test]
     fn test_get_all_sample_logs_applies_time_filters() {
         let mut data = calculated_data();
-        let unfiltered_logs = get_all_sample_logs(&data).unwrap();
+        let unfiltered_logs = get_all_sample_logs(&data.dataset, &data.filters).unwrap();
         // Add a time filter matching the pattern used in other tests in the repo.
         data.add_time_filter("test_filter".to_string(), 0.0, 1.0)
             .unwrap();
         data.calculate().unwrap();
 
-        let logs = get_all_sample_logs(&data);
+        let logs = get_all_sample_logs(&data.dataset, &data.filters);
         assert!(logs.is_ok());
         // sanity check: filtering shouldn't change the number of logs, only their contents
         let filtered_logs = logs.unwrap();

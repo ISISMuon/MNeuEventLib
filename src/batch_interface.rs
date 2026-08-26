@@ -2,7 +2,7 @@ use anyhow::{Error, Result};
 use pyo3::prelude::{pyclass, pymethods, Borrowed, FromPyObject, PyAny};
 use pyo3::types::{PyInt, PyString};
 
-use crate::data::NexusData;
+use crate::data::{NexusData, SaveFile, WiMDAFile};
 use crate::filters::Filters;
 use crate::stats::Histogram;
 
@@ -344,12 +344,24 @@ impl BatchData {
     /// Parameters
     /// ----------
     /// index: int
-    ///     The index of the filter set/result to save. Must be a single
-    ///     filter set, not 'all'.
+    ///     The index of the filter set/result to save. If 'all',
+    ///     an index number will be appended to each filename.
     /// filename: str
     ///     The filename for the saved file.
-    fn save(&self, index: usize, filename: String) -> Result<()> {
-        todo!();
+    fn save(&self, index: FilterIndex, filename: String) -> Result<()> {
+        match index {
+            FilterIndex::Index(i) => {
+                let wimda_file = WiMDAFile::new(&self.dataset, &self.filters[i], &self.results[i])?;
+                wimda_file.save_file(filename, &self.dataset.file)?;
+            }
+            FilterIndex::All => {
+                for i in 0..self.filters.len() {
+                    let wimda_file =
+                        WiMDAFile::new(&self.dataset, &self.filters[i], &self.results[i])?;
+                    wimda_file.save_file(format!("{filename}_{i}.nxs"), &self.dataset.file)?;
+                }
+            }
+        }
         Ok(())
     }
 

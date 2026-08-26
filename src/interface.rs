@@ -214,8 +214,8 @@ impl Data {
     /// filename: str
     ///     The filename for the saved file.
     fn save(&self, filename: String) -> Result<()> {
-        let wimda_file = WiMDAFile::new(self)?;
-        wimda_file.save(filename, &self.dataset.file)?;
+        let wimda_file = WiMDAFile::new(&self.dataset, &self.filters, &self.results)?;
+        wimda_file.save_file(filename, &self.dataset.file)?;
         Ok(())
     }
 

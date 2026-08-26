@@ -6,7 +6,7 @@ use hdf5::Group;
 use ndarray::{s, Array1};
 
 use crate::data::save::utils::*;
-use crate::interface::Data;
+use crate::Histogram;
 
 pub struct Periods {
     /// The number of frames in each period.
@@ -29,12 +29,12 @@ pub struct Periods {
 }
 
 impl Periods {
-    pub fn new(data: &Data) -> Periods {
-        let n_periods = data.results.hist.shape()[0];
-        let n_frames = Array1::from_vec(data.results.n_frames.clone());
-        let n_good_frames = Array1::from_vec(data.results.n_good_frames.clone());
+    pub fn new(results: &Histogram) -> Periods {
+        let n_periods = results.hist.shape()[0];
+        let n_frames = Array1::from_vec(results.n_frames.clone());
+        let n_good_frames = Array1::from_vec(results.n_good_frames.clone());
 
-        let frames_requested = Array1::from_vec(data.results.n_frames.clone());
+        let frames_requested = Array1::from_vec(results.n_frames.clone());
         let labels = (0..n_periods)
             .map(|n| format!("period {}", n + 1))
             .collect::<Vec<String>>()
@@ -44,7 +44,7 @@ impl Periods {
         let total_counts: Array1<f32> = (0..n_periods)
             .map(|n| {
                 let slice = s![n, .., ..];
-                data.results.hist.slice(slice).sum() as f32 / 1e6
+                results.hist.slice(slice).sum() as f32 / 1e6
             })
             .collect();
         let type_ = Array1::from_vec(vec![1; n_periods]);
@@ -93,10 +93,10 @@ mod tests {
     /// Fixture event file used elsewhere in the crate's tests.
     const TEST_FILE: &str = "./tests/test_data/HIFI00195790.nxs";
 
-    fn calculated_data() -> Data {
+    fn calculated_data() -> Histogram {
         let mut data = Data::new(TEST_FILE.to_string(), 64, 1048576).unwrap();
         data.calculate().unwrap();
-        data
+        data.results
     }
 
     /// `Periods::new` should not panic, and `number` should match the
@@ -106,7 +106,7 @@ mod tests {
         let data = calculated_data();
         let periods = Periods::new(&data);
 
-        let n_periods = data.results.hist.shape()[0];
+        let n_periods = data.hist.shape()[0];
         assert_eq!(periods.number, n_periods as u32);
     }
 
@@ -132,7 +132,7 @@ mod tests {
         let data = calculated_data();
         let periods = Periods::new(&data);
 
-        let n_periods = data.results.hist.shape()[0];
+        let n_periods = data.hist.shape()[0];
         let expected = (0..n_periods)
             .map(|n| format!("period {}", n + 1))
             .collect::<Vec<String>>()
@@ -146,7 +146,7 @@ mod tests {
     fn test_periods_labels() {
         let data = calculated_data();
         assert_eq!(
-            data.results.hist.shape()[0],
+            data.hist.shape()[0],
             2,
             "fixture is expected to have exactly two periods"
         );
@@ -162,9 +162,9 @@ mod tests {
         let data = calculated_data();
         let periods = Periods::new(&data);
 
-        let n_periods = data.results.hist.shape()[0];
+        let n_periods = data.hist.shape()[0];
         for n in 0..n_periods {
-            let slice = data.results.hist.slice(ndarray::s![n, .., ..]);
+            let slice = data.hist.slice(ndarray::s![n, .., ..]);
             let expected = slice.sum() as f32 / 1e6;
             assert_eq!(periods.total_counts[n], expected);
         }
@@ -184,7 +184,7 @@ mod tests {
         tmp_path.push("periods_test.nxs");
         let tmp = File::create(tmp_path).unwrap();
         let group = tmp.create_group("periods").unwrap();
-        let event_data = data.dataset.file.group("raw_data_1").unwrap();
+        let event_data = File::open(TEST_FILE).unwrap().group("raw_data_1").unwrap();
 
         let result = periods.save(&group, &event_data);
         assert!(result.is_ok());
