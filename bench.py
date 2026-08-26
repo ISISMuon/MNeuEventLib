@@ -2,7 +2,7 @@ import time
 
 from MNeuEventLib import Data
 
-files = [f"SIM0000000{n}.nxs" for n in range(1,4)]
+files = [f"../data/SIM0000000{n}.nxs" for n in range(1,4)]
 
 stats = 1
 n_filters = 2
@@ -48,7 +48,7 @@ for file in files:
     for _ in range(0, stats):
         start_time = time.time()
         result = data.calculate()
-        n = result.n_events()
+        n = result.get_n_events()
         duration = time.time() - start_time
         avg_run_time += duration
     avg_run_time /= stats

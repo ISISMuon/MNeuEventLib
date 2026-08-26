@@ -1,8 +1,9 @@
 use anyhow::{Result};
-use pyo3::prelude::{pyclass, pymethods};
+use pyo3::prelude::{Bound, pyclass, pymethods};
+use numpy::ToPyArray;
 
-use crate::BatchData;
-use crate::batch_interface::FilterIndex;
+use crate::{BatchData, NexusData};
+use crate::batch_interface::{FilterIndex, PyHist};
 
 /// The main MNeuEventLib interface.
 #[pyclass(from_py_object)]
@@ -22,6 +23,11 @@ impl Data {
         Ok(Data {
             inner: BatchData::new(filename, n_spec, 1, chunk_size)?  
         })
+    }
+
+    #[getter]
+    fn dataset(&self) -> NexusData {
+        self.inner.dataset.clone()
     }
 
     /// Calculate the histogram for the current data and filters.
@@ -179,6 +185,17 @@ impl Data {
     ///     The filename for the saved file.
     fn save(&self, filename: String) -> Result<()> {
         self.inner.save(FilterIndex::Index(0), filename) 
+    }
+
+    /// Get the calculated histogram.
+    fn get_histogram<'py>(slf: &Bound<'py, Data>) -> PyHist<'py> {
+        let py = slf.py();
+        slf.borrow().inner.results[0].hist.to_pyarray(py)
+    }
+
+    /// Get the number of events.
+    fn get_n_events(&self) -> usize {
+        self.inner.results[0].n
     }
 
     fn __repr__(&self) -> String {
