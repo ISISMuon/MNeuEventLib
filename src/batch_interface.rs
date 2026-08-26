@@ -92,11 +92,6 @@ impl BatchData {
         })
     }
 
-    /// The number of filter sets (and results) held by this object.
-    pub fn n_filter_sets(&self) -> usize {
-        self.filters.len()
-    }
-
     /// Calculate the histograms for the current data and each filter set.
     ///
     /// Returns
@@ -105,10 +100,10 @@ impl BatchData {
     ///     This object, with `results[i]` holding the histogram calculated
     ///     from `dataset` and `filters[i]`, for each `i`.
     pub fn calculate(&mut self) -> Result<BatchData> {
-        for i in 0..self.filters.len() {
+        for i in 0..self.n_batches() {
             if self.data_changed[i] {
-                self.data_changed[i] = false;
                 let result = self.results[i].calculate(&self.dataset, &self.filters[i])?;
+                self.data_changed[i] = false;
                 self.results[i] = result;
             }
         }
@@ -160,8 +155,8 @@ impl BatchData {
     ///     The type for the time filters. Must be 'exclude' or 'include'.
     pub fn set_time_type(&mut self, index: FilterIndex, filter_type: String) -> Result<()> {
         for i in self.resolve_indices(&index)? {
-            self.data_changed[i] = true;
             self.filters[i].set_time_type(filter_type.clone())?;
+            self.data_changed[i] = true;
         }
         Ok(())
     }
@@ -186,8 +181,8 @@ impl BatchData {
         end: f64,
     ) -> Result<()> {
         for i in self.resolve_indices(&index)? {
-            self.data_changed[i] = true;
             self.filters[i].add_time_filter(name.clone(), start, end)?;
+            self.data_changed[i] = true;
         }
         Ok(())
     }
@@ -202,8 +197,8 @@ impl BatchData {
     ///     The name of the time filter to remove.
     pub fn remove_time_filter(&mut self, index: FilterIndex, name: String) -> Result<()> {
         for i in self.resolve_indices(&index)? {
-            self.data_changed[i] = true;
             self.filters[i].remove_time_filter(name.clone())?;
+            self.data_changed[i] = true;
         }
         Ok(())
     }
@@ -231,8 +226,8 @@ impl BatchData {
         upper: f64,
     ) -> Result<()> {
         for i in self.resolve_indices(&index)? {
-            self.data_changed[i] = true;
             self.filters[i].add_log_filter(name.clone(), log.clone(), Some(lower), Some(upper))?;
+            self.data_changed[i] = true;
         }
         Ok(())
     }
@@ -247,8 +242,8 @@ impl BatchData {
     ///     The name of the log filter to remove.
     pub fn remove_log_filter(&mut self, index: FilterIndex, name: String) -> Result<()> {
         for i in self.resolve_indices(&index)? {
-            self.data_changed[i] = true;
             self.filters[i].remove_log_filter(name.clone())?;
+            self.data_changed[i] = true;
         }
         Ok(())
     }
@@ -273,8 +268,8 @@ impl BatchData {
         lower: f64,
     ) -> Result<()> {
         for i in self.resolve_indices(&index)? {
-            self.data_changed[i] = true;
             self.filters[i].add_log_filter_above(name.clone(), log.clone(), lower)?;
+            self.data_changed[i] = true;
         }
         Ok(())
     }
@@ -299,8 +294,8 @@ impl BatchData {
         upper: f64,
     ) -> Result<()> {
         for i in self.resolve_indices(&index)? {
-            self.data_changed[i] = true;
             self.filters[i].add_log_filter_below(name.clone(), log.clone(), upper)?;
+            self.data_changed[i] = true;
         }
         Ok(())
     }
@@ -317,8 +312,8 @@ impl BatchData {
     ///     The maximum amplitude that should be ignored.
     pub fn set_amp(&mut self, index: FilterIndex, detector: usize, amp: f64) -> Result<()> {
         for i in self.resolve_indices(&index)? {
-            self.data_changed[i] = true;
             self.filters[i].set_amp(detector, amp);
+            self.data_changed[i] = true;
         }
         Ok(())
     }
@@ -333,8 +328,8 @@ impl BatchData {
     ///     The maximum amplitude that should be ignored.
     pub fn set_amps_baseline(&mut self, index: FilterIndex, amp: f64) -> Result<()> {
         for i in self.resolve_indices(&index)? {
-            self.data_changed[i] = true;
             self.filters[i].set_amps_baseline(amp);
+            self.data_changed[i] = true;
         }
         Ok(())
     }
@@ -355,13 +350,17 @@ impl BatchData {
             filename.clone()
         };
 
+        if self.results.iter().any(|r| r.hist.shape() == [0, 0, 0]) {
+            return Err(Error::msg("Cannot save as results have not been calculated."))
+        }
+
         match index {
             FilterIndex::Index(i) => {
                 let wimda_file = WiMDAFile::new(&self.dataset, &self.filters[i], &self.results[i])?;
                 wimda_file.save_file(format!("{filename_stem}.nxs"), &self.dataset.file)?;
             }
             FilterIndex::All => {
-                for i in 0..self.filters.len() {
+                for i in 0..self.n_batches() {
                     let wimda_file =
                         WiMDAFile::new(&self.dataset, &self.filters[i], &self.results[i])?;
                     wimda_file.save_file(format!("{filename_stem}_{i}.nxs"), &self.dataset.file)?;
@@ -382,6 +381,11 @@ impl BatchData {
         }
         string
     }
+
+    /// The number of filter sets (and results) held by this object.
+    pub fn __len__(&self) -> usize {
+        self.n_batches()
+    }
 }
 
 impl BatchData {
@@ -389,7 +393,7 @@ impl BatchData {
     /// checking bounds along the way.
     fn resolve_indices(&self, index: &FilterIndex) -> Result<Vec<usize>> {
         match index {
-            FilterIndex::All => Ok((0..self.filters.len()).collect()),
+            FilterIndex::All => Ok((0..self.n_batches()).collect()),
             FilterIndex::Index(i) => {
                 self.check_index(*i)?;
                 Ok(vec![*i])
@@ -399,13 +403,18 @@ impl BatchData {
 
     /// Check that a given index is valid for this BatchData's filter sets.
     fn check_index(&self, index: usize) -> Result<()> {
-        if index >= self.filters.len() {
+        if index >= self.n_batches() {
             return Err(Error::msg(format!(
                 "Index {index} out of range: only {} filter sets exist.",
                 self.filters.len()
             )));
         }
         Ok(())
+    }
+
+    /// Get the number of batches.
+    fn n_batches(&self) -> usize {
+        self.filters.len() 
     }
 }
 
