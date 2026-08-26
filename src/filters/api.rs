@@ -9,7 +9,7 @@ use pyo3::types::PyType;
 use serde::{Deserialize, Serialize};
 use tabled::{builder::Builder, Table, Tabled};
 
-use crate::consts::S_TO_NS;
+use crate::consts::ToNanoseconds;
 use crate::data::SampleLog;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -53,14 +53,8 @@ impl Filters {
             return (Vec::new(), Vec::new());
         }
         (
-            self.time_filters
-                .iter()
-                .map(|f| (f.start * S_TO_NS) as usize)
-                .collect(),
-            self.time_filters
-                .iter()
-                .map(|f| (f.end * S_TO_NS) as usize)
-                .collect(),
+            self.time_filters.iter().map(|f| f.start.to_ns()).collect(),
+            self.time_filters.iter().map(|f| f.end.to_ns()).collect(),
         )
     }
 
