@@ -4,7 +4,7 @@ use hdf5::Group;
 use ndarray::{Array1, Array3};
 
 use crate::data::save::utils::*;
-use crate::Histogram;
+use crate::stats::Histogram;
 
 #[allow(dead_code)]
 pub struct Instrument {
@@ -146,7 +146,7 @@ impl Save for Detector1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interface::Data;
+    use crate::BatchData;
 
     /// Fixture event file already used by other test modules in the crate
     /// (see `data::nexus_data::tests`).
@@ -160,9 +160,9 @@ mod tests {
     /// called from outside `interface.rs`. If it isn't, either make it pub
     /// or move these tests back into `interface.rs`'s own test module.
     fn calculated_data() -> Histogram {
-        let mut data = Data::new(TEST_FILE.to_string(), 64, 1048576).unwrap();
+        let mut data = BatchData::new(TEST_FILE.to_string(), 64, 1, 1048576).unwrap();
         data.calculate().unwrap();
-        data.results
+        data.results[0].clone()
     }
 
     /// `spectrum_index` should be 1-indexed: [1, 2, ..., n_spec].
@@ -171,7 +171,7 @@ mod tests {
         let data = calculated_data();
         let instrument = Instrument::new(&data, 64);
 
-        let expected: Array1<i32> = (1..=64 as i32).collect::<Vec<_>>().into();
+        let expected: Array1<i32> = (1..=64).collect::<Vec<_>>().into();
         assert_eq!(instrument.detector_1.spectrum_index, expected);
     }
 

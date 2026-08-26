@@ -9,7 +9,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use crate::data::save::utils::*;
 use crate::data::{NexusData, SampleLog, ValueLog};
 use crate::utils::NarrowTo32;
-use crate::Filters;
+use crate::filters::Filters;
 
 /// Save the log to a HDF5 Group
 impl Save for SampleLog {
@@ -108,7 +108,8 @@ pub fn get_all_sample_logs(event_data: &NexusData, filters: &Filters) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interface::Data;
+    use crate::BatchData;
+    use crate::batch_interface::FilterIndex;
     use hdf5::types::FixedAscii;
     use hdf5::File;
     use ndarray::Array1;
@@ -119,8 +120,8 @@ mod tests {
     /// Must match the real detector count in the fixture file.
     const N_SPEC: usize = 64;
 
-    fn calculated_data() -> Data {
-        let mut data = Data::new(TEST_FILE.to_string(), N_SPEC, 1048576).unwrap();
+    fn calculated_data() -> BatchData {
+        let mut data = BatchData::new(TEST_FILE.to_string(), N_SPEC, 1, 1048576).unwrap();
         data.calculate().unwrap();
         data
     }
@@ -235,7 +236,7 @@ mod tests {
     #[test]
     fn test_get_all_sample_logs_returns_all_logs_unfiltered() {
         let data = calculated_data();
-        let logs = get_all_sample_logs(&data.dataset, &data.filters).unwrap();
+        let logs = get_all_sample_logs(&data.dataset, &data.filters[0]).unwrap();
 
         assert_eq!(logs.len(), data.dataset.sample_log_names.len());
     }
@@ -246,13 +247,13 @@ mod tests {
     #[test]
     fn test_get_all_sample_logs_applies_time_filters() {
         let mut data = calculated_data();
-        let unfiltered_logs = get_all_sample_logs(&data.dataset, &data.filters).unwrap();
+        let unfiltered_logs = get_all_sample_logs(&data.dataset, &data.filters[0]).unwrap();
         // Add a time filter matching the pattern used in other tests in the repo.
-        data.add_time_filter("test_filter".to_string(), 0.0, 1.0)
+        data.add_time_filter(FilterIndex::Index(0), "test_filter".to_string(), 0.0, 1.0)
             .unwrap();
         data.calculate().unwrap();
 
-        let logs = get_all_sample_logs(&data.dataset, &data.filters);
+        let logs = get_all_sample_logs(&data.dataset, &data.filters[0]);
         assert!(logs.is_ok());
         // sanity check: filtering shouldn't change the number of logs, only their contents
         let filtered_logs = logs.unwrap();

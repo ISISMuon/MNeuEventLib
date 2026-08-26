@@ -15,9 +15,7 @@ use pyo3::prelude::*;
 mod data;
 use data::NexusData;
 mod stats;
-use stats::Histogram;
 mod filters;
-use filters::Filters;
 mod interface;
 use interface::Data;
 mod batch_interface;
@@ -32,8 +30,6 @@ mod test_utils;
 #[pymodule]
 fn core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NexusData>()?;
-    m.add_class::<Histogram>()?;
-    m.add_class::<Filters>()?;
     m.add_class::<Data>()?;
     m.add_class::<BatchData>()?;
     Ok(())

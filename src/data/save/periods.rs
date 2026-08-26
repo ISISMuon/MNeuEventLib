@@ -6,7 +6,7 @@ use hdf5::Group;
 use ndarray::{s, Array1};
 
 use crate::data::save::utils::*;
-use crate::Histogram;
+use crate::stats::Histogram;
 
 pub struct Periods {
     /// The number of frames in each period.
@@ -88,15 +88,15 @@ impl Save for Periods {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interface::Data;
+    use crate::BatchData;
 
     /// Fixture event file used elsewhere in the crate's tests.
     const TEST_FILE: &str = "./tests/test_data/HIFI00195790.nxs";
 
     fn calculated_data() -> Histogram {
-        let mut data = Data::new(TEST_FILE.to_string(), 64, 1048576).unwrap();
+        let mut data = BatchData::new(TEST_FILE.to_string(), 64, 1, 1048576).unwrap();
         data.calculate().unwrap();
-        data.results
+        data.results[0].clone()
     }
 
     /// `Periods::new` should not panic, and `number` should match the

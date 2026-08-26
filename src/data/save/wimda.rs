@@ -11,7 +11,8 @@ use crate::data::save::sample_logs::get_all_sample_logs;
 use crate::data::save::utils::*;
 use crate::data::save::{Instrument, Periods};
 use crate::data::{NexusData, SampleLog};
-use crate::{Filters, Histogram};
+use crate::filters::Filters;
+use crate::stats::Histogram;
 
 /// A struct containing the full file data for a save file.
 #[allow(dead_code)]
@@ -242,14 +243,14 @@ impl Save for WiMDAFile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interface::Data;
+    use crate::BatchData;
     use std::env::temp_dir;
 
     /// Fixture event file used elsewhere in the crate's tests.
     const TEST_FILE: &str = "./tests/test_data/HIFI00195790.nxs";
 
-    fn calculated_data() -> Data {
-        let mut data = Data::new(TEST_FILE.to_string(), 64, 1048576).unwrap();
+    fn calculated_data() -> BatchData {
+        let mut data = BatchData::new(TEST_FILE.to_string(), 64, 1, 1048576).unwrap();
         data.calculate().unwrap();
         data
     }
@@ -259,7 +260,7 @@ mod tests {
     #[test]
     fn test_wimda_file_new_selog_length() {
         let data = calculated_data();
-        let wimda = WiMDAFile::new(&data.dataset, &data.filters, &data.results).unwrap();
+        let wimda = WiMDAFile::new(&data.dataset, &data.filters[0], &data.results[0]).unwrap();
 
         assert_eq!(wimda.selog.len(), data.dataset.sample_log_names.len());
     }
@@ -269,7 +270,7 @@ mod tests {
     #[test]
     fn test_wimda_save_creates_expected_structure() {
         let data = calculated_data();
-        let wimda = WiMDAFile::new(&data.dataset, &data.filters, &data.results).unwrap();
+        let wimda = WiMDAFile::new(&data.dataset, &data.filters[0], &data.results[0]).unwrap();
 
         let mut tmp_path = temp_dir();
         tmp_path.push("wimda_test_structure.nxs");
@@ -307,7 +308,7 @@ mod tests {
     #[test]
     fn test_wimda_save_sample_name_defaults_to_unknown_when_empty() {
         let data = calculated_data();
-        let wimda = WiMDAFile::new(&data.dataset, &data.filters, &data.results).unwrap();
+        let wimda = WiMDAFile::new(&data.dataset, &data.filters[0], &data.results[0]).unwrap();
 
         let mut tmp_path = temp_dir();
         tmp_path.push("wimda_test_sample_name.nxs");
@@ -335,7 +336,7 @@ mod tests {
     #[test]
     fn test_wimda_save_user_1_default_when_missing() {
         let data = calculated_data();
-        let wimda = WiMDAFile::new(&data.dataset, &data.filters, &data.results).unwrap();
+        let wimda = WiMDAFile::new(&data.dataset, &data.filters[0], &data.results[0]).unwrap();
 
         let mut tmp_path = temp_dir();
         tmp_path.push("wimda_test_user_1.nxs");
