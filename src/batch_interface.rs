@@ -127,7 +127,7 @@ impl BatchData {
     ///     The maximum time bound for the histogram.
     /// n_bins: int
     ///     The number of bins to divide the time range into.
-    fn set_histogram_settings(
+    pub fn set_histogram_settings(
         &mut self,
         index: FilterIndex,
         min_time: f32,
@@ -158,7 +158,7 @@ impl BatchData {
     ///     Either 'all', or the index of the filter set to modify.
     /// filter_type: str
     ///     The type for the time filters. Must be 'exclude' or 'include'.
-    fn set_time_type(&mut self, index: FilterIndex, filter_type: String) -> Result<()> {
+    pub fn set_time_type(&mut self, index: FilterIndex, filter_type: String) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.data_changed[i] = true;
             self.filters[i].set_time_type(filter_type.clone())?;
@@ -200,7 +200,7 @@ impl BatchData {
     ///     Either 'all', or the index of the filter set to modify.
     /// name: str
     ///     The name of the time filter to remove.
-    fn remove_time_filter(&mut self, index: FilterIndex, name: String) -> Result<()> {
+    pub fn remove_time_filter(&mut self, index: FilterIndex, name: String) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.data_changed[i] = true;
             self.filters[i].remove_time_filter(name.clone())?;
@@ -245,7 +245,7 @@ impl BatchData {
     ///     Either 'all', or the index of the filter set to modify.
     /// name: str
     ///     The name of the log filter to remove.
-    fn remove_log_filter(&mut self, index: FilterIndex, name: String) -> Result<()> {
+    pub fn remove_log_filter(&mut self, index: FilterIndex, name: String) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.data_changed[i] = true;
             self.filters[i].remove_log_filter(name.clone())?;
@@ -265,7 +265,7 @@ impl BatchData {
     ///     The sample log in the data to which the filter applies.
     /// lower: float
     ///     The lower bound for the log filter.
-    fn add_log_filter_above(
+    pub fn add_log_filter_above(
         &mut self,
         index: FilterIndex,
         name: String,
@@ -291,7 +291,7 @@ impl BatchData {
     ///     The sample log in the data to which the filter applies.
     /// upper: float
     ///     The upper bound for the log filter.
-    fn add_log_filter_below(
+    pub fn add_log_filter_below(
         &mut self,
         index: FilterIndex,
         name: String,
@@ -315,7 +315,7 @@ impl BatchData {
     ///     The detector to set a filter for.
     /// amp: float
     ///     The maximum amplitude that should be ignored.
-    fn set_amp(&mut self, index: FilterIndex, detector: usize, amp: f64) -> Result<()> {
+    pub fn set_amp(&mut self, index: FilterIndex, detector: usize, amp: f64) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.data_changed[i] = true;
             self.filters[i].set_amp(detector, amp);
@@ -331,7 +331,7 @@ impl BatchData {
     ///     Either 'all', or the index of the filter set to modify.
     /// amp: float
     ///     The maximum amplitude that should be ignored.
-    fn set_amps_baseline(&mut self, index: FilterIndex, amp: f64) -> Result<()> {
+    pub fn set_amps_baseline(&mut self, index: FilterIndex, amp: f64) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.data_changed[i] = true;
             self.filters[i].set_amps_baseline(amp);
@@ -348,17 +348,23 @@ impl BatchData {
     ///     an index number will be appended to each filename.
     /// filename: str
     ///     The filename for the saved file.
-    fn save(&self, index: FilterIndex, filename: String) -> Result<()> {
+    pub fn save(&self, index: FilterIndex, filename: String) -> Result<()> {
+        let filename_stem = if filename.ends_with(".nxs") {
+            filename.clone()[..(filename.len() - 4)].to_string()
+        } else {
+            filename.clone()
+        };
+
         match index {
             FilterIndex::Index(i) => {
                 let wimda_file = WiMDAFile::new(&self.dataset, &self.filters[i], &self.results[i])?;
-                wimda_file.save_file(filename, &self.dataset.file)?;
+                wimda_file.save_file(format!("{filename_stem}.nxs"), &self.dataset.file)?;
             }
             FilterIndex::All => {
                 for i in 0..self.filters.len() {
                     let wimda_file =
                         WiMDAFile::new(&self.dataset, &self.filters[i], &self.results[i])?;
-                    wimda_file.save_file(format!("{filename}_{i}.nxs"), &self.dataset.file)?;
+                    wimda_file.save_file(format!("{filename_stem}_{i}.nxs"), &self.dataset.file)?;
                 }
             }
         }
