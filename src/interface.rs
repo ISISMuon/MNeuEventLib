@@ -1,9 +1,9 @@
-use anyhow::{Result};
-use pyo3::prelude::{Bound, pyclass, pymethods};
+use anyhow::Result;
 use numpy::ToPyArray;
+use pyo3::prelude::{pyclass, pymethods, Bound};
 
-use crate::{BatchData, NexusData};
 use crate::batch_interface::{FilterIndex, PyHist};
+use crate::{BatchData, NexusData};
 
 /// The main MNeuEventLib interface.
 #[pyclass(from_py_object)]
@@ -11,7 +11,7 @@ use crate::batch_interface::{FilterIndex, PyHist};
 pub struct Data {
     // internally, to avoid code duplication,
     // this is treated as a BatchData with 1 batch
-    inner: BatchData
+    inner: BatchData,
 }
 
 #[pymethods]
@@ -21,7 +21,7 @@ impl Data {
     #[pyo3(signature = (filename, n_spec, chunk_size=1048576))]
     pub fn new(filename: String, n_spec: usize, chunk_size: usize) -> Result<Self> {
         Ok(Data {
-            inner: BatchData::new(filename, n_spec, 1, chunk_size)?  
+            inner: BatchData::new(filename, n_spec, 1, chunk_size)?,
         })
     }
 
@@ -58,7 +58,8 @@ impl Data {
         max_time: f32,
         n_bins: usize,
     ) -> Result<()> {
-        self.inner.set_histogram_settings(FilterIndex::Index(0), min_time, max_time, n_bins)
+        self.inner
+            .set_histogram_settings(FilterIndex::Index(0), min_time, max_time, n_bins)
     }
 
     /// Set the type for the time filters.
@@ -82,7 +83,8 @@ impl Data {
     /// end: float
     ///     The end point for the time filter.
     pub fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> Result<()> {
-        self.inner.add_time_filter(FilterIndex::Index(0), name, start, end)
+        self.inner
+            .add_time_filter(FilterIndex::Index(0), name, start, end)
     }
 
     /// Remove a time filter.
@@ -114,7 +116,8 @@ impl Data {
         lower: f64,
         upper: f64,
     ) -> Result<()> {
-        self.inner.add_log_filter(FilterIndex::Index(0), name, log, lower, upper)
+        self.inner
+            .add_log_filter(FilterIndex::Index(0), name, log, lower, upper)
     }
 
     /// Remove a sample log filter.
@@ -138,7 +141,8 @@ impl Data {
     /// lower: float
     ///     The lower bound for the log filter.
     fn add_log_filter_above(&mut self, name: String, log: String, lower: f64) -> Result<()> {
-        self.inner.add_log_filter_above(FilterIndex::Index(0), name, log, lower)
+        self.inner
+            .add_log_filter_above(FilterIndex::Index(0), name, log, lower)
     }
 
     /// Add a sample log filter for all data below a certain value.
@@ -152,7 +156,8 @@ impl Data {
     /// upper: float
     ///     The upper bound for the log filter.
     fn add_log_filter_below(&mut self, name: String, log: String, upper: f64) -> Result<()> {
-        self.inner.add_log_filter_below(FilterIndex::Index(0), name, log, upper)
+        self.inner
+            .add_log_filter_below(FilterIndex::Index(0), name, log, upper)
     }
 
     /// Set the amplitude filter for a detector.
@@ -184,7 +189,7 @@ impl Data {
     /// filename: str
     ///     The filename for the saved file.
     fn save(&self, filename: String) -> Result<()> {
-        self.inner.save(FilterIndex::Index(0), filename) 
+        self.inner.save(FilterIndex::Index(0), filename)
     }
 
     /// Get the calculated histogram.

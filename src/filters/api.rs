@@ -41,7 +41,7 @@ pub struct Filters {
     amplitudes: HashMap<usize, f64>,
 }
 
-impl Filters { 
+impl Filters {
     pub fn new() -> Filters {
         Filters {
             time_filter_type: FilterType::Include,

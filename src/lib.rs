@@ -14,9 +14,9 @@ use pyo3::prelude::*;
 
 mod data;
 use data::NexusData;
-mod stats;
 mod filters;
 mod interface;
+mod stats;
 use interface::Data;
 mod batch_interface;
 use batch_interface::BatchData;

@@ -1,7 +1,7 @@
 use anyhow::{Error, Result};
+use numpy::{PyArray3, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Borrowed, Bound, FromPyObject, PyAny};
 use pyo3::types::{PyInt, PyString};
-use numpy::{PyArray3, ToPyArray};
 
 use crate::data::{NexusData, SaveFile, WiMDAFile};
 use crate::filters::Filters;
@@ -356,14 +356,18 @@ impl BatchData {
         match index {
             FilterIndex::Index(i) => {
                 if self.results[i].hist.shape() == [0, 0, 0] {
-                    return Err(Error::msg("Cannot save as results have not been calculated."))
+                    return Err(Error::msg(
+                        "Cannot save as results have not been calculated.",
+                    ));
                 }
                 let wimda_file = WiMDAFile::new(&self.dataset, &self.filters[i], &self.results[i])?;
                 wimda_file.save_file(format!("{filename_stem}.nxs"), &self.dataset.file)?;
             }
             FilterIndex::All => {
                 if self.results.iter().any(|r| r.hist.shape() == [0, 0, 0]) {
-                    return Err(Error::msg("Cannot save as results have not been calculated."))
+                    return Err(Error::msg(
+                        "Cannot save as results have not been calculated.",
+                    ));
                 }
                 for i in 0..self.n_batches() {
                     let wimda_file =
@@ -381,9 +385,14 @@ impl BatchData {
     /// ----------
     /// index: int
     ///     The index of the histogram to get.
-    pub fn get_histogram<'py>(slf: &Bound<'py, BatchData>, index: FilterIndex) -> Result<Vec<PyHist<'py>>> {
+    pub fn get_histogram<'py>(
+        slf: &Bound<'py, BatchData>,
+        index: FilterIndex,
+    ) -> Result<Vec<PyHist<'py>>> {
         let py = slf.py();
-        Ok(slf.borrow().resolve_indices(&index)?
+        Ok(slf
+            .borrow()
+            .resolve_indices(&index)?
             .into_iter()
             .map(|i| slf.borrow().results[i].hist.to_pyarray(py))
             .collect())
@@ -396,7 +405,8 @@ impl BatchData {
     /// index: int
     ///     The index of the histogram to get.
     pub fn get_n_events(&self, index: FilterIndex) -> Result<Vec<usize>> {
-        Ok(self.resolve_indices(&index)?
+        Ok(self
+            .resolve_indices(&index)?
             .into_iter()
             .map(|i| self.results[i].n)
             .collect())
@@ -446,7 +456,7 @@ impl BatchData {
 
     /// Get the number of batches.
     fn n_batches(&self) -> usize {
-        self.filters.len() 
+        self.filters.len()
     }
 }
 
