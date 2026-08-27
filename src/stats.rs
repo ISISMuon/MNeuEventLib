@@ -257,7 +257,6 @@ fn make_histogram(
         };
 
         let period = periods[*frame] as usize;
-        result.n += 1;
 
         for k in frame_start_event..frame_end_event {
             let t = times[k] as f32 * conversion;
@@ -318,7 +317,8 @@ mod tests {
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![1, 1, 2, 1, 0, 1]).unwrap();
 
-        assert_eq!(result.hist, expected)
+        assert_eq!(result.hist, expected);
+        assert_eq!(result.n, 6)
     }
 
     /// Test a histogram with filters is correctly constructed.
@@ -351,7 +351,8 @@ mod tests {
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![0, 1, 0, 1, 0, 1]).unwrap();
 
-        assert_eq!(result.hist, expected)
+        assert_eq!(result.hist, expected);
+        assert_eq!(result.n, 3)
     }
 
     /// Test a histogram with multiple periods correctly separates data.
@@ -395,7 +396,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.hist, expected)
+        assert_eq!(result.hist, expected);
+        assert_eq!(result.n, 6)
     }
 
     /// Test a histogram filters out data before the histogram start time.
@@ -427,7 +429,8 @@ mod tests {
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 2), vec![1, 0, 1, 1]).unwrap();
 
-        assert_eq!(result.hist, expected)
+        assert_eq!(result.hist, expected);
+        assert_eq!(result.n, 3)
     }
 
     /// Test a histogram filters out data after the histogram end time.
@@ -459,7 +462,8 @@ mod tests {
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 2), vec![1, 1, 0, 1]).unwrap();
 
-        assert_eq!(result.hist, expected)
+        assert_eq!(result.hist, expected);
+        assert_eq!(result.n, 3)
     }
 
     /// Test a histogram with amplitude filters is correctly constructed.
@@ -491,7 +495,8 @@ mod tests {
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![1, 1, 1, 0, 0, 1]).unwrap();
 
-        assert_eq!(result.hist, expected)
+        assert_eq!(result.hist, expected);
+        assert_eq!(result.n, 4)
     }
 
     /// Test that the conversion value correctly scales time values.
@@ -522,6 +527,7 @@ mod tests {
 
         let expected = Array3::<i32>::from_shape_vec((1, 1, 3), vec![2, 0, 1]).unwrap();
         assert_eq!(result.hist, expected);
+        assert_eq!(result.n, 3);
 
         // now test with a different conversion factor
         let result2 = make_histogram(
@@ -542,7 +548,8 @@ mod tests {
         );
 
         let expected2 = Array3::<i32>::from_shape_vec((1, 1, 3), vec![1, 1, 0]).unwrap();
-        assert_eq!(result2.hist, expected2)
+        assert_eq!(result2.hist, expected2);
+        assert_eq!(result2.n, 2)
     }
 
     /// Test that `get_period_frames` correctly counts kept frames per period
