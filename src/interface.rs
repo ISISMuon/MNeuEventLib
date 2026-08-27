@@ -52,9 +52,9 @@ impl Data {
     /// Parameters
     /// ----------
     /// min_time: float
-    ///     The minimum time bound for the histogram.
+    ///     The minimum time bound for the histogram in microseconds.
     /// max_time: float
-    ///     The maximum time bound for the histogram.
+    ///     The maximum time bound for the histogram in microseconds.
     /// n_bins: int
     ///     The number of bins to divide the time range into.
     fn set_histogram_settings(
