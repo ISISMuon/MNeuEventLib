@@ -23,7 +23,7 @@ impl Data {
     #[pyo3(signature = (filename, n_spec, chunk_size=1048576))]
     pub fn new(filename: String, n_spec: usize, chunk_size: usize) -> Result<Self> {
         let dataset = NexusData::new(filename, n_spec, chunk_size)?;
-        let results = Histogram::new(0., 32.768, 2048);
+        let results = Histogram::new(0, 32768, 2048);
         Ok(Data {
             dataset,
             results,
@@ -56,9 +56,9 @@ impl Data {
     /// Parameters
     /// ----------
     /// min_time: float
-    ///     The minimum time bound for the histogram.
+    ///     The minimum time bound for the histogram in microseconds.
     /// max_time: float
-    ///     The maximum time bound for the histogram.
+    ///     The maximum time bound for the histogram in microseconds.
     /// n_bins: int
     ///     The number of bins to divide the time range into.
     fn set_histogram_settings(
@@ -77,7 +77,7 @@ impl Data {
             return Err(Error::msg("max_time must be greater than min_time."));
         }
         self.data_changed = true;
-        self.results = Histogram::new(min_time, max_time, n_bins);
+        self.results = Histogram::new((min_time * 1e3) as u32, (max_time * 1e3) as u32, n_bins);
         Ok(())
     }
 
