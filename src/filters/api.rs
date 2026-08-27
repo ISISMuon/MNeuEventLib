@@ -46,7 +46,7 @@ pub struct Filters {
 
 impl Filters {
     /// Get the start and end points of each time filter.
-    pub fn get_time_filter_times(&self) -> (Vec<usize>, Vec<usize>) {
+    pub fn get_time_filter_times(&self) -> (Vec<u64>, Vec<u64>) {
         // note this just gets the intervals for each filter; whether
         // they're include or exclude filters is handled by get_weights
         if self.time_filters.is_empty() {
@@ -59,10 +59,7 @@ impl Filters {
     }
 
     /// Get the start and end times for each log filter.
-    pub fn get_log_filter_times(
-        &self,
-        logs: HashMap<String, SampleLog>,
-    ) -> (Vec<usize>, Vec<usize>) {
+    pub fn get_log_filter_times(&self, logs: HashMap<String, SampleLog>) -> (Vec<u64>, Vec<u64>) {
         // get the value log for each required sample log
         // the zip/unzip is to convert it from
         // Vec<(usize, usize)> to (Vec<usize>, Vec<usize>)
@@ -312,8 +309,8 @@ mod tests {
 
         let (starts, ends) = filters.get_time_filter_times();
 
-        assert_eq!(starts, vec![1e9 as usize, 3e9 as usize, 5e9 as usize]);
-        assert_eq!(ends, vec![2e9 as usize, 4e9 as usize, 6e9 as usize]);
+        assert_eq!(starts, vec![1e9 as u64, 3e9 as u64, 5e9 as u64]);
+        assert_eq!(ends, vec![2e9 as u64, 4e9 as u64, 6e9 as u64]);
     }
 
     /// Test filters objects are initialised correctly.
@@ -419,8 +416,8 @@ mod tests {
         logs.insert("complex".to_string(), SampleLog::F64(complex_log));
 
         let (starts, ends) = filters.get_log_filter_times(logs);
-        let expected_starts = vec![2e9 as usize, 0, 1e9 as usize, 4e9 as usize];
-        let expected_ends = vec![3e9 as usize, 1e9 as usize, 2e9 as usize, 5e9 as usize];
+        let expected_starts = vec![2e9 as u64, 0, 1e9 as u64, 4e9 as u64];
+        let expected_ends = vec![3e9 as u64, 1e9 as u64, 2e9 as u64, 5e9 as u64];
         assert_eq!(starts, expected_starts);
         assert_eq!(ends, expected_ends);
     }
@@ -464,8 +461,8 @@ mod tests {
         logs.insert("simple".to_string(), SampleLog::F64(simple_log));
 
         let (starts, ends) = filters.get_log_filter_times(logs);
-        let expected_starts = vec![2e9 as usize, 0];
-        let expected_ends = vec![4e9 as usize, 3e9 as usize];
+        let expected_starts = vec![2e9 as u64, 0];
+        let expected_ends = vec![4e9 as u64, 3e9 as u64];
         assert_eq!(starts, expected_starts);
         assert_eq!(ends, expected_ends);
     }

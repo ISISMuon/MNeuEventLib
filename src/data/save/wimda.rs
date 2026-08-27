@@ -29,7 +29,7 @@ pub struct WiMDAFile {
     /// The amount of time between the first and last frame.
     duration: f32,
     /// The time of the last frame.
-    end_time: usize, // stored here in ns from time zero
+    end_time: u64, // stored here in ns from time zero
     experiment_identifier: CopyData,
     /// The number of frames which have not been filtered out or vetoed.
     good_frames: u32,
@@ -50,7 +50,7 @@ pub struct WiMDAFile {
     /// Information about sample logs recorded during the experiment.
     selog: Vec<SampleLog>,
     /// The time of the first frame.
-    start_time: usize, // stored here in seconds from time zero
+    start_time: u64, // stored here in seconds from time zero
     /// The title of the experiment.
     title: CopyData,
     /// Information about the user performing the experiment.
