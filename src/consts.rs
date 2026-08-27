@@ -1,11 +1,11 @@
-//! Constants.
+//! Constants and unit conversion helpers.
 
 pub const S_TO_NS: f64 = 1e9;
 
 pub const NS_TO_US: f32 = 1e-3;
 
 pub trait ToNanoseconds {
-    fn to_ns(&self) -> usize;
+    fn to_ns(&self) -> u64;
 }
 
 pub trait ToMicroseconds {
@@ -19,7 +19,7 @@ impl ToMicroseconds for u32 {
 }
 
 impl ToNanoseconds for f64 {
-    fn to_ns(&self) -> usize {
-        (self * S_TO_NS) as usize
+    fn to_ns(&self) -> u64 {
+        (self * S_TO_NS) as u64
     }
 }
