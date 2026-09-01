@@ -6,6 +6,8 @@ use crate::data::{NexusData, SaveFile, WiMDAFile};
 use crate::filters::Filters;
 use crate::stats::Histogram;
 
+use std::path::PathBuf;
+
 /// The main MNeuEventLib interface.
 #[pyclass(from_py_object)]
 #[derive(Clone)]
@@ -229,9 +231,27 @@ impl Data {
         )
     }
 
-    /// Save to a Nexus version 2 file.
-    #[pyo3(signature = (filename, ref_file))]
+    /// Save to a Nexus version 2 file that is compatable with
+    /// Mantid using provided reference file for data.
+    /// This is needed because the event data files has mistakes/problems.
+    /// 
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename for the saved file.
+    /// ref_file: str
+    ///     The reference file for the saved file. (must be a Nexus file)
+    ///     Contains "correct" data that should be copied to the output file.
+    ///     This can be generated from tools/make_default.py
+    ///
+    /// Returns
+    /// -------
+    /// Result<()>
+    ///     Ok(()) if the file is saved successfully
+    ///     Err(anyhow::Error) if the file cannot be saved
+    #[pyo3(signature = (filename, ref_file = (PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("files/muon_ref.nxs")).display().to_string()))]
     pub fn save_nexus(&self, filename: String, ref_file: String) -> Result<()> {
+        println!("mooo {} " , ref_file);
         // 1. Save using the existing WiMDA save logic to `filename`
         let wimda_file = WiMDAFile::new(self)?;
         wimda_file.save(filename.clone(), &self.dataset.file)?;

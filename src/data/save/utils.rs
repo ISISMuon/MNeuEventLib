@@ -6,12 +6,6 @@ use hdf5::{Dataset, File, Group, Location};
 use ndarray::{arr0, Array, Array1, Dimension};
 
 
-//use hdf5_metno as hdf5;
-use hdf5_metno_sys::{h5a, h5p, h5t, h5s, h5d};
-use hdf5::{Result as OtherResult};
-use std::ffi::CString;
-use std::os::raw::c_void;
-
 // placeholder type for data that will just be copied into the nexus file
 pub type CopyData = ();
 
