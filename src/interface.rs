@@ -2,6 +2,7 @@ use anyhow::{Error, Result};
 use pyo3::prelude::{pyclass, pymethods};
 
 use crate::data::{NexusData, SaveFile, WiMDAFile};
+use crate::filters;
 use crate::filters::Filters;
 use crate::stats::Histogram;
 
@@ -90,6 +91,19 @@ impl Data {
     fn set_time_type(&mut self, filter_type: String) -> Result<()> {
         self.data_changed = true;
         self.filters.set_time_type(filter_type)
+    }
+
+    /// Set the overwrite behaviour for filters.
+    ///
+    /// Parameters
+    /// ----------
+    /// overwrite_type: str
+    ///     The overwrite behaviour. Must be 'strict', 'relaxed', or 'free':  
+    ///     - 'strict' produces an error on attempted overwrite;
+    ///     - 'relaxed' allows and produces a warning;
+    ///     - 'free' allows with no warning.
+    fn set_overwrite_type(&mut self, overwrite_type: String) -> Result<()> {
+        self.filters.set_overwrite_type(overwrite_type)
     }
 
     /// Add a time filter.
@@ -219,9 +233,31 @@ impl Data {
         Ok(())
     }
 
+    /// Save the current set of filters to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename for the saved file.
+    fn save_filters(&self, filename: String) -> Result<()> {
+        self.filters.save(filename)
+    }
+
+    /// Load a set of filters from a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename for the filters.
+    fn load_filters(&mut self, filename: String) -> Result<()> {
+        let filters = filters::_load(filename)?;
+        self.filters = filters;
+        Ok(())
+    }
+
     fn __repr__(&self) -> String {
         format!(
-            "{}\n\n{}\n\n{}",
+            "{}\n\n{}{}",
             self.dataset.__repr__(),
             self.filters.__repr__(),
             self.results.__repr__()
