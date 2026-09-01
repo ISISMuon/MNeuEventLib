@@ -228,6 +228,22 @@ impl BatchData {
         self.array_to_time_filters(name, array)
     }
 
+    /// Add a time filter to every filter set, splitting the range from `start`
+    /// to `end` into geometrically (log)-spaced consecutive time filters, one per filter set.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: str
+    ///     The name of the time filter. Must be unique within each filter set.
+    /// start: float
+    ///     The start point of the first filter set's time filter.
+    /// end: float
+    ///     The end point of the last filter set's time filter.
+    pub fn add_time_geomspace(&mut self, name: String, start: f64, end: f64) -> Result<()> {
+        let array = Array1::geomspace(start, end, self.n_batches() + 1).ok_or(Error::msg("Invalid bounds for geometric spacing."))?;
+        self.array_to_time_filters(name, array)
+    }
+
     /// Add a sample log filter to every filter set, splitting the range from
     /// `start` to `end` into evenly-spaced consecutive log filters, one per
     /// filter set.
@@ -250,6 +266,31 @@ impl BatchData {
         end: f64,
     ) -> Result<()> {
         let array = Array1::linspace(start, end, self.n_batches() + 1);
+        self.array_to_log_filters(name, log, array)
+    }
+
+    /// Add a sample log filter to every filter set, splitting the range from
+    /// `start` to `end` into evenly-spaced consecutive log filters, one per
+    /// filter set.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: str
+    ///     The name of the log filter. Must be unique within each filter set.
+    /// log: str
+    ///     The sample log in the data to which the filters apply.
+    /// start: float
+    ///     The lower bound of the first filter set's log filter.
+    /// end: float
+    ///     The upper bound of the last filter set's log filter.
+    pub fn add_log_geomspace(
+        &mut self,
+        name: String,
+        log: String,
+        start: f64,
+        end: f64,
+    ) -> Result<()> {
+        let array = Array1::geomspace(start, end, self.n_batches() + 1).ok_or(Error::msg("Invalid bounds for geometric spacing."))?;
         self.array_to_log_filters(name, log, array)
     }
 
