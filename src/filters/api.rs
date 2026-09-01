@@ -35,8 +35,8 @@ pub struct Filter {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LogFilter {
     log: String,
-    lower: Option<f64>,
-    upper: Option<f64>,
+    pub lower: Option<f64>,
+    pub upper: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -44,7 +44,7 @@ pub struct Filters {
     time_filter_type: FilterType,
     overwrite_type: OverwriteType,
     time_filters: HashMap<String, Filter>,
-    sample_log_filters: HashMap<String, LogFilter>,
+    pub sample_log_filters: HashMap<String, LogFilter>,
     amplitudes: HashMap<usize, f64>,
 }
 
