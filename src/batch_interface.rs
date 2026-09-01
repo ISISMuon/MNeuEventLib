@@ -1,4 +1,5 @@
 use anyhow::{Error, Result};
+use ndarray::Array1;
 use numpy::{PyArray3, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Borrowed, Bound, FromPyObject, PyAny};
 use pyo3::types::{PyInt, PyString};
@@ -209,6 +210,47 @@ impl BatchData {
             self.data_changed[i] = true;
         }
         Ok(())
+    }
+
+    /// Add a time filter to every filter set, splitting the range from `start`
+    /// to `end` into evenly-spaced consecutive time filters, one per filter set.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: str
+    ///     The name of the time filter. Must be unique within each filter set.
+    /// start: float
+    ///     The start point of the first filter set's time filter.
+    /// end: float
+    ///     The end point of the last filter set's time filter.
+    pub fn add_time_linspace(&mut self, name: String, start: f64, end: f64) -> Result<()> {
+        let array = Array1::linspace(start, end, self.n_batches() + 1);
+        self.array_to_time_filters(name, array)
+    }
+
+    /// Add a sample log filter to every filter set, splitting the range from
+    /// `start` to `end` into evenly-spaced consecutive log filters, one per
+    /// filter set.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: str
+    ///     The name of the log filter. Must be unique within each filter set.
+    /// log: str
+    ///     The sample log in the data to which the filters apply.
+    /// start: float
+    ///     The lower bound of the first filter set's log filter.
+    /// end: float
+    ///     The upper bound of the last filter set's log filter.
+    pub fn add_log_linspace(
+        &mut self,
+        name: String,
+        log: String,
+        start: f64,
+        end: f64,
+    ) -> Result<()> {
+        let array = Array1::linspace(start, end, self.n_batches() + 1);
+        self.array_to_log_filters(name, log, array)
     }
 
     /// Add a sample log filter.
@@ -459,6 +501,33 @@ impl BatchData {
         Ok(())
     }
 
+    /// Turn an array of n+1 elements into n time filters across the batches.
+    fn array_to_time_filters(&mut self, name: String, input: Array1<f64>) -> Result<()> {
+        for i in 0..self.n_batches() {
+            self.add_time_filter(FilterIndex::Index(i), name.clone(), input[i], input[i + 1])?
+        }
+        Ok(())
+    }
+
+    /// Turn an array of n+1 elements into n sample log filters across the batches.
+    fn array_to_log_filters(
+        &mut self,
+        name: String,
+        log: String,
+        input: Array1<f64>,
+    ) -> Result<()> {
+        for i in 0..self.n_batches() {
+            self.add_log_filter(
+                FilterIndex::Index(i),
+                name.clone(),
+                log.clone(),
+                input[i],
+                input[i + 1],
+            )?
+        }
+        Ok(())
+    }
+
     /// Get the number of batches.
     fn n_batches(&self) -> usize {
         self.filters.len()
@@ -620,6 +689,38 @@ mod tests {
 
         assert_eq!(starts0, vec![2.5e9 as usize]);
         assert!(starts1.is_empty())
+    }
+
+    /// array time filters should give each filter set one time filter,
+    /// covering consecutive evenly-spaced chunks of the range.
+    #[test]
+    fn test_array_time_filters() {
+        let mut batch = make_batch(4);
+        batch
+            .add_time_linspace("f1".to_string(), 0., 4.)
+            .unwrap();
+
+        for (i, filters) in batch.filters.iter().enumerate() {
+            let (starts, ends) = filters.get_time_filter_times();
+            assert_eq!(starts, vec![(i as f64 * 1e9) as usize]);
+            assert_eq!(ends, vec![((i + 1) as f64 * 1e9) as usize]);
+        }
+    }
+
+    /// array log filters should give each filter set one sample log filter
+    /// on the given log, covering consecutive evenly-spaced chunks of the range.
+    #[test]
+    fn test_array_log_filters() {
+        let mut batch = make_batch(4);
+        batch
+            .add_log_linspace("lf1".to_string(), "temp".to_string(), 0., 4.)
+            .unwrap();
+
+        for (k, filters) in batch.filters.into_iter().enumerate() {
+            assert_eq!(filters.get_required_log_names(), vec!["temp".to_string()]);
+            assert_eq!(filters.sample_log_filters[0].lower, Some(k as f64));
+            assert_eq!(filters.sample_log_filters[0].upper, Some((k+1) as f64));
+        }
     }
 
     /// Adding a log filter at a single index should only affect that
