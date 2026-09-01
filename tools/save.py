@@ -60,12 +60,14 @@ def set_defaults(source, dest, name=None):
 def clean_up(new_file):
 
         tmp = new_file['raw_data_1/periods']
-        #tmp.create_dataset('good_frames', data=[999, 888], dtype='int32')
         
-        new_file['raw_data_1/detector_1/counts'].attrs['first_good_bin'] = '1'
-        new_file['raw_data_1/detector_1/counts'].attrs['last_good_bin'] = '1000'
+        #new_file['raw_data_1/detector_1/counts'].attrs['first_good_bin'] = '1'
+        #new_file['raw_data_1/detector_1/counts'].attrs['last_good_bin'] = '1000'
         del new_file['raw_data_1/name']
         new_file.create_dataset('raw_data_1/name', data='HIFI')
+
+        del new_file['raw_data_1/title']
+        new_file.create_dataset('raw_data_1/title', data='Data')
 
         tmp = new_file['raw_data_1/sample']
         # maybe we delete it and add it back in?
