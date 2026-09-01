@@ -227,6 +227,8 @@ impl Data {
             self.filters.__repr__(),
             self.results.__repr__()
         )
+    }
+
     /// Save to a Nexus version 2 file.
     #[pyo3(signature = (filename, ref_file))]
     pub fn save_nexus(&self, filename: String, ref_file: String) -> Result<()> {
@@ -252,4 +254,4 @@ impl Data {
 
         Ok(())
     }
-}
+    }

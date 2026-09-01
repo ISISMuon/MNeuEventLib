@@ -58,139 +58,6 @@ unsafe fn _copy_attr(src: &Location, dst: &Location, name: &str) -> Result<()> {
     Ok(())
 }
 
-//pub fn ensure_fixed_length_string(group: &Group, name: &str) -> Result<()> {
-//    let ds = group.dataset(name)?;
-//
-//    let is_scalar = ds.shape().is_empty();
-//
-//    let is_variable = {
-//        let dtype = ds.dtype()?;
-//        let type_id = dtype.id();
-//
-//        let class = unsafe { h5t::H5Tget_class(type_id) };
-//        anyhow::ensure!(class == h5t::H5T_class_t::H5T_STRING, "'{name}' is not a string dataset");
-//
-//        let result = unsafe { h5t::H5Tis_variable_str(type_id) };
-//        anyhow::ensure!(result >= 0, "H5Tis_variable_str failed for '{name}'");
-//        result > 0
-//    };
-//
-//    if !is_variable {
-//        eprintln!("'{name}' is already fixed-length — no-op");
-//        return Ok(());
-//    }
-//    eprintln!("'{name}' is variable-length, converting...");
-//
-//    let attr_names = ds.attr_names()?;
-//    let tmp_name = format!("{name}__tmp_fixed");
-//
-//    // If a previous failed attempt left this behind, clean it up first
-//    // rather than letting H5Dcreate2 fail on a name collision.
-//    if group.link_exists(&tmp_name) {
-//        eprintln!("found leftover '{tmp_name}' from a previous run, removing it");
-//        group.unlink(&tmp_name)?;
-//    }
-//
-//    let (elem_count, max_len, packed): (usize, usize, Vec<u8>) = if is_scalar {
-//        let value: VarLenUnicode = ds.read_scalar()?;
-//        let len = value.as_str().len().max(1);
-//        let mut buf = vec![0u8; len];
-//        buf[..value.as_str().len()].copy_from_slice(value.as_str().as_bytes());
-//        (1, len, buf)
-//    } else {
-//        let values: ndarray::Array1<VarLenUnicode> = ds.read_1d()?;
-//        let max_len = values.iter().map(|s| s.as_str().len()).max().unwrap_or(0).max(1);
-//        let mut buf = vec![0u8; values.len() * max_len];
-//        for (i, v) in values.iter().enumerate() {
-//            let bytes = v.as_str().as_bytes();
-//            buf[i * max_len..i * max_len + bytes.len()].copy_from_slice(bytes);
-//        }
-//        (values.len(), max_len, buf)
-//    };
-//    eprintln!("packed {elem_count} element(s), max_len={max_len}, buf.len()={}", packed.len());
-//
-//    unsafe {
-//        let dtype = ds.dtype()?;
-//        let fixed_type_id = h5t::H5Tcopy(dtype.id());
-//        anyhow::ensure!(fixed_type_id >= 0, "H5Tcopy failed");
-//        drop(dtype);
-//
-//        anyhow::ensure!(h5t::H5Tset_size(fixed_type_id, max_len) >= 0, "H5Tset_size failed");
-//        anyhow::ensure!(
-//            h5t::H5Tset_strpad(fixed_type_id, h5t::H5T_str_t::H5T_STR_NULLPAD) >= 0,
-//            "H5Tset_strpad failed"
-//        );
-//
-//        let space_id = if is_scalar {
-//            h5s::H5Screate(h5s::H5S_class_t::H5S_SCALAR)
-//        } else {
-//            let dims = [elem_count as u64];
-//            h5s::H5Screate_simple(1, dims.as_ptr(), std::ptr::null())
-//        };
-//        anyhow::ensure!(space_id >= 0, "dataspace creation failed");
-//
-//        let cname = CString::new(tmp_name.as_str())?;
-//        let new_ds_id = h5d::H5Dcreate2(
-//            group.id(), cname.as_ptr(), fixed_type_id, space_id,
-//            h5p::H5P_DEFAULT, h5p::H5P_DEFAULT, h5p::H5P_DEFAULT,
-//        );
-//        anyhow::ensure!(new_ds_id >= 0, "H5Dcreate2 failed for '{tmp_name}'");
-//
-//        let write_status = h5d::H5Dwrite(
-//            new_ds_id, fixed_type_id, h5s::H5S_ALL, h5s::H5S_ALL,
-//            h5p::H5P_DEFAULT, packed.as_ptr() as *const c_void,
-//        );
-//        anyhow::ensure!(write_status >= 0, "H5Dwrite failed for '{tmp_name}'");
-//        eprintln!("wrote '{tmp_name}' successfully");
-//
-//        h5d::H5Dclose(new_ds_id);
-//        h5s::H5Sclose(space_id);
-//        h5t::H5Tclose(fixed_type_id);
-//    }
-//
-//    let new_ds = group.dataset(tmp_name.as_str())?;
-//    for attr_name in &attr_names {
-//        unsafe { copy_attr(&ds, &new_ds, attr_name)? };
-//    }
-//    drop(new_ds);
-//    drop(ds);
-//
-//    group.unlink(name)?;
-//    group.relink(tmp_name.as_str(), name)?;
-//    eprintln!("relinked '{tmp_name}' -> '{name}'");
-//
-//    Ok(())
-//}
-
-pub fn copy_dataset<T:H5Type, D: Dimension>(
-    src: &Dataset,
-    dst: &Group,
-    name: &str,
-) -> OtherResult<()> {
-    /*let attr_names = src.attr_names()?;
-    let tmp_name = format!("{name}__tmp");
-    let new_ds = dst.new_dataset::<T>().shape(src.shape()).create(tmp_name.as_str())?;
-
-    let is_scalar = src.shape().is_empty();
-    let value = if is_scalar {
-        src.read()
-    }else{
-        src.read()
-    };
-    if value != hdf5::types::VarLenUnicode{
-        clean_str_dataset(&dst, value)
-    }else{
-
-    }
-
-    for attr_name in &attr_names {
-        unsafe{ copy_attr(&src, &new_ds, attr_name) };
-    }*/
-    //src.dataset(name)?.copy_to(&dst, name)?;
-
-    Ok(())
-}
-
 pub fn replace_dataset<T:H5Type, D: Dimension>(
     group: &Group,
     name: &str,
@@ -248,10 +115,12 @@ pub fn replace_str_dataset<const LEN: usize>(
     }
     // collect attributes
     let dataset = group.dataset(name).unwrap();
+    let attr_names = dataset.attr_names()?;
     group.unlink(name)?;
     add_str_scalar::<LEN>(group, new_value, name)?;
-    //for attr in attrs {
-    //    add_attr(group.dataset(name).unwrap(), attr.1, &attr.0)?;
-    //}
+    let new_ds = group.dataset(name).unwrap();
+    for attr_name in &attr_names {
+        unsafe{ copy_attr(&dataset, &new_ds, attr_name) };
+    }
     Ok(())
 }
