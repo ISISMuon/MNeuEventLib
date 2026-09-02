@@ -26,8 +26,7 @@ use std::os::raw::c_void;
 /// * `Ok(())` - If the attribute is copied successfully
 /// * `Err(anyhow::Error)` - If the attribute cannot be copied
 pub fn copy_attr(src: &Location, dst: &Location, name: &str) -> Result<()> {
-    unsafe { _copy_attr(src, dst, name) };
-    Ok(())
+    unsafe { _copy_attr(src, dst, name) }
 }
 
 /// Copies a single attribute from `src` to `dst`, regardless of its HDF5 datatype

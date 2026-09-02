@@ -289,9 +289,8 @@ mod tests {
 
         let raw = file.create_group("raw_data_1").unwrap();
         let periods_grp = raw.create_group("periods").unwrap();
-        let labels = "P1,P2,P3,P4,P5";
-        let dataset = periods_grp.new_dataset::<FixedAscii<256>>().create("labels").unwrap();
-        dataset.write(&labels);
+        let labels = FixedAscii::<256>::from_ascii(b"P1,P2,P3,P4,P5").unwrap();
+        add_array(&periods_grp, &arr0(labels), "labels").unwrap();
         drop(file);
         let (periods, dwell) = get_p_info(path.to_str().unwrap()).unwrap();
         assert_eq!(periods, 5);
