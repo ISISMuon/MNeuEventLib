@@ -270,8 +270,8 @@ mod tests {
     use super::*;
     use hdf5::File;
     use ndarray::{arr0, Array1};
-    use tempfile::tempdir;
     use std::str::FromStr;
+    use tempfile::tempdir;
 
     fn create_test_file(
         name: &str,

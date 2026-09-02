@@ -1,7 +1,7 @@
 use crate::data::save::utils::*;
 
 use anyhow::Result;
-use hdf5::types::{H5Type};
+use hdf5::types::H5Type;
 use hdf5::{Group, Location};
 use ndarray::{Array, Dimension};
 
@@ -214,11 +214,11 @@ pub fn replace_str_dataset<const LEN: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hdf5::types::{FixedAscii, VarLenUnicode};
     use hdf5::File;
     use ndarray::{arr0, Array1};
-    use tempfile::tempdir;
-    use hdf5::types::{FixedAscii, VarLenUnicode};
     use std::str::FromStr;
+    use tempfile::tempdir;
 
     fn create_test_file(
         name: &str,
