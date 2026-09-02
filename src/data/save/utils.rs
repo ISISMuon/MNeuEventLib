@@ -5,7 +5,6 @@ use hdf5::types::{FixedAscii, H5Type, VarLenUnicode};
 use hdf5::{Dataset, File, Group, Location};
 use ndarray::{arr0, Array, Array1, Dimension};
 
-
 // placeholder type for data that will just be copied into the nexus file
 pub type CopyData = ();
 
@@ -32,7 +31,12 @@ pub fn add_array<T: H5Type, D: Dimension>(
     array: &Array<T, D>,
     name: &str,
 ) -> Result<Dataset> {
-    println!("adding array {}, with type{}, with shape {:?}", name, <T>::type_descriptor(), array.shape());
+    println!(
+        "adding array {}, with type{}, with shape {:?}",
+        name,
+        <T>::type_descriptor(),
+        array.shape()
+    );
     //let builder = group.new_dataset_builder();
     //let builder = builder.with_data(array);
     //builder.create(name)?;

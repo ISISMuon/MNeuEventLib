@@ -1,13 +1,11 @@
 use std::collections::HashMap;
 
+use crate::data::save::sanitise::utils::*;
+use crate::data::save::utils::*;
 use anyhow::{anyhow, Result};
 use hdf5::types::{FixedAscii, VarLenUnicode};
 use hdf5::{File, Group};
 use ndarray::Array1;
-use crate::data::save::sanitise::utils::*;
-use crate::data::save::utils::*;
-use std::str::FromStr;
-
 
 /// Create a new dataset in the destination file with default values.
 /// These values are given in the reference file (made from tools/make_default.py
@@ -19,29 +17,41 @@ use std::str::FromStr;
 /// * `dest` - Destination group where default values will be added
 /// * `name` - Name of the dataset to create
 /// * `shapes` - Hashmap which defines the length of each dataset (in terms of periods)
-/// 
+///
 /// Returns
 /// -------
 /// * `Ok(())` - If the dataset is created successfully
 /// * `Err(anyhow::Error)` - If the dataset cannot be created
-fn create_default_dataset(default: &Group, dest: &Group, _name: &str, shapes: &HashMap<String, usize>) -> Result<()> {
+fn create_default_dataset(
+    default: &Group,
+    dest: &Group,
+    _name: &str,
+    shapes: &HashMap<String, usize>,
+) -> Result<()> {
     let name = default.name().split("dataset_").last().unwrap().to_string();
-    let key: String = default.dataset("shape").unwrap().read_scalar::<hdf5::types::VarLenUnicode>().unwrap().as_str().to_string();
+    let key: String = default
+        .dataset("shape")
+        .unwrap()
+        .read_scalar::<hdf5::types::VarLenUnicode>()
+        .unwrap()
+        .as_str()
+        .to_string();
     let len: usize = *shapes.get(&key).unwrap();
-    let dtype: &hdf5::types::VarLenUnicode = &default.dataset("dtype").unwrap().read_scalar().unwrap();
-    if dtype.as_str() == "int32"{
+    let dtype: &hdf5::types::VarLenUnicode =
+        &default.dataset("dtype").unwrap().read_scalar().unwrap();
+    if dtype.as_str() == "int32" {
         let default_value = default.dataset("default").unwrap().read_scalar::<i32>()?;
-        if let Err(e) = add_array(dest, &Array1::from_elem(len, default_value), &name){
+        if let Err(e) = add_array(dest, &Array1::from_elem(len, default_value), &name) {
             eprintln!("error: {e}");
             eprintln!("chain: {e:?}");
         };
-    }else if dtype.as_str() == "float32"{
+    } else if dtype.as_str() == "float32" {
         let default_value = default.dataset("default").unwrap().read_scalar::<f32>()?;
         add_array(dest, &Array1::from_elem(len, default_value), &name)?;
-    }else if dtype.as_str() == "float64"{
+    } else if dtype.as_str() == "float64" {
         let default_value = default.dataset("default").unwrap().read_scalar::<f64>()?;
         add_array(dest, &Array1::from_elem(len, default_value), &name)?;
-    }else{
+    } else {
         return Err(anyhow!("Unsupported default dataset type {:?}", dtype));
     };
     for att_name in default.attr_names()? {
@@ -52,8 +62,7 @@ fn create_default_dataset(default: &Group, dest: &Group, _name: &str, shapes: &H
     Ok(())
 }
 
-
-/// Adds the missing data to the destination file based on the source (reference) 
+/// Adds the missing data to the destination file based on the source (reference)
 /// file and the shape information.
 ///
 /// ## Arguments
@@ -76,7 +85,7 @@ fn set_defaults(
         dependent dataset */
         println!("create default {}", name);
         create_default_dataset(&source_parent.group(name).unwrap(), dest, name, shapes)?;
-        return Ok(());
+        Ok(())
     } else if source_parent.dataset(name).is_ok() && dest.dataset(name).is_ok() {
         // if dataset exists in both files
         println!("{} dataset already exists", name);
@@ -86,12 +95,12 @@ fn set_defaults(
             println!("copy attribute {}", att_name);
             copy_attr(&src_ds, &dst_ds, &att_name)?;
         }
-        return Ok(());
+        Ok(())
     } else if source_parent.dataset(name).is_ok() && dest.dataset(name).is_err() {
         // if dataset exists in source but not in destination
         println!("copy dataset {}", name);
         source_parent.dataset(name)?.copy_to(dest, name)?;
-        return Ok(());
+        Ok(())
     } else if source_parent.group(name).is_ok() && dest.group(name).is_ok() {
         // if group exists in both files
         println!("group {} exists in both files, going deeper", name);
@@ -103,24 +112,24 @@ fn set_defaults(
                 shapes,
             )?;
         }
-        return Ok(());
+        Ok(())
     } else if source_parent.group(name).is_ok() && dest.group(name).is_err() {
         // copy group
         println!("make a copy of group {}", name);
         /* this works for muons as non of the datasets from the missing group have a
         length that depends on the number of periods. */
         source_parent.group(name)?.copy_to(dest, name)?;
-        return Ok(());
+        Ok(())
     } else {
-        return Err(anyhow!("{} does not exist", name));
+        Err(anyhow!("{} does not exist", name))
     }
 }
 
 /// Replaces "broken" datasets with "fixed" ones (numbers are recorded as null UTF8's)
-/// 
+///
 /// ## Arguments
 /// * `new_file` - The destination file
-/// 
+///
 /// ## Returns
 /// * `Ok(())` - If the datasets are removed successfully
 /// * `Err(anyhow::Error)` - If the datasets cannot be removed
@@ -170,10 +179,13 @@ fn clean_up(new_file: &File) -> Result<()> {
                     let dtype = dataset.dtype()?;
                     let desc = dtype.to_descriptor()?;
                     match desc {
-                        hdf5::types::TypeDescriptor::VarLenUnicode | hdf5::types::TypeDescriptor::FixedAscii(_) => {
+                        hdf5::types::TypeDescriptor::VarLenUnicode
+                        | hdf5::types::TypeDescriptor::FixedAscii(_) => {
                             let _ = clean_str_dataset::<100>(&source, &name);
                         }
-                        _ => { println!("Unsupported dataset type: {:?}", desc); }
+                        _ => {
+                            println!("Unsupported dataset type: {:?}", desc);
+                        }
                     }
                 }
             }
@@ -202,7 +214,7 @@ pub fn get_p_info(file_name: &str) -> Result<(usize, usize)> {
         return Err(anyhow!("Could not read labels dataset as string"));
     };
     let periods = labels.split(',').count();
-    Ok((periods, 0)) // at present no Dwell info so its always zero 
+    Ok((periods, 0)) // at present no Dwell info so its always zero
 }
 
 /// Saves default values to the output file based on the reference file and shape information.
@@ -234,19 +246,16 @@ pub fn save_default(
         };
 
         let src_group = file.group(&key)?;
-        
+
         let _dest_group_keys = dest_group.member_names()?;
         for tmp_name in src_group.member_names()? {
             if tmp_name == "selog" {
                 println!("skip");
-            } else if src_group.group(&tmp_name.as_str()).is_ok() || src_group.dataset(&tmp_name.as_str()).is_ok() {
+            } else if src_group.group(tmp_name.as_str()).is_ok()
+                || src_group.dataset(tmp_name.as_str()).is_ok()
+            {
                 // if a group
-                set_defaults(
-                    &src_group,
-                    &dest_group,
-                    tmp_name.as_str(),
-                    shapes,
-                )?;
+                set_defaults(&src_group, &dest_group, tmp_name.as_str(), shapes)?;
             } else {
                 println!("not implemented for {}", tmp_name);
             }
@@ -262,8 +271,11 @@ mod tests {
     use hdf5::File;
     use ndarray::{arr0, Array1};
     use tempfile::tempdir;
+    use std::str::FromStr;
 
-    fn create_test_file(name: &str) -> (tempfile::TempDir, File, std::sync::MutexGuard<'static, ()>) {
+    fn create_test_file(
+        name: &str,
+    ) -> (tempfile::TempDir, File, std::sync::MutexGuard<'static, ()>) {
         let guard = crate::test_utils::lock_hdf5_test();
         let dir = tempdir().unwrap();
         let path = dir.path().join(format!("{name}.nxs"));
@@ -383,7 +395,7 @@ mod tests {
         let dtype_str = VarLenUnicode::from_str("float64").unwrap();
         add_array(&default_grp, &arr0(dtype_str), "dtype").unwrap();
 
-        add_array(&default_grp, &arr0(3.14f64), "default").unwrap();
+        add_array(&default_grp, &arr0(4.14f64), "default").unwrap();
 
         let mut shapes = HashMap::new();
         shapes.insert("single".to_string(), 1);
@@ -392,7 +404,7 @@ mod tests {
 
         let created_ds = dest_grp.dataset("time").unwrap();
         let vals: Array1<f64> = created_ds.read_1d().unwrap();
-        assert_eq!(vals.to_vec(), vec![3.14]);
+        assert_eq!(vals.to_vec(), vec![4.14]);
     }
 
     #[test]
@@ -542,13 +554,19 @@ mod tests {
         let new_type: FixedAscii<7> = sample.dataset("type").unwrap().read_1d().unwrap()[0];
         assert_eq!(new_type.as_str(), "Missing");
 
-        let new_desc: FixedAscii<256> = sample.dataset("description").unwrap().read_1d().unwrap()[0];
+        let new_desc: FixedAscii<256> =
+            sample.dataset("description").unwrap().read_1d().unwrap()[0];
         assert_eq!(new_desc.as_str(), "Sample1");
 
-        let new_muon_energy: FixedAscii<7> = source.dataset("muon_energy").unwrap().read_1d().unwrap()[0];
+        let new_muon_energy: FixedAscii<7> =
+            source.dataset("muon_energy").unwrap().read_1d().unwrap()[0];
         assert_eq!(new_muon_energy.as_str(), "Missing");
 
-        let new_target_mat: FixedAscii<100> = source.dataset("target_material").unwrap().read_1d().unwrap()[0];
+        let new_target_mat: FixedAscii<100> = source
+            .dataset("target_material")
+            .unwrap()
+            .read_1d()
+            .unwrap()[0];
         assert_eq!(new_target_mat.as_str(), "Carbon");
     }
 
@@ -617,7 +635,11 @@ mod tests {
         assert_eq!(beam_counts.to_vec(), vec![55, 55]);
 
         // Check group was copied from ref
-        let inst_setting: Array1<f32> = out_raw.dataset("instrument_ref/setting").unwrap().read_1d().unwrap();
+        let inst_setting: Array1<f32> = out_raw
+            .dataset("instrument_ref/setting")
+            .unwrap()
+            .read_1d()
+            .unwrap();
         assert_eq!(inst_setting.to_vec(), vec![1.23]);
     }
 }

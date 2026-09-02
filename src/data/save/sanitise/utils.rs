@@ -1,25 +1,24 @@
 use crate::data::save::utils::*;
 
 use anyhow::Result;
-use hdf5::types::{H5Type, FixedAscii, VarLenUnicode};
+use hdf5::types::{H5Type};
 use hdf5::{Group, Location};
 use ndarray::{Array, Dimension};
 
-
 //use hdf5_metno as hdf5;
-use hdf5_metno_sys::{h5a, h5p, h5t, h5s};
-use hdf5::{Result as OtherResult};
+use hdf5::Result as OtherResult;
+use hdf5_metno_sys::{h5a, h5p, h5s, h5t};
 use std::ffi::CString;
 use std::os::raw::c_void;
-use std::str::FromStr;
-/// A wrapper around _copy_attr which checks if the 
+
+/// A wrapper around _copy_attr which checks if the
 /// attribute already exists and skips if it does.
 ///
 /// ## Arguments
 /// * `src` - The source group
 /// * `dst` - The destination group
 /// * `name` - The name of the attribute to copy
-/// 
+///
 /// ## Returns
 /// * `Ok(())` - If the attribute is copied successfully
 /// * `Err(anyhow::Error)` - If the attribute cannot be copied
@@ -34,7 +33,7 @@ pub fn copy_attr(src: &Location, dst: &Location, name: &str) -> Result<()> {
 /// * `src` - The source group
 /// * `dst` - The destination group
 /// * `name` - The name of the attribute to copy
-/// 
+///
 /// ## Returns
 /// * `Ok(())` - If the attribute is copied successfully
 /// * `Err(anyhow::Error)` - If the attribute cannot be copied
@@ -69,8 +68,12 @@ unsafe fn _copy_attr(src: &Location, dst: &Location, name: &str) -> Result<()> {
     let read_res = h5a::H5Aread(attr_id, type_id, buf.as_mut_ptr() as *mut c_void);
 
     let new_attr_id = h5a::H5Acreate2(
-        dst.id(), cname.as_ptr(), type_id, space_id,
-        h5p::H5P_DEFAULT, h5p::H5P_DEFAULT,
+        dst.id(),
+        cname.as_ptr(),
+        type_id,
+        space_id,
+        h5p::H5P_DEFAULT,
+        h5p::H5P_DEFAULT,
     );
 
     if read_res >= 0 && new_attr_id >= 0 {
@@ -119,7 +122,7 @@ unsafe fn _copy_attr(src: &Location, dst: &Location, name: &str) -> Result<()> {
 /// ## Returns
 /// * `Ok(())` - If the dataset is replaced successfully
 /// * `Err(hdf5::Error)` - If the dataset cannot be replaced
-pub fn replace_dataset<T:H5Type, D: Dimension>(
+pub fn replace_dataset<T: H5Type, D: Dimension>(
     group: &Group,
     name: &str,
     new_data: &Array<T, D>,
@@ -127,7 +130,10 @@ pub fn replace_dataset<T:H5Type, D: Dimension>(
     let old = group.dataset(name)?;
     let attr_names = old.attr_names()?;
     let tmp_name = format!("{name}__tmp");
-    let new_ds = group.new_dataset::<T>().shape(new_data.shape()).create(tmp_name.as_str())?;
+    let new_ds = group
+        .new_dataset::<T>()
+        .shape(new_data.shape())
+        .create(tmp_name.as_str())?;
     new_ds.write(new_data)?;
 
     for attr_name in &attr_names {
@@ -150,19 +156,16 @@ pub fn replace_dataset<T:H5Type, D: Dimension>(
 /// ## Returns
 /// * `Ok(())` - If the dataset is cleaned successfully
 /// * `Err(anyhow::Error)` - If the dataset cannot be cleaned
-pub fn clean_str_dataset<const LEN: usize>(
-    group: &Group,
-    name: &str,
-) -> Result<()> {
+pub fn clean_str_dataset<const LEN: usize>(group: &Group, name: &str) -> Result<()> {
     let is_scalar = group.dataset(name).unwrap().shape().is_empty();
-    let value: &hdf5::types::VarLenUnicode = if is_scalar{
+    let value: &hdf5::types::VarLenUnicode = if is_scalar {
         &group.dataset(name).unwrap().read_scalar().unwrap()
-    }else{
+    } else {
         &group.dataset(name).unwrap().read_1d().unwrap()[0]
     };
-    if value.as_str() =="" {
+    if value.as_str() == "" {
         replace_str_dataset::<7>(group, name, "Missing", "")?;
-    }else{
+    } else {
         replace_str_dataset::<LEN>(group, name, value.as_str(), value.as_str())?;
     }
     Ok(())
@@ -175,8 +178,8 @@ pub fn clean_str_dataset<const LEN: usize>(
 /// * `group` - The group containing the dataset
 /// * `name` - The name of the dataset to replace
 /// * `new_value` - The new value to replace the dataset with
-/// * `bad_value` - The value to replace (ignores if the current value is 
-///                 not equal to `bad_value`)
+/// * `bad_value` - The value to replace (ignores if the current value is
+///   not equal to `bad_value`)
 ///
 /// ## Returns
 /// * `Ok(())` - If the dataset is replaced successfully
@@ -188,13 +191,13 @@ pub fn replace_str_dataset<const LEN: usize>(
     bad_value: &str,
 ) -> Result<()> {
     let is_scalar = group.dataset(name).unwrap().shape().is_empty();
-    let value: &hdf5::types::VarLenUnicode = if is_scalar{
+    let value: &hdf5::types::VarLenUnicode = if is_scalar {
         &group.dataset(name).unwrap().read_scalar().unwrap()
-    }else{
+    } else {
         &group.dataset(name).unwrap().read_1d().unwrap()[0]
     };
-    if value.as_str() !=bad_value {
-        return Ok(())
+    if value.as_str() != bad_value {
+        return Ok(());
     }
     // collect attributes
     let dataset = group.dataset(name).unwrap();
@@ -214,8 +217,12 @@ mod tests {
     use hdf5::File;
     use ndarray::{arr0, Array1};
     use tempfile::tempdir;
+    use hdf5::types::{FixedAscii, VarLenUnicode};
+    use std::str::FromStr;
 
-    fn create_test_file(name: &str) -> (tempfile::TempDir, File, std::sync::MutexGuard<'static, ()>) {
+    fn create_test_file(
+        name: &str,
+    ) -> (tempfile::TempDir, File, std::sync::MutexGuard<'static, ()>) {
         let guard = crate::test_utils::lock_hdf5_test();
         let dir = tempdir().unwrap();
         let path = dir.path().join(format!("{name}.nxs"));
@@ -380,4 +387,3 @@ mod tests {
         assert_eq!(val.as_str(), "correct_val");
     }
 }
-

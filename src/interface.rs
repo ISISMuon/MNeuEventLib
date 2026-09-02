@@ -1,7 +1,7 @@
 use anyhow::{Error, Result};
 use pyo3::prelude::{pyclass, pymethods};
 
-use crate::data::save::sanitise::nexus_data::{save_default, get_p_info};
+use crate::data::save::sanitise::nexus_data::{get_p_info, save_default};
 use crate::data::{NexusData, SaveFile, WiMDAFile};
 use crate::filters::Filters;
 use crate::stats::Histogram;
@@ -234,7 +234,7 @@ impl Data {
     /// Save to a Nexus version 2 file that is compatable with
     /// Mantid using provided reference file for data.
     /// This is needed because the event data files has mistakes/problems.
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// filename: str
@@ -251,9 +251,9 @@ impl Data {
     ///     Err(anyhow::Error) if the file cannot be saved
     #[pyo3(signature = (filename, ref_file = (PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("files/muon_ref.nxs")).display().to_string()))]
     pub fn save_nexus(&self, filename: String, ref_file: String) -> Result<()> {
-        println!("mooo {} " , ref_file);    
+        println!("mooo {} ", ref_file);
 
-hdf5::silence_errors(false);
+        hdf5::silence_errors(false);
         // 1. Save using the existing WiMDA save logic to `filename`
         let wimda_file = WiMDAFile::new(self)?;
         wimda_file.save(filename.clone(), &self.dataset.file)?;
