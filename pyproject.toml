@@ -19,6 +19,9 @@ dependencies = [
 [project.optional-dependencies]
 # Dependencies required to build the documentation.
 docs = ["ipykernel", "nbsphinx"]
+# Dependencies required to run the Python test suite.
+# h5py is used to build NeXuS files to test against.
+test = ["pytest", "h5py"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]

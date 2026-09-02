@@ -18,6 +18,14 @@ To run the tests:
 cargo test
 ```
 
+There is also a Python test suite in `tests/`, which drives the public API
+end to end. It needs the extension module to be built, and the test
+dependencies installed, before it can run:
+```
+maturin develop --extras test
+pytest
+```
+
 To lint:
 ```
 cargo clippy --all-targets --all-features -- -D warnings
