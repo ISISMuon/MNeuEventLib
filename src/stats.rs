@@ -7,6 +7,7 @@ use numpy::{PyArray3, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Bound};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
+use crate::consts::ToMicroseconds;
 use crate::data::{FrameData, NexusData};
 use crate::filters::{get_weights, Filters, Weights};
 
@@ -15,8 +16,8 @@ type PyHist<'py> = Bound<'py, PyArray3<i32>>;
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct Histogram {
-    pub min_time: f32,
-    pub max_time: f32,
+    pub min_time: u32,
+    pub max_time: u32,
     pub n_bins: usize,
     pub hist: Array3<i32>,
     pub n: usize,
@@ -40,8 +41,9 @@ impl Histogram {
     pub fn __repr__(&self) -> String {
         let shape = self.hist.shape();
         let mut string = format!(
-            "Histogram with:\n  time range {}, {}",
-            self.min_time, self.max_time
+            "Histogram with:\n  time range {}μs - {}μs",
+            (self.min_time.to_micros()),
+            (self.max_time.to_micros())
         );
         if shape == [0, 0, 0] {
             string += &format!("\n  {} bins\n  result not calculated", self.n_bins);
@@ -57,7 +59,8 @@ impl Histogram {
 }
 
 impl Histogram {
-    pub fn new(min_time: f32, max_time: f32, n_bins: usize) -> Histogram {
+    pub fn new(min_time: u32, max_time: u32, n_bins: usize) -> Histogram {
+        // note min_time and max_time are given as microseconds
         Histogram {
             min_time,
             max_time,
@@ -171,8 +174,8 @@ pub fn get_experiment_times(weights: Weights, frame_start_times: Array1<usize>) 
 #[allow(clippy::too_many_arguments)]
 pub fn calculate_histograms(
     dataset: &NexusData,
-    min_time: f32,
-    max_time: f32,
+    min_time: u32,
+    max_time: u32,
     n_bins: usize,
     n_periods: usize,
     periods: Array1<u32>,
@@ -180,7 +183,7 @@ pub fn calculate_histograms(
     weights: &Weights,
     frame_data: FrameData,
 ) -> Histogram {
-    let width: f32 = (max_time - min_time) / n_bins as f32;
+    let width: f32 = (max_time - min_time) as f32 / n_bins as f32;
 
     // iterate over the data chunks, make histograms for each, then sum histograms at the end
     (0..dataset.n_events)
@@ -215,7 +218,6 @@ pub fn calculate_histograms(
                 max_time,
                 n_bins,
                 width,
-                1e-3,
             )
         })
         // accumulate all chunk histograms together
@@ -247,11 +249,10 @@ fn make_histogram(
     min_amps: &Array1<f64>,
     weights: &Weights,
     frame_data: FrameData,
-    min_time: f32,
-    max_time: f32,
+    min_time: u32,
+    max_time: u32,
     n_bins: usize,
     width: f32,
-    conversion: f32,
 ) -> Histogram {
     let mut result = Histogram::new(min_time, max_time, n_bins);
     result.hist = Array3::zeros((n_periods, n_spec, n_bins));
@@ -274,15 +275,14 @@ fn make_histogram(
         };
 
         let period = periods[*frame] as usize;
-        result.n += 1;
 
         for k in frame_start_event..frame_end_event {
-            let t = times[k] as f32 * conversion;
+            let t = times[k];
             let amp = amps[k];
             let spec = specs[k] as usize;
 
-            if (t >= min_time) && (t <= max_time) && amp > min_amps[spec] {
-                let bin = ((t - min_time) / width).floor() as usize;
+            if (t >= min_time) && (t < max_time) && amp > min_amps[spec] {
+                let bin = ((t - min_time) as f32 / width).floor() as usize;
                 result.hist[[period, spec, bin]] += 1;
                 result.n += 1
             }
@@ -298,9 +298,9 @@ mod tests {
     /// Test Histogram::new creates correct empty histogram.
     #[test]
     fn test_histogram_new() {
-        let hist = Histogram::new(0.5, 2.5, 4);
-        assert_eq!(hist.min_time, 0.5);
-        assert_eq!(hist.max_time, 2.5);
+        let hist = Histogram::new(500, 2500, 4);
+        assert_eq!(hist.min_time, 500);
+        assert_eq!(hist.max_time, 2500);
         assert_eq!(hist.n_bins, 4);
         assert_eq!(hist.n, 0);
         assert_eq!(hist.hist.dim(), (0, 0, 0));
@@ -309,7 +309,7 @@ mod tests {
     /// Test Histogram::n_events returns correct count.
     #[test]
     fn test_histogram_n_events() {
-        let mut hist = Histogram::new(0., 3., 3);
+        let mut hist = Histogram::new(0, 3000, 3);
         hist.n = 42;
         assert_eq!(hist.n_events(), 42);
     }
@@ -334,16 +334,16 @@ mod tests {
             &min_amps,
             &weights,
             FrameData::one_frame(6),
-            0.,
-            3.,
+            0,
+            3000,
             3,
-            1.,
-            1e-3,
+            1000.,
         );
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![1, 1, 2, 1, 0, 1]).unwrap();
 
-        assert_eq!(result.hist, expected)
+        assert_eq!(result.hist, expected);
+        assert_eq!(result.n, 6)
     }
 
     /// Test a histogram with filters is correctly constructed.
@@ -367,16 +367,16 @@ mod tests {
             &min_amps,
             &weights,
             FrameData::one_event_per_frame(6),
-            0.,
-            3.,
+            0,
+            3000,
             3,
-            1.,
-            1e-3,
+            1000.,
         );
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![0, 1, 0, 1, 0, 1]).unwrap();
 
-        assert_eq!(result.hist, expected)
+        assert_eq!(result.hist, expected);
+        assert_eq!(result.n, 3)
     }
 
     /// Test a histogram with multiple periods correctly separates data.
@@ -399,11 +399,10 @@ mod tests {
             &min_amps,
             &weights,
             FrameData::one_event_per_frame(6),
-            0.,
-            3.,
+            0,
+            3000,
             3,
-            1.,
-            1e-3,
+            1000.,
         );
 
         // bins are 0-1000, 1000-2000, 2000-3000
@@ -420,7 +419,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.hist, expected)
+        assert_eq!(result.hist, expected);
+        assert_eq!(result.n, 6)
     }
 
     /// Test a histogram filters out data before the histogram start time.
@@ -443,16 +443,16 @@ mod tests {
             &min_amps,
             &weights,
             FrameData::one_frame(4),
-            1.,
-            3.,
+            1000,
+            3000,
             2,
-            1.,
-            1e-3,
+            1000.,
         );
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 2), vec![1, 0, 1, 1]).unwrap();
 
-        assert_eq!(result.hist, expected)
+        assert_eq!(result.hist, expected);
+        assert_eq!(result.n, 3)
     }
 
     /// Test a histogram filters out data after the histogram end time.
@@ -475,16 +475,16 @@ mod tests {
             &min_amps,
             &weights,
             FrameData::one_frame(4),
-            0.,
-            2.,
+            0,
+            2000,
             2,
-            1.,
-            1e-3,
+            1000.,
         );
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 2), vec![1, 1, 0, 1]).unwrap();
 
-        assert_eq!(result.hist, expected)
+        assert_eq!(result.hist, expected);
+        assert_eq!(result.n, 3)
     }
 
     /// Test a histogram with amplitude filters is correctly constructed.
@@ -507,67 +507,16 @@ mod tests {
             &min_amps,
             &weights,
             FrameData::one_frame(6),
-            0.,
-            3.,
+            0,
+            3000,
             3,
-            1.,
-            1e-3,
+            1000.,
         );
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![1, 1, 1, 0, 0, 1]).unwrap();
 
-        assert_eq!(result.hist, expected)
-    }
-
-    /// Test that the conversion value correctly scales time values.
-    #[test]
-    fn test_hist_conversion_value() {
-        let times = Array1::from_vec(vec![400, 800, 2500]);
-        let specs = Array1::from_vec(vec![0, 0, 0]);
-        let amps = Array1::ones(3);
-        let periods = Array1::zeros(3);
-        let min_amps = Array1::zeros(3);
-
-        let result = make_histogram(
-            times.clone(),
-            specs.clone(),
-            amps.clone(),
-            1,
-            &periods,
-            1,
-            &min_amps,
-            &Weights::ones(3),
-            FrameData::one_frame(3),
-            0.,
-            3.,
-            3,
-            1.,
-            1e-3,
-        );
-
-        let expected = Array3::<i32>::from_shape_vec((1, 1, 3), vec![2, 0, 1]).unwrap();
         assert_eq!(result.hist, expected);
-
-        // now test with a different conversion factor
-        let result2 = make_histogram(
-            times,
-            specs,
-            amps,
-            1,
-            &periods,
-            1,
-            &min_amps,
-            &Weights::ones(3),
-            FrameData::one_frame(3),
-            0.,
-            3.,
-            3,
-            1.,
-            2e-3,
-        );
-
-        let expected2 = Array3::<i32>::from_shape_vec((1, 1, 3), vec![1, 1, 0]).unwrap();
-        assert_eq!(result2.hist, expected2)
+        assert_eq!(result.n, 4)
     }
 
     /// Test that `get_period_frames` correctly counts kept frames per period
@@ -631,10 +580,10 @@ mod tests {
     /// i.e. hist has shape [0, 0, 0].
     #[test]
     fn test_repr_uncalculated() {
-        let hist = Histogram::new(0.5, 2.5, 10);
+        let hist = Histogram::new(500, 2500, 10);
         let repr = hist.__repr__();
 
-        assert!(repr.contains("time range 0.5, 2.5"));
+        assert!(repr.contains("time range 0.5μs - 2.5μs"));
         assert!(repr.contains("10 bins"));
         assert!(repr.contains("result not calculated"));
     }
@@ -643,7 +592,7 @@ mod tests {
     /// the singular "period" (no trailing "s").
     #[test]
     fn test_repr_calculated_single_period() {
-        let mut hist = Histogram::new(0., 3., 3);
+        let mut hist = Histogram::new(0, 3000, 3);
         hist.hist = Array3::zeros((1, 4, 3));
         hist.n = 20;
         let repr = hist.__repr__();
@@ -659,7 +608,7 @@ mod tests {
     /// the plural "periods".
     #[test]
     fn test_repr_calculated_multiple_periods() {
-        let mut hist = Histogram::new(0., 3., 3);
+        let mut hist = Histogram::new(0, 3000, 3);
         hist.hist = Array3::zeros((2, 4, 3));
         hist.n = 50;
         let repr = hist.__repr__();
