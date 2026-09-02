@@ -281,7 +281,7 @@ fn make_histogram(
             let amp = amps[k];
             let spec = specs[k] as usize;
 
-            if (t >= min_time) && (t <= max_time) && amp > min_amps[spec] {
+            if (t >= min_time) && (t < max_time) && amp > min_amps[spec] {
                 let bin = ((t - min_time) as f32 / width).floor() as usize;
                 result.hist[[period, spec, bin]] += 1;
                 result.n += 1
