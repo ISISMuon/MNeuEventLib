@@ -42,6 +42,11 @@ impl Data {
         Ok(self.clone())
     }
 
+    /// Force histograms to be recalculated even if the data hasn't changed.
+    fn invalidate_cache(&mut self) {
+        self.inner.invalidate_cache()
+    }
+
     /// Set histogram settings.
     ///
     /// Parameters

@@ -113,6 +113,11 @@ impl BatchData {
         Ok(self.clone())
     }
 
+    /// Force histograms to be recalculated even if the data hasn't changed.
+    pub fn invalidate_cache(&mut self) {
+        self.data_changed = vec![true; self.n_batches()]
+    }
+
     /// Set histogram settings for one or all filter sets.
     ///
     /// Parameters
