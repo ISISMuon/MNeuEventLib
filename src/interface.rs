@@ -251,11 +251,12 @@ impl Data {
     ///     Err(anyhow::Error) if the file cannot be saved
     #[pyo3(signature = (filename, ref_file = (PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("files/muon_ref.nxs")).display().to_string()))]
     pub fn save_nexus(&self, filename: String, ref_file: String) -> Result<()> {
-        println!("mooo {} " , ref_file);
+        println!("mooo {} " , ref_file);    
+
+hdf5::silence_errors(false);
         // 1. Save using the existing WiMDA save logic to `filename`
         let wimda_file = WiMDAFile::new(self)?;
         wimda_file.save(filename.clone(), &self.dataset.file)?;
-
         // 2. Read p_info from input file
         let (periods, dwell) = get_p_info(&self.dataset.filename)?;
 
@@ -274,4 +275,4 @@ impl Data {
 
         Ok(())
     }
-    }
+}

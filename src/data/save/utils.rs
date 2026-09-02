@@ -32,10 +32,15 @@ pub fn add_array<T: H5Type, D: Dimension>(
     array: &Array<T, D>,
     name: &str,
 ) -> Result<Dataset> {
-    let builder = group.new_dataset_builder();
-    let builder = builder.with_data(array);
-    builder.create(name)?;
-    Ok(group.dataset(name)?)
+    println!("adding array {}, with type{}, with shape {:?}", name, <T>::type_descriptor(), array.shape());
+    //let builder = group.new_dataset_builder();
+    //let builder = builder.with_data(array);
+    //builder.create(name)?;
+    //Ok(group.dataset(name)?)
+    let ds = group.new_dataset::<T>().shape(array.shape()).create(name)?;
+    ds.write(array)?;
+
+    Ok(ds)
 }
 
 pub fn add_str_scalar<const LEN: usize>(
@@ -86,16 +91,17 @@ mod tests {
     use std::env::temp_dir;
     use std::str::FromStr;
 
-    fn tmp_file(name: &str) -> File {
+    fn tmp_file(name: &str) -> (File, std::sync::MutexGuard<'static, ()>) {
+        let guard = crate::test_utils::lock_hdf5_test();
         let mut tmp_path = temp_dir();
         tmp_path.push(format!("utils_test_{name}.nxs"));
-        File::create(tmp_path).unwrap()
+        (File::create(tmp_path).unwrap(), guard)
     }
 
     /// `add_array` should work for multi-dimensional arrays too.
     #[test]
     fn test_add_array() {
-        let file = tmp_file("add_array_2d");
+        let (file, _guard) = tmp_file("add_array_2d");
         let group = file.create_group("g").unwrap();
         let data: Array2<f32> =
             Array2::from_shape_vec((2, 3), vec![1., 2., 3., 4., 5., 6.]).unwrap();
@@ -110,7 +116,7 @@ mod tests {
     /// readable back out as a scalar.
     #[test]
     fn test_add_scalar() {
-        let file = tmp_file("add_scalar");
+        let (file, _guard) = tmp_file("add_scalar");
         let group = file.create_group("g").unwrap();
 
         add_scalar(&group, 42i32, "answer").unwrap();
@@ -122,7 +128,7 @@ mod tests {
     /// `add_scalar` should work for floating point scalars too.
     #[test]
     fn test_add_scalar_float() {
-        let file = tmp_file("add_scalar_float");
+        let (file, _guard) = tmp_file("add_scalar_float");
         let group = file.create_group("g").unwrap();
 
         add_scalar(&group, 3.1, "scalar").unwrap();
@@ -135,7 +141,7 @@ mod tests {
     /// back correctly.
     #[test]
     fn test_add_str_scalar() {
-        let file = tmp_file("add_str_scalar");
+        let (file, _guard) = tmp_file("add_str_scalar");
         let group = file.create_group("g").unwrap();
 
         add_str_scalar::<8>(&group, "hello", "greeting").unwrap();
@@ -148,7 +154,7 @@ mod tests {
     /// `add_str_scalar` should error if the string is longer than the fixed length.
     #[test]
     fn test_add_str_scalar_too_long_errors() {
-        let file = tmp_file("add_str_scalar_too_long");
+        let (file, _guard) = tmp_file("add_str_scalar_too_long");
         let group = file.create_group("g").unwrap();
 
         let result = add_str_scalar::<3>(&group, "toolong", "field");
@@ -159,7 +165,7 @@ mod tests {
     /// and write an equivalent dataset into another group.
     #[test]
     fn test_copy_scalar() {
-        let file = tmp_file("copy_scalar");
+        let (file, _guard) = tmp_file("copy_scalar");
         let source = file.create_group("source").unwrap();
         let dest = file.create_group("dest").unwrap();
 
@@ -176,7 +182,7 @@ mod tests {
     /// `copy_scalar` should work with string (VarLenUnicode) types.
     #[test]
     fn test_copy_scalar_string() {
-        let file = tmp_file("copy_scalar_string");
+        let (file, _guard) = tmp_file("copy_scalar_string");
         let source = file.create_group("source").unwrap();
         let dest = file.create_group("dest").unwrap();
 
@@ -196,7 +202,7 @@ mod tests {
     /// back out.
     #[test]
     fn test_add_attr() {
-        let file = tmp_file("add_attr");
+        let (file, _guard) = tmp_file("add_attr");
         let group = file.create_group("g").unwrap();
 
         add_attr(&group, 7i32, "my_attr").unwrap();
@@ -208,7 +214,7 @@ mod tests {
     /// `add_str_attr` should set a fixed-length ASCII string attribute.
     #[test]
     fn test_add_str_attr() {
-        let file = tmp_file("add_str_attr");
+        let (file, _guard) = tmp_file("add_str_attr");
         let group = file.create_group("g").unwrap();
 
         add_str_attr::<5>(&group, "units", "label").unwrap();
@@ -220,7 +226,7 @@ mod tests {
     /// `add_nx_class` should set the `NX_class` attribute to the given class name.
     #[test]
     fn test_add_nx_class() {
-        let file = tmp_file("add_nx_class");
+        let (file, _guard) = tmp_file("add_nx_class");
         let group = file.create_group("g").unwrap();
 
         add_nx_class(&group, "NXinstrument").unwrap();

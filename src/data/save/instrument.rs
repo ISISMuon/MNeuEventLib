@@ -253,6 +253,7 @@ mod tests {
     /// `Save` implementation.
     #[test]
     fn test_instrument_save_round_trip() {
+        let _guard = crate::test_utils::lock_hdf5_test();
         use hdf5::File;
         use std::env::temp_dir;
 

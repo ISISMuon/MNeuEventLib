@@ -1,12 +1,13 @@
 use std::collections::HashMap;
-use std::str::FromStr;
 
 use anyhow::{anyhow, Result};
 use hdf5::types::{FixedAscii, VarLenUnicode};
-use hdf5::{Dataset, File, Group, Location};
+use hdf5::{File, Group};
 use ndarray::Array1;
 use crate::data::save::sanitise::utils::*;
 use crate::data::save::utils::*;
+use std::str::FromStr;
+
 
 /// Create a new dataset in the destination file with default values.
 /// These values are given in the reference file (made from tools/make_default.py
@@ -23,20 +24,23 @@ use crate::data::save::utils::*;
 /// -------
 /// * `Ok(())` - If the dataset is created successfully
 /// * `Err(anyhow::Error)` - If the dataset cannot be created
-fn create_default_dataset(default: &Group, dest: &Group, name: &str, shapes: &HashMap<String, usize>) -> Result<()> {
+fn create_default_dataset(default: &Group, dest: &Group, _name: &str, shapes: &HashMap<String, usize>) -> Result<()> {
     let name = default.name().split("dataset_").last().unwrap().to_string();
     let key: String = default.dataset("shape").unwrap().read_scalar::<hdf5::types::VarLenUnicode>().unwrap().as_str().to_string();
     let len: usize = *shapes.get(&key).unwrap();
     let dtype: &hdf5::types::VarLenUnicode = &default.dataset("dtype").unwrap().read_scalar().unwrap();
     if dtype.as_str() == "int32"{
         let default_value = default.dataset("default").unwrap().read_scalar::<i32>()?;
-        add_array(dest, &Array1::from_elem(len, default_value), &name);
+        if let Err(e) = add_array(dest, &Array1::from_elem(len, default_value), &name){
+            eprintln!("error: {e}");
+            eprintln!("chain: {e:?}");
+        };
     }else if dtype.as_str() == "float32"{
         let default_value = default.dataset("default").unwrap().read_scalar::<f32>()?;
-        add_array(dest, &Array1::from_elem(len, default_value), &name);
+        add_array(dest, &Array1::from_elem(len, default_value), &name)?;
     }else if dtype.as_str() == "float64"{
         let default_value = default.dataset("default").unwrap().read_scalar::<f64>()?;
-        add_array(dest, &Array1::from_elem(len, default_value), &name);
+        add_array(dest, &Array1::from_elem(len, default_value), &name)?;
     }else{
         return Err(anyhow!("Unsupported default dataset type {:?}", dtype));
     };
@@ -67,7 +71,7 @@ fn set_defaults(
     name: &str,
     shapes: &HashMap<String, usize>,
 ) -> Result<()> {
-    if name.contains("dataset_") && dest.dataset(name).is_err() {
+    if name.contains("dataset_") && dest.dataset(name.replace("dataset_", "").as_str()).is_err() {
         /* we know this is a group that defines a period
         dependent dataset */
         println!("create default {}", name);
@@ -259,16 +263,17 @@ mod tests {
     use ndarray::{arr0, Array1};
     use tempfile::tempdir;
 
-    fn create_test_file(name: &str) -> (tempfile::TempDir, File) {
+    fn create_test_file(name: &str) -> (tempfile::TempDir, File, std::sync::MutexGuard<'static, ()>) {
+        let guard = crate::test_utils::lock_hdf5_test();
         let dir = tempdir().unwrap();
         let path = dir.path().join(format!("{name}.nxs"));
         let file = File::create(&path).unwrap();
-        (dir, file)
+        (dir, file, guard)
     }
 
     #[test]
     fn test_get_p_info_varlen_unicode() {
-        let (dir, file) = create_test_file("test_get_p_info_varlen");
+        let (dir, file, _guard) = create_test_file("test_get_p_info_varlen");
         let path = dir.path().join("test_get_p_info_varlen.nxs");
 
         let raw = file.create_group("raw_data_1").unwrap();
@@ -284,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_get_p_info_fixed_ascii() {
-        let (dir, file) = create_test_file("test_get_p_info_fixed");
+        let (dir, file, _guard) = create_test_file("test_get_p_info_fixed");
         let path = dir.path().join("test_get_p_info_fixed.nxs");
 
         let raw = file.create_group("raw_data_1").unwrap();
@@ -305,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_get_p_info_missing_labels() {
-        let (dir, file) = create_test_file("test_get_p_info_missing_labels");
+        let (dir, file, _guard) = create_test_file("test_get_p_info_missing_labels");
         let path = dir.path().join("test_get_p_info_missing_labels.nxs");
         file.create_group("raw_data_1").unwrap();
         drop(file);
@@ -316,7 +321,7 @@ mod tests {
 
     #[test]
     fn test_create_default_dataset_int32() {
-        let (_dir, file) = create_test_file("test_create_default_int32");
+        let (_dir, file, _guard) = create_test_file("test_create_default_int32");
         let default_grp = file.create_group("raw_data_1/dataset_counts").unwrap();
         let dest_grp = file.create_group("dest").unwrap();
 
@@ -344,7 +349,7 @@ mod tests {
 
     #[test]
     fn test_create_default_dataset_float32() {
-        let (_dir, file) = create_test_file("test_create_default_float32");
+        let (_dir, file, _guard) = create_test_file("test_create_default_float32");
         let default_grp = file.create_group("raw_data_1/dataset_temp").unwrap();
         let dest_grp = file.create_group("dest").unwrap();
 
@@ -368,7 +373,7 @@ mod tests {
 
     #[test]
     fn test_create_default_dataset_float64() {
-        let (_dir, file) = create_test_file("test_create_default_float64");
+        let (_dir, file, _guard) = create_test_file("test_create_default_float64");
         let default_grp = file.create_group("raw_data_1/dataset_time").unwrap();
         let dest_grp = file.create_group("dest").unwrap();
 
@@ -392,7 +397,7 @@ mod tests {
 
     #[test]
     fn test_create_default_dataset_unsupported_dtype() {
-        let (_dir, file) = create_test_file("test_create_default_unsupported");
+        let (_dir, file, _guard) = create_test_file("test_create_default_unsupported");
         let default_grp = file.create_group("raw_data_1/dataset_bad").unwrap();
         let dest_grp = file.create_group("dest").unwrap();
 
@@ -411,7 +416,7 @@ mod tests {
 
     #[test]
     fn test_set_defaults_dataset_prefixed_default() {
-        let (_dir, file) = create_test_file("test_set_defaults_prefixed");
+        let (_dir, file, _guard) = create_test_file("test_set_defaults_prefixed");
         let src_parent = file.create_group("src").unwrap();
         let dest_parent = file.create_group("dest").unwrap();
 
@@ -434,7 +439,7 @@ mod tests {
 
     #[test]
     fn test_set_defaults_dataset_copy_when_missing_in_dest() {
-        let (_dir, file) = create_test_file("test_set_defaults_copy_ds");
+        let (_dir, file, _guard) = create_test_file("test_set_defaults_copy_ds");
         let src_parent = file.create_group("src").unwrap();
         let dest_parent = file.create_group("dest").unwrap();
 
@@ -451,7 +456,7 @@ mod tests {
 
     #[test]
     fn test_set_defaults_group_copy_when_missing_in_dest() {
-        let (_dir, file) = create_test_file("test_set_defaults_copy_group");
+        let (_dir, file, _guard) = create_test_file("test_set_defaults_copy_group");
         let src_parent = file.create_group("src").unwrap();
         let dest_parent = file.create_group("dest").unwrap();
 
@@ -469,7 +474,7 @@ mod tests {
 
     #[test]
     fn test_set_defaults_group_exists_in_both() {
-        let (_dir, file) = create_test_file("test_set_defaults_group_both");
+        let (_dir, file, _guard) = create_test_file("test_set_defaults_group_both");
         let src_parent = file.create_group("src").unwrap();
         let dest_parent = file.create_group("dest").unwrap();
 
@@ -489,7 +494,7 @@ mod tests {
 
     #[test]
     fn test_set_defaults_nonexistent_returns_err() {
-        let (_dir, file) = create_test_file("test_set_defaults_nonexistent");
+        let (_dir, file, _guard) = create_test_file("test_set_defaults_nonexistent");
         let src_parent = file.create_group("src").unwrap();
         let dest_parent = file.create_group("dest").unwrap();
 
@@ -500,7 +505,7 @@ mod tests {
 
     #[test]
     fn test_clean_up() {
-        let (_dir, file) = create_test_file("test_clean_up");
+        let (_dir, file, _guard) = create_test_file("test_clean_up");
         let raw = file.create_group("raw_data_1").unwrap();
 
         let name_str = VarLenUnicode::from_str("name").unwrap();
@@ -549,6 +554,7 @@ mod tests {
 
     #[test]
     fn test_save_default_integration() {
+        let _guard = crate::test_utils::lock_hdf5_test();
         let dir = tempdir().unwrap();
         let ref_path = dir.path().join("ref.nxs");
         let out_path = dir.path().join("out.nxs");

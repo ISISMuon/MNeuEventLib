@@ -1,19 +1,17 @@
-use std::str::FromStr;
-
 use crate::data::save::utils::*;
 
 use anyhow::Result;
-use hdf5::types::{FixedAscii, H5Type, VarLenUnicode};
-use hdf5::{Dataset, File, Group, Location};
-use ndarray::{arr0, Array, Array1, Dimension};
+use hdf5::types::{H5Type, FixedAscii, VarLenUnicode};
+use hdf5::{Group, Location};
+use ndarray::{Array, Dimension};
 
 
 //use hdf5_metno as hdf5;
-use hdf5_metno_sys::{h5a, h5p, h5t, h5s, h5d};
+use hdf5_metno_sys::{h5a, h5p, h5t, h5s};
 use hdf5::{Result as OtherResult};
 use std::ffi::CString;
 use std::os::raw::c_void;
-
+use std::str::FromStr;
 /// A wrapper around _copy_attr which checks if the 
 /// attribute already exists and skips if it does.
 ///
@@ -26,7 +24,7 @@ use std::os::raw::c_void;
 /// * `Ok(())` - If the attribute is copied successfully
 /// * `Err(anyhow::Error)` - If the attribute cannot be copied
 pub fn copy_attr(src: &Location, dst: &Location, name: &str) -> Result<()> {
-    unsafe { _copy_attr(src, dst, name) }
+    hdf5::sync::sync(|| unsafe { _copy_attr(src, dst, name) })
 }
 
 /// Copies a single attribute from `src` to `dst`, regardless of its HDF5 datatype
@@ -49,29 +47,63 @@ unsafe fn _copy_attr(src: &Location, dst: &Location, name: &str) -> Result<()> {
 
     let attr_id = h5a::H5Aopen(src.id(), cname.as_ptr(), h5p::H5P_DEFAULT);
     if attr_id < 0 {
-        return Err(hdf5::Error::from(format!("H5Aopen failed for '{name}'")).into());
+        return Err(anyhow::anyhow!("H5Aopen failed for '{name}'"));
     }
 
     let type_id = h5a::H5Aget_type(attr_id);
+    if type_id < 0 {
+        h5a::H5Aclose(attr_id);
+        return Err(anyhow::anyhow!("H5Aget_type failed for '{name}'"));
+    }
+
     let space_id = h5a::H5Aget_space(attr_id);
+    if space_id < 0 {
+        h5t::H5Tclose(type_id);
+        h5a::H5Aclose(attr_id);
+        return Err(anyhow::anyhow!("H5Aget_space failed for '{name}'"));
+    }
+
     let storage_size = h5a::H5Aget_storage_size(attr_id) as usize;
 
     let mut buf: Vec<u8> = vec![0u8; storage_size.max(1)];
-    h5a::H5Aread(attr_id, type_id, buf.as_mut_ptr() as *mut c_void);
+    let read_res = h5a::H5Aread(attr_id, type_id, buf.as_mut_ptr() as *mut c_void);
 
     let new_attr_id = h5a::H5Acreate2(
         dst.id(), cname.as_ptr(), type_id, space_id,
         h5p::H5P_DEFAULT, h5p::H5P_DEFAULT,
     );
-    h5a::H5Awrite(new_attr_id, type_id, buf.as_ptr() as *const c_void);
 
-    // Modern replacement for H5Dvlen_reclaim — same purpose, lives in h5t.
-    h5t::H5Treclaim(type_id, space_id, h5p::H5P_DEFAULT, buf.as_mut_ptr() as *mut c_void);
+    if read_res >= 0 && new_attr_id >= 0 {
+        h5a::H5Awrite(new_attr_id, type_id, buf.as_ptr() as *const c_void);
 
-    h5a::H5Aclose(new_attr_id);
-    h5a::H5Aclose(attr_id);
-    h5t::H5Tclose(type_id);
+        // H5Treclaim frees memory that HDF5 internally allocated inside `buf` during
+        // H5Aread, but only for variable-length types. For fixed-length types HDF5
+        // writes directly into our buffer with no extra allocation, so no reclaim is
+        // needed. Additionally, H5P_DEFAULT is not a valid plist for H5Treclaim in
+        // HDF5 1.12+ (triggers an assertion failure), so we must use an explicit
+        // dataset-transfer property list created from H5P_CLS_DATASET_XFER.
+        if h5t::H5Tis_variable_str(type_id) > 0 {
+            let dxpl_id = h5p::H5Pcreate(*h5p::H5P_CLS_DATASET_XFER);
+            if dxpl_id >= 0 {
+                h5t::H5Treclaim(type_id, space_id, dxpl_id, buf.as_mut_ptr() as *mut c_void);
+                h5p::H5Pclose(dxpl_id);
+            }
+        }
+    }
+
+    if new_attr_id >= 0 {
+        h5a::H5Aclose(new_attr_id);
+    }
     h5s::H5Sclose(space_id);
+    h5t::H5Tclose(type_id);
+    h5a::H5Aclose(attr_id);
+
+    if read_res < 0 {
+        return Err(anyhow::anyhow!("H5Aread failed for '{name}'"));
+    }
+    if new_attr_id < 0 {
+        return Err(anyhow::anyhow!("H5Acreate2 failed for '{name}'"));
+    }
 
     Ok(())
 }
@@ -99,7 +131,7 @@ pub fn replace_dataset<T:H5Type, D: Dimension>(
     new_ds.write(new_data)?;
 
     for attr_name in &attr_names {
-        unsafe{ copy_attr(&old, &new_ds, attr_name) };
+        let _ = copy_attr(&old, &new_ds, attr_name);
     }
 
     drop(old);
@@ -129,9 +161,9 @@ pub fn clean_str_dataset<const LEN: usize>(
         &group.dataset(name).unwrap().read_1d().unwrap()[0]
     };
     if value.as_str() =="" {
-        replace_str_dataset::<7>(group, name, "Missing", "");
+        replace_str_dataset::<7>(group, name, "Missing", "")?;
     }else{
-        replace_str_dataset::<LEN>(group, name, value.as_str(), value.as_str());
+        replace_str_dataset::<LEN>(group, name, value.as_str(), value.as_str())?;
     }
     Ok(())
 }
@@ -171,7 +203,7 @@ pub fn replace_str_dataset<const LEN: usize>(
     add_str_scalar::<LEN>(group, new_value, name)?;
     let new_ds = group.dataset(name)?;
     for attr_name in &attr_names {
-        unsafe { copy_attr(&dataset, &new_ds, attr_name)? };
+        copy_attr(&dataset, &new_ds, attr_name)?;
     }
     Ok(())
 }
@@ -183,16 +215,17 @@ mod tests {
     use ndarray::{arr0, Array1};
     use tempfile::tempdir;
 
-    fn create_test_file(name: &str) -> (tempfile::TempDir, File) {
+    fn create_test_file(name: &str) -> (tempfile::TempDir, File, std::sync::MutexGuard<'static, ()>) {
+        let guard = crate::test_utils::lock_hdf5_test();
         let dir = tempdir().unwrap();
         let path = dir.path().join(format!("{name}.nxs"));
         let file = File::create(&path).unwrap();
-        (dir, file)
+        (dir, file, guard)
     }
 
     #[test]
     fn test_copy_attr_scalar() {
-        let (_dir, file) = create_test_file("test_copy_attr_scalar");
+        let (_dir, file, _guard) = create_test_file("test_copy_attr_scalar");
         let src = file.create_group("src").unwrap();
         let dst = file.create_group("dst").unwrap();
 
@@ -205,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_copy_attr_str() {
-        let (_dir, file) = create_test_file("test_copy_attr_str");
+        let (_dir, file, _guard) = create_test_file("test_copy_attr_str");
         let src = file.create_group("src").unwrap();
         let dst = file.create_group("dst").unwrap();
 
@@ -218,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_copy_attr_already_exists_skipped() {
-        let (_dir, file) = create_test_file("test_copy_attr_already_exists");
+        let (_dir, file, _guard) = create_test_file("test_copy_attr_already_exists");
         let src = file.create_group("src").unwrap();
         let dst = file.create_group("dst").unwrap();
 
@@ -234,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_copy_attr_nonexistent_fails() {
-        let (_dir, file) = create_test_file("test_copy_attr_nonexistent");
+        let (_dir, file, _guard) = create_test_file("test_copy_attr_nonexistent");
         let src = file.create_group("src").unwrap();
         let dst = file.create_group("dst").unwrap();
 
@@ -244,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_replace_dataset() {
-        let (_dir, file) = create_test_file("test_replace_dataset");
+        let (_dir, file, _guard) = create_test_file("test_replace_dataset");
         let group = file.create_group("grp").unwrap();
 
         let original_data = Array1::from_vec(vec![1.0f32, 2.0, 3.0]);
@@ -265,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_clean_str_dataset_empty_scalar() {
-        let (_dir, file) = create_test_file("test_clean_str_empty_scalar");
+        let (_dir, file, _guard) = create_test_file("test_clean_str_empty_scalar");
         let group = file.create_group("grp").unwrap();
 
         let text = VarLenUnicode::from_str("").unwrap();
@@ -284,7 +317,7 @@ mod tests {
 
     #[test]
     fn test_clean_str_dataset_nonempty_scalar() {
-        let (_dir, file) = create_test_file("test_clean_str_nonempty_scalar");
+        let (_dir, file, _guard) = create_test_file("test_clean_str_nonempty_scalar");
         let group = file.create_group("grp").unwrap();
 
         let text = VarLenUnicode::from_str("Silicon").unwrap();
@@ -299,7 +332,7 @@ mod tests {
 
     #[test]
     fn test_clean_str_dataset_1d_array() {
-        let (_dir, file) = create_test_file("test_clean_str_1d");
+        let (_dir, file, _guard) = create_test_file("test_clean_str_1d");
         let group = file.create_group("grp").unwrap();
 
         let text = VarLenUnicode::from_str("").unwrap();
@@ -315,7 +348,7 @@ mod tests {
 
     #[test]
     fn test_replace_str_dataset_matching_bad_value() {
-        let (_dir, file) = create_test_file("test_replace_str_match");
+        let (_dir, file, _guard) = create_test_file("test_replace_str_match");
         let group = file.create_group("grp").unwrap();
 
         let text = VarLenUnicode::from_str("old_val").unwrap();
@@ -334,7 +367,7 @@ mod tests {
 
     #[test]
     fn test_replace_str_dataset_nonmatching_bad_value() {
-        let (_dir, file) = create_test_file("test_replace_str_nomatch");
+        let (_dir, file, _guard) = create_test_file("test_replace_str_nomatch");
         let group = file.create_group("grp").unwrap();
 
         let text = VarLenUnicode::from_str("correct_val").unwrap();
