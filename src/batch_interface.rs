@@ -262,82 +262,6 @@ impl BatchData {
         self.array_to_time_filters(name, array)
     }
 
-    /// Add a sample log filter to every filter set, splitting the range from
-    /// `start` to `end` into evenly-spaced consecutive log filters, one per
-    /// filter set.
-    ///
-    /// Parameters
-    /// ----------
-    /// name: str
-    ///     The name of the log filter. Must be unique within each filter set.
-    /// log: str
-    ///     The sample log in the data to which the filters apply.
-    /// start: float
-    ///     The lower bound of the first filter set's log filter.
-    /// end: float
-    ///     The upper bound of the last filter set's log filter.
-    pub fn add_log_linspace(
-        &mut self,
-        name: String,
-        log: String,
-        start: f64,
-        end: f64,
-    ) -> Result<()> {
-        let array = Array1::linspace(start, end, self.n_batches() + 1);
-        self.array_to_log_filters(name, log, array)
-    }
-
-    /// Add a sample log filter to every filter set, splitting the range from
-    /// `start` to `end` into geometrically (log)-spaced consecutive time filters,
-    /// one per filter set.
-    ///
-    /// Parameters
-    /// ----------
-    /// name: str
-    ///     The name of the log filter. Must be unique within each filter set.
-    /// log: str
-    ///     The sample log in the data to which the filters apply.
-    /// start: float
-    ///     The lower bound of the first filter set's log filter.
-    /// end: float
-    ///     The upper bound of the last filter set's log filter.
-    pub fn add_log_geomspace(
-        &mut self,
-        name: String,
-        log: String,
-        start: f64,
-        end: f64,
-    ) -> Result<()> {
-        let array = Array1::geomspace(start, end, self.n_batches() + 1)
-            .ok_or(Error::msg("Invalid bounds for geometric spacing."))?;
-        self.array_to_log_filters(name, log, array)
-    }
-
-    /// Add a sample log filter to every filter set, splitting the range
-    /// starting at `start` into consecutive log filters of width `step`, one
-    /// per filter set.
-    ///
-    /// Parameters
-    /// ----------
-    /// name: str
-    ///     The name of the log filter. Must be unique within each filter set.
-    /// log: str
-    ///     The sample log in the data to which the filters apply.
-    /// start: float
-    ///     The lower bound of the first filter set's log filter.
-    /// step: float
-    ///     The width of each filter set's log filter.
-    pub fn add_log_range(
-        &mut self,
-        name: String,
-        log: String,
-        start: f64,
-        step: f64,
-    ) -> Result<()> {
-        let array = self.range_array(start, step)?;
-        self.array_to_log_filters(name, log, array)
-    }
-
     /// Add a sample log filter.
     ///
     /// Parameters
@@ -433,6 +357,82 @@ impl BatchData {
             self.data_changed[i] = true;
         }
         Ok(())
+    }
+
+    /// Add a sample log filter to every filter set, splitting the range from
+    /// `start` to `end` into evenly-spaced consecutive log filters, one per
+    /// filter set.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: str
+    ///     The name of the log filter. Must be unique within each filter set.
+    /// log: str
+    ///     The sample log in the data to which the filters apply.
+    /// start: float
+    ///     The lower bound of the first filter set's log filter.
+    /// end: float
+    ///     The upper bound of the last filter set's log filter.
+    pub fn add_log_linspace(
+        &mut self,
+        name: String,
+        log: String,
+        start: f64,
+        end: f64,
+    ) -> Result<()> {
+        let array = Array1::linspace(start, end, self.n_batches() + 1);
+        self.array_to_log_filters(name, log, array)
+    }
+
+    /// Add a sample log filter to every filter set, splitting the range from
+    /// `start` to `end` into geometrically (log)-spaced consecutive log filters,
+    /// one per filter set.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: str
+    ///     The name of the log filter. Must be unique within each filter set.
+    /// log: str
+    ///     The sample log in the data to which the filters apply.
+    /// start: float
+    ///     The lower bound of the first filter set's log filter.
+    /// end: float
+    ///     The upper bound of the last filter set's log filter.
+    pub fn add_log_geomspace(
+        &mut self,
+        name: String,
+        log: String,
+        start: f64,
+        end: f64,
+    ) -> Result<()> {
+        let array = Array1::geomspace(start, end, self.n_batches() + 1)
+            .ok_or(Error::msg("Invalid bounds for geometric spacing."))?;
+        self.array_to_log_filters(name, log, array)
+    }
+
+    /// Add a sample log filter to every filter set, splitting the range
+    /// starting at `start` into consecutive log filters of width `step`, one
+    /// per filter set.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: str
+    ///     The name of the log filter. Must be unique within each filter set.
+    /// log: str
+    ///     The sample log in the data to which the filters apply.
+    /// start: float
+    ///     The lower bound of the first filter set's log filter.
+    /// step: float
+    ///     The width of each filter set's log filter.
+    pub fn add_log_range(
+        &mut self,
+        name: String,
+        log: String,
+        start: f64,
+        step: f64,
+    ) -> Result<()> {
+        let array = self.range_array(start, step)?;
+        self.array_to_log_filters(name, log, array)
     }
 
     /// Set the amplitude filter for a detector.
@@ -803,33 +803,35 @@ mod tests {
         assert!(starts1.is_empty())
     }
 
-    /// array time filters should give each filter set one time filter,
-    /// covering consecutive evenly-spaced chunks of the range.
+    /// array time filters should give each filter set one time filter.
     #[test]
-    fn test_array_time_filters() {
+    fn test_array_to_time_filters() {
         let mut batch = make_batch(4);
-        batch.add_time_linspace("f1".to_string(), 0., 4.).unwrap();
+        let array = Array1::from_vec(vec![1., 3., 4., 5., 10.]);
+        batch
+            .array_to_time_filters("f1".to_string(), array.clone())
+            .unwrap();
 
         for (i, filters) in batch.filters.iter().enumerate() {
             let (starts, ends) = filters.get_time_filter_times();
-            assert_eq!(starts, vec![(i as f64 * 1e9) as usize]);
-            assert_eq!(ends, vec![((i + 1) as f64 * 1e9) as usize]);
+            assert_eq!(starts, vec![(array[i] as f64 * 1e9) as usize]);
+            assert_eq!(ends, vec![(array[i + 1] as f64 * 1e9) as usize]);
         }
     }
 
-    /// array log filters should give each filter set one sample log filter
-    /// on the given log, covering consecutive evenly-spaced chunks of the range.
+    /// array log filters should give each filter set one sample log filter.
     #[test]
     fn test_array_log_filters() {
         let mut batch = make_batch(4);
+        let array = Array1::from_vec(vec![1., 3., 4., 5., 10.]);
         batch
-            .add_log_linspace("lf1".to_string(), "temp".to_string(), 0., 4.)
+            .array_to_log_filters("lf1".to_string(), "temp".to_string(), array.clone())
             .unwrap();
 
         for (k, filters) in batch.filters.into_iter().enumerate() {
             assert_eq!(filters.get_required_log_names(), vec!["temp".to_string()]);
-            assert_eq!(filters.sample_log_filters[0].lower, Some(k as f64));
-            assert_eq!(filters.sample_log_filters[0].upper, Some((k + 1) as f64));
+            assert_eq!(filters.sample_log_filters[0].lower, Some(array[k]));
+            assert_eq!(filters.sample_log_filters[0].upper, Some(array[k + 1]));
         }
     }
 
