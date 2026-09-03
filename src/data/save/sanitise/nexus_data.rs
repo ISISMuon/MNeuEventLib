@@ -450,6 +450,32 @@ mod tests {
     }
 
     #[test]
+    fn test_set_defaults_dataset_already_exists() {
+        let (_dir, file, _guard) = create_test_file("test_set_defaults_already_exists");
+        let src_parent = file.create_group("src").unwrap();
+        let dest_parent = file.create_group("dest").unwrap();
+
+        let default_grp = src_parent.create_group("dataset_rate").unwrap();
+        let shape_str = VarLenUnicode::from_str("nperiods").unwrap();
+        add_array(&default_grp, &arr0(shape_str), "shape").unwrap();
+        let dtype_str = VarLenUnicode::from_str("int32").unwrap();
+        add_array(&default_grp, &arr0(dtype_str), "dtype").unwrap();
+        add_array(&default_grp, &arr0(10i32), "default").unwrap();
+
+        let vals = Array1::from_vec(vec![1i32, 3i32, 6i32]);
+        add_array(&dest_parent, &vals, "rate").unwrap();
+
+        let mut shapes = HashMap::new();
+        shapes.insert("nperiods".to_string(), 3);
+
+        set_defaults(&src_parent, &dest_parent, "dataset_rate", &shapes).unwrap();
+
+        let created_ds = dest_parent.dataset("rate").unwrap();
+        let vals: Array1<i32> = created_ds.read_1d().unwrap();
+        assert_eq!(vals.to_vec(), vec![1, 3, 6]);
+    }
+
+    #[test]
     fn test_set_defaults_dataset_copy_when_missing_in_dest() {
         let (_dir, file, _guard) = create_test_file("test_set_defaults_copy_ds");
         let src_parent = file.create_group("src").unwrap();

@@ -50,9 +50,7 @@ def read(obj, new_obj, key):
         dtype = str(obj.dtype)
         shape = obj.shape
         val = obj[()]
-        print("boo", name, dtype)
         if 'float' in dtype or 'int' in dtype:
-            print('moo', len(val))
             if len(val) in [N, P, NP, PD, NPD]:
                 length = 'N'
                 if len(val) == P:
@@ -77,7 +75,6 @@ def read(obj, new_obj, key):
 
                 set_attributes(obj, tmp)
         else: # assume a string
-        #    print('')
             val = obj[()]
             tmp = None
             if name in keep_strings or (isinstance(val, str) and val=='ISIS'):
@@ -99,7 +96,7 @@ with h5py.File('HIFI00207745.nxs', 'r') as file:
             set_attributes(file[key], new_obj)
             for tmp in file[key].keys():
                 # if we need to update the group name
-                if tmp in ['fdsafdsadsf']:#'selog']:
+                if tmp in ['selog']:
                     print('skip')
                 else:
                 #    #print('read', 
