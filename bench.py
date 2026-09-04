@@ -46,9 +46,10 @@ for file in files:
 
     avg_run_time = 0
     for _ in range(0, stats):
+        data.invalidate_cache()
         start_time = time.time()
         result = data.calculate()
-        n = result.n_events()
+        n = result.get_n_events()
         duration = time.time() - start_time
         avg_run_time += duration
     avg_run_time /= stats

@@ -4,7 +4,7 @@ use hdf5::Group;
 use ndarray::{Array1, Array3};
 
 use crate::data::save::utils::*;
-use crate::interface::Data;
+use crate::stats::Histogram;
 
 #[allow(dead_code)]
 pub struct Instrument {
@@ -17,9 +17,9 @@ pub struct Instrument {
 }
 
 impl Instrument {
-    pub fn new(data: &Data) -> Instrument {
+    pub fn new(results: &Histogram, n_spec: usize) -> Instrument {
         Instrument {
-            detector_1: Detector1::new(data),
+            detector_1: Detector1::new(results, n_spec),
             name: (),
             source: (),
         }
@@ -74,8 +74,7 @@ struct CountsData {
 }
 
 impl Detector1 {
-    fn new(data: &Data) -> Detector1 {
-        let hist = &data.results;
+    fn new(hist: &Histogram, n_spec: usize) -> Detector1 {
         let width = (hist.max_time - hist.min_time) / hist.n_bins as f32;
 
         // these should be replaced when these attrs are added to event data
@@ -95,7 +94,6 @@ impl Detector1 {
 
         let resolution = (width * 1e6) as i32;
 
-        let n_spec = data.dataset.n_spec;
         let spectrum_index = Array1::from_vec((1..=n_spec as i32).collect());
 
         let n_periods: u32 = hist.hist.shape()[0] as u32;
@@ -148,7 +146,7 @@ impl Save for Detector1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interface::Data;
+    use crate::BatchData;
 
     /// Fixture event file already used by other test modules in the crate
     /// (see `data::nexus_data::tests`).
@@ -161,32 +159,19 @@ mod tests {
     /// NOTE: this assumes `Data::new` is `pub` (or `pub(crate)`) so it can be
     /// called from outside `interface.rs`. If it isn't, either make it pub
     /// or move these tests back into `interface.rs`'s own test module.
-    fn calculated_data() -> Data {
-        let mut data = Data::new(TEST_FILE.to_string(), 64, 1048576).unwrap();
+    fn calculated_data() -> Histogram {
+        let mut data = BatchData::new(TEST_FILE.to_string(), 64, 1, 1048576).unwrap();
         data.calculate().unwrap();
-        data
-    }
-
-    /// `Instrument::new` should not panic, and its `detector_1` field should
-    /// have a `spectrum_index` of length `n_spec`.
-    #[test]
-    fn test_instrument_new_spectrum_index_length() {
-        let data = calculated_data();
-        let instrument = Instrument::new(&data);
-
-        assert_eq!(
-            instrument.detector_1.spectrum_index.len(),
-            data.dataset.n_spec
-        );
+        data.results[0].clone()
     }
 
     /// `spectrum_index` should be 1-indexed: [1, 2, ..., n_spec].
     #[test]
     fn test_instrument_spectrum_index_values() {
         let data = calculated_data();
-        let instrument = Instrument::new(&data);
+        let instrument = Instrument::new(&data, 64);
 
-        let expected: Array1<i32> = (1..=data.dataset.n_spec as i32).collect::<Vec<_>>().into();
+        let expected: Array1<i32> = (1..=64).collect::<Vec<_>>().into();
         assert_eq!(instrument.detector_1.spectrum_index, expected);
     }
 
@@ -194,12 +179,12 @@ mod tests {
     #[test]
     fn test_instrument_raw_time_bounds_and_length() {
         let data = calculated_data();
-        let instrument = Instrument::new(&data);
+        let instrument = Instrument::new(&data, 64);
 
         let raw_time = &instrument.detector_1.raw_time;
-        assert_eq!(raw_time.len(), data.results.n_bins + 1);
-        assert_eq!(*raw_time.first().unwrap(), data.results.min_time);
-        assert_eq!(*raw_time.last().unwrap(), data.results.max_time);
+        assert_eq!(raw_time.len(), data.n_bins + 1);
+        assert_eq!(*raw_time.first().unwrap(), data.min_time);
+        assert_eq!(*raw_time.last().unwrap(), data.max_time);
     }
 
     /// `counts.counts` should be a clone of the histogram, matching shape
@@ -207,9 +192,9 @@ mod tests {
     #[test]
     fn test_instrument_counts_matches_histogram() {
         let data = calculated_data();
-        let instrument = Instrument::new(&data);
+        let instrument = Instrument::new(&data, 64);
 
-        assert_eq!(instrument.detector_1.counts.counts, data.results.hist);
+        assert_eq!(instrument.detector_1.counts.counts, data.hist);
     }
 
     /// Explicitly recompute the expected bin values from a known histogram
@@ -217,11 +202,9 @@ mod tests {
     #[test]
     fn test_instrument_good_bins_explicit_values() {
         // min_time=0, max_time=10, n_bins=10 -> width = 1
-        let mut data = calculated_data();
-        data.results = crate::stats::Histogram::new(0., 10., 10);
-        data.calculate().unwrap();
+        let data = crate::stats::Histogram::new(0., 10., 10);
 
-        let instrument = Instrument::new(&data);
+        let instrument = Instrument::new(&data, 64);
         let counts = &instrument.detector_1.counts;
 
         // width = (10 - 0) / 10 = 1
@@ -237,11 +220,9 @@ mod tests {
     /// picoseconds (width * 1e6), truncated to an integer.
     #[test]
     fn test_instrument_resolution_calculation() {
-        let mut data = calculated_data();
-        data.results = crate::stats::Histogram::new(0., 10., 10);
-        data.calculate().unwrap();
+        let data = crate::stats::Histogram::new(0., 10., 10);
 
-        let instrument = Instrument::new(&data);
+        let instrument = Instrument::new(&data, 64);
 
         let width = (10.0f32 - 0.0f32) / 10.0f32; // = 1.0
         let expected_resolution = (width * 1e6) as i32;
@@ -257,18 +238,18 @@ mod tests {
         use std::env::temp_dir;
 
         let data = calculated_data();
-        let instrument = Instrument::new(&data);
+        let instrument = Instrument::new(&data, 64);
 
         let mut tmp_path = temp_dir();
         tmp_path.push("instrument_test.nxs");
         let tmp = File::create(tmp_path).unwrap();
         let group = tmp.create_group("instrument").unwrap();
-        let event_data = data.dataset.file.group("raw_data_1").unwrap();
+        let event_data = File::open(TEST_FILE).unwrap().group("raw_data_1").unwrap();
 
         instrument.save(&group, &event_data).unwrap();
 
         let detector_1 = group.group("detector_1").unwrap();
         let counts = detector_1.dataset("counts").unwrap();
-        assert_eq!(counts.shape(), data.results.hist.shape());
+        assert_eq!(counts.shape(), data.hist.shape());
     }
 }
