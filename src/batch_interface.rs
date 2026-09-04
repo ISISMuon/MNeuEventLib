@@ -557,12 +557,21 @@ mod tests {
     #[test]
     fn test_add_time_filter_out_of_range() {
         let mut batch = make_batch(3);
+        batch
+            .add_time_filter(FilterIndex::Index(1), "good filter".to_string(), 0.5, 1.5)
+            .unwrap();
         let result = batch.add_time_filter(FilterIndex::Index(5), "f1".to_string(), 1.0, 2.0);
         assert!(result.is_err());
 
-        for filters in &batch.filters {
-            let (starts, _) = filters.get_time_filter_times();
-            assert!(starts.is_empty());
+        for (index, filters) in batch.filters.into_iter().enumerate() {
+            let (starts, ends) = filters.get_time_filter_times();
+            if index == 1 {
+                // converted to ns
+                assert_eq!(starts, vec![0.5e9 as usize]);
+                assert_eq!(ends, vec![1.5e9 as usize]);
+            } else {
+                assert!(starts.is_empty());
+            }
         }
     }
 
@@ -574,6 +583,9 @@ mod tests {
         batch
             .add_time_filter(FilterIndex::All, "f1".to_string(), 1.0, 2.0)
             .unwrap();
+        batch
+            .add_time_filter(FilterIndex::Index(0), "f2".to_string(), 2.5, 3.5)
+            .unwrap();
 
         batch
             .remove_time_filter(FilterIndex::Index(0), "f1".to_string())
@@ -582,7 +594,8 @@ mod tests {
         let (starts0, _) = batch.filters[0].get_time_filter_times();
         let (starts1, _) = batch.filters[1].get_time_filter_times();
 
-        assert!(starts0.is_empty());
+        // converted to ns
+        assert_eq!(starts0, vec![2.5e9 as usize]);
         assert_eq!(starts1, vec![1e9 as usize]);
     }
 
@@ -590,19 +603,23 @@ mod tests {
     /// every filter set.
     #[test]
     fn test_remove_time_filter_all_indices() {
-        let mut batch = make_batch(3);
+        let mut batch = make_batch(2);
         batch
             .add_time_filter(FilterIndex::All, "f1".to_string(), 1.0, 2.0)
+            .unwrap();
+        batch
+            .add_time_filter(FilterIndex::Index(0), "f2".to_string(), 2.5, 3.5)
             .unwrap();
 
         batch
             .remove_time_filter(FilterIndex::All, "f1".to_string())
             .unwrap();
 
-        for filters in &batch.filters {
-            let (starts, ends) = filters.get_time_filter_times();
-            assert!(starts.is_empty() && ends.is_empty());
-        }
+        let (starts0, _) = batch.filters[0].get_time_filter_times();
+        let (starts1, _) = batch.filters[1].get_time_filter_times();
+
+        assert_eq!(starts0, vec![2.5e9 as usize]);
+        assert!(starts1.is_empty())
     }
 
     /// Adding a log filter at a single index should only affect that
