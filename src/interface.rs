@@ -1,9 +1,12 @@
 use anyhow::{Error, Result};
 use pyo3::prelude::{pyclass, pymethods};
 
+use crate::data::save::sanitise::nexus_data::{get_p_info, save_default};
 use crate::data::{NexusData, SaveFile, WiMDAFile};
 use crate::filters::Filters;
 use crate::stats::Histogram;
+
+use std::path::PathBuf;
 
 /// The main MNeuEventLib interface.
 #[pyclass(from_py_object)]
@@ -226,5 +229,47 @@ impl Data {
             self.filters.__repr__(),
             self.results.__repr__()
         )
+    }
+
+    /// Save to a Nexus version 2 file that is compatable with
+    /// Mantid using provided reference file for data.
+    /// This is needed because the event data files has mistakes/problems.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename for the saved file.
+    /// ref_file: str
+    ///     The reference file for the saved file. (must be a Nexus file)
+    ///     Contains "correct" data that should be copied to the output file.
+    ///     This can be generated from tools/make_default.py
+    ///
+    /// Returns
+    /// -------
+    /// Result<()>
+    ///     Ok(()) if the file is saved successfully
+    ///     Err(anyhow::Error) if the file cannot be saved
+    #[pyo3(signature = (filename, ref_file = (PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("files/muon_ref.nxs")).display().to_string()))]
+    pub fn save_nexus(&self, filename: String, ref_file: String) -> Result<()> {
+        // 1. Save using the existing WiMDA save logic to `filename`
+        let wimda_file = WiMDAFile::new(self)?;
+        wimda_file.save(filename.clone(), &self.dataset.file)?;
+        // 2. Read p_info from input file
+        let (periods, dwell) = get_p_info(&self.dataset.filename)?;
+
+        // 3. Setup shapes map
+        let mut shapes = std::collections::HashMap::new();
+        let n = self.dataset.n_spec;
+        println!("checking {}", n);
+        shapes.insert("N".to_string(), n);
+        shapes.insert("P".to_string(), periods);
+        shapes.insert("NP".to_string(), n * periods);
+        shapes.insert("PD".to_string(), periods + dwell);
+        shapes.insert("NPD".to_string(), n * (periods + dwell));
+
+        // 4. Run save_default to merge/copy from ref_file
+        save_default(&filename, &ref_file, &shapes)?;
+
+        Ok(())
     }
 }

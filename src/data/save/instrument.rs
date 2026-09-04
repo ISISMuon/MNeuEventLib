@@ -118,8 +118,8 @@ impl Save for Detector1 {
         let counts = add_array(group, &self.counts.counts, "counts")?;
         add_str_attr::<44>(&counts, "period_index,spectrum_index,raw_time", "axes")?;
         add_attr(&counts, self.counts.t0_bin, "t0_bin")?;
-        add_attr(&counts, self.counts.first_good_bin, "first_good_bin")?;
-        add_attr(&counts, self.counts.last_good_bin, "last_good_bin")?;
+        add_attr(&counts, self.counts.first_good_bin as i32, "first_good_bin")?;
+        add_attr(&counts, self.counts.last_good_bin as i32, "last_good_bin")?;
         add_attr(&counts, 1, "signal")?;
         add_str_attr::<15>(&counts, "positron_counts", "long_name")?;
 
@@ -253,6 +253,7 @@ mod tests {
     /// `Save` implementation.
     #[test]
     fn test_instrument_save_round_trip() {
+        let _guard = crate::test_utils::lock_hdf5_test();
         use hdf5::File;
         use std::env::temp_dir;
 

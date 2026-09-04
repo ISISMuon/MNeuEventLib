@@ -174,6 +174,7 @@ mod tests {
     /// attributes in the HDF5 group.
     #[test]
     fn test_periods_save_round_trip() {
+        let _guard = crate::test_utils::lock_hdf5_test();
         use hdf5::File;
         use std::env::temp_dir;
 

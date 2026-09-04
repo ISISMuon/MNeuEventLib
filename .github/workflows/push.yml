@@ -11,7 +11,7 @@ jobs:
     name: Check formatting
     runs-on: ubuntu-slim
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt 
@@ -21,7 +21,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -35,7 +35,77 @@ jobs:
         os: [windows-latest, ubuntu-latest, macOS-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --verbose
+
+  run_integration_tests:
+    name: Integration tests
+    needs: [lint, format]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        build: [stable, nightly]
+        include:
+          - build: stable
+            mantid_channel: 'mantid'
+          - build: nightly
+            mantid_channel: 'mantid/label/nightly'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: "0"
+
+      - name: Setup Conda
+        uses: conda-incubator/setup-miniconda@v4
+        with:
+          miniconda-version: "latest"
+          mamba-version: "*"
+          channels: ${{ matrix.mantid_channel }},conda-forge
+          channel-priority: flexible
+          conda-remove-defaults: true
+          activate-environment: mantid-env
+          auto-activate-base: false
+
+      - name: Install Mantid and test deps
+        shell: bash -el {0}
+        env:
+          MSYS_NO_PATHCONV: 1
+        run: mamba install -y -n mantid-env mantid pytest pip
+      
+      - name: Show resolved python version
+        shell: bash -el {0}
+        run: |
+          conda activate mantid-env
+          python --version
+
+      - name: Install maturin into mantid-env
+        shell: bash -el {0}
+        run: |
+          conda activate mantid-env
+          python -m pip install maturin
+
+      - name: Verify test deps installed
+        shell: bash -el {0}
+        run: |
+          mamba list -n mantid-env pytest
+          conda activate mantid-env
+          python -c "import pytest; print(pytest.__version__)"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build and install Rust extension into conda env
+        shell: bash -el {0}
+        run: |
+          conda activate mantid-env
+          python -m maturin develop --release
+
+      - name: Run integration tests
+        shell: bash -el {0}
+        run: |
+          conda activate mantid-env
+          python -m pytest tests/Mantid/
   

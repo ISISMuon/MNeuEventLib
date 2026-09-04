@@ -14,6 +14,12 @@ use crate::data::NexusData;
 const FLOAT_EVENT_FIELDS: [&str; 3] = ["event_time_offset", "pulse_height", "event_time_zero"];
 const INT_EVENT_FIELDS: [&str; 3] = ["event_id", "event_index", "period_number"];
 
+pub static HDF5_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+pub fn lock_hdf5_test() -> std::sync::MutexGuard<'static, ()> {
+    HDF5_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// we don't use `file` but we want it to continue to exist
 #[allow(dead_code)]
 pub struct MockData {
@@ -21,11 +27,13 @@ pub struct MockData {
     nxs_file: File,
     pub event_data: Group,
     pub sample_logs: Group,
+    _guard: std::sync::MutexGuard<'static, ()>,
 }
 
 impl MockData {
     // Create a new empty mock data object.
     pub fn new() -> Result<MockData> {
+        let guard = lock_hdf5_test();
         let tempfile = NamedTempFile::new()?;
         let file = File::create(tempfile.path())?;
         let data = file.create_group("raw_data_1")?;
@@ -36,6 +44,7 @@ impl MockData {
             nxs_file: file,
             event_data,
             sample_logs,
+            _guard: guard,
         })
     }
 

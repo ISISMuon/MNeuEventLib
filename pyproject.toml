@@ -23,4 +23,5 @@ docs = ["ipykernel", "nbsphinx"]
 [tool.maturin]
 features = ["pyo3/extension-module"]
 module-name = "MNeuEventLib.core"
+include = ["files/muon_ref.nxs"]
 universal2 = true  # makes arm64 + x86_64 wheels for mac
