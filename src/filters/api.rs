@@ -29,15 +29,15 @@ pub struct Filter {
 pub struct LogFilter {
     name: String,
     log: String,
-    lower: Option<f64>,
-    upper: Option<f64>,
+    pub lower: Option<f64>,
+    pub upper: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Filters {
     time_filter_type: FilterType,
     time_filters: Vec<Filter>,
-    sample_log_filters: Vec<LogFilter>,
+    pub sample_log_filters: Vec<LogFilter>,
     amplitudes: HashMap<usize, f64>,
 }
 
