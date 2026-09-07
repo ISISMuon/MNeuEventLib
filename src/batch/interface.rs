@@ -55,7 +55,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for FilterIndex {
 #[derive(Clone)]
 pub struct BatchData {
     #[pyo3(get)]
-    pub dataset: NexusData,
+    pub dataset: Option<NexusData>,
     pub results: Vec<Histogram>,
     pub filters: Vec<Filters>,
     data_changed: Vec<bool>, // whether data has changed since last calculation, per filter set
@@ -88,13 +88,26 @@ impl BatchData {
         }
         let dataset = NexusData::new(filename, n_spec, chunk_size)?;
         Ok(BatchData {
-            dataset,
+            dataset: Some(dataset),
             results: (0..n_filter_sets)
                 .map(|_| Histogram::new(0, 32768, 2048))
                 .collect(),
             filters: (0..n_filter_sets).map(|_| Filters::new()).collect(),
             data_changed: vec![true; n_filter_sets],
         })
+    }
+
+    /// Set the dataset for the current Data object.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: String
+    ///     The name of the dataset.
+    #[pyo3(signature = (filename, n_spec, chunk_size=1048576))]
+    pub fn set_data(&mut self, filename: String, n_spec: usize, chunk_size: usize) -> Result<()> {
+        let dataset = NexusData::new(filename, n_spec, chunk_size)?;
+        self.dataset = Some(dataset);
+        Ok(())
     }
 
     /// Calculate the histograms for the current data and each filter set.
@@ -105,14 +118,21 @@ impl BatchData {
     ///     This object, with `results[i]` holding the histogram calculated
     ///     from `dataset` and `filters[i]`, for each `i`.
     pub fn calculate(&mut self) -> Result<BatchData> {
-        for i in 0..self.n_batches() {
-            if self.data_changed[i] {
-                let result = self.results[i].calculate(&self.dataset, &self.filters[i])?;
-                self.data_changed[i] = false;
-                self.results[i] = result;
+        match &self.dataset {
+            Some(dataset) => {
+                for i in 0..self.n_batches() {
+                    if self.data_changed[i] {
+                        let result = self.results[i].calculate(dataset, &self.filters[i])?;
+                        self.data_changed[i] = false;
+                        self.results[i] = result;
+                    }
+                }
+                Ok(self.clone())
             }
+            None => Err(Error::msg(
+                "Dataset has not been set! Set with the set_data() method.",
+            )),
         }
-        Ok(self.clone())
     }
 
     /// Force histograms to be recalculated even if the data hasn't changed.
@@ -214,56 +234,6 @@ impl BatchData {
         Ok(())
     }
 
-    /// Add a time filter to every filter set, splitting the range from `start`
-    /// to `end` into evenly-spaced consecutive time filters, one per filter set.
-    ///
-    /// Parameters
-    /// ----------
-    /// name: str
-    ///     The name of the time filter. Must be unique within each filter set.
-    /// start: float
-    ///     The start point of the first filter set's time filter.
-    /// end: float
-    ///     The end point of the last filter set's time filter.
-    pub fn add_time_linspace(&mut self, name: String, start: f64, end: f64) -> Result<()> {
-        let array = Array1::linspace(start, end, self.n_batches() + 1);
-        self.array_to_time_filters(name, array)
-    }
-
-    /// Add a time filter to every filter set, splitting the range from `start`
-    /// to `end` into geometrically (log)-spaced consecutive time filters, one per filter set.
-    ///
-    /// Parameters
-    /// ----------
-    /// name: str
-    ///     The name of the time filter. Must be unique within each filter set.
-    /// start: float
-    ///     The start point of the first filter set's time filter.
-    /// end: float
-    ///     The end point of the last filter set's time filter.
-    pub fn add_time_geomspace(&mut self, name: String, start: f64, end: f64) -> Result<()> {
-        let array = Array1::geomspace(start, end, self.n_batches() + 1)
-            .ok_or(Error::msg("Invalid bounds for geometric spacing."))?;
-        self.array_to_time_filters(name, array)
-    }
-
-    /// Add a time filter to every filter set, splitting the range starting at
-    /// `start` into consecutive time filters of width `step`, one per filter
-    /// set.
-    ///
-    /// Parameters
-    /// ----------
-    /// name: str
-    ///     The name of the time filter. Must be unique within each filter set.
-    /// start: float
-    ///     The start point of the first filter set's time filter.
-    /// step: float
-    ///     The width of each filter set's time filter.
-    pub fn add_time_range(&mut self, name: String, start: f64, step: f64) -> Result<()> {
-        let array = self.range_array(start, step)?;
-        self.array_to_time_filters(name, array)
-    }
-
     /// Add a sample log filter.
     ///
     /// Parameters
@@ -361,82 +331,6 @@ impl BatchData {
         Ok(())
     }
 
-    /// Add a sample log filter to every filter set, splitting the range from
-    /// `start` to `end` into evenly-spaced consecutive log filters, one per
-    /// filter set.
-    ///
-    /// Parameters
-    /// ----------
-    /// name: str
-    ///     The name of the log filter. Must be unique within each filter set.
-    /// log: str
-    ///     The sample log in the data to which the filters apply.
-    /// start: float
-    ///     The lower bound of the first filter set's log filter.
-    /// end: float
-    ///     The upper bound of the last filter set's log filter.
-    pub fn add_log_linspace(
-        &mut self,
-        name: String,
-        log: String,
-        start: f64,
-        end: f64,
-    ) -> Result<()> {
-        let array = Array1::linspace(start, end, self.n_batches() + 1);
-        self.array_to_log_filters(name, log, array)
-    }
-
-    /// Add a sample log filter to every filter set, splitting the range from
-    /// `start` to `end` into geometrically (log)-spaced consecutive log filters,
-    /// one per filter set.
-    ///
-    /// Parameters
-    /// ----------
-    /// name: str
-    ///     The name of the log filter. Must be unique within each filter set.
-    /// log: str
-    ///     The sample log in the data to which the filters apply.
-    /// start: float
-    ///     The lower bound of the first filter set's log filter.
-    /// end: float
-    ///     The upper bound of the last filter set's log filter.
-    pub fn add_log_geomspace(
-        &mut self,
-        name: String,
-        log: String,
-        start: f64,
-        end: f64,
-    ) -> Result<()> {
-        let array = Array1::geomspace(start, end, self.n_batches() + 1)
-            .ok_or(Error::msg("Invalid bounds for geometric spacing."))?;
-        self.array_to_log_filters(name, log, array)
-    }
-
-    /// Add a sample log filter to every filter set, splitting the range
-    /// starting at `start` into consecutive log filters of width `step`, one
-    /// per filter set.
-    ///
-    /// Parameters
-    /// ----------
-    /// name: str
-    ///     The name of the log filter. Must be unique within each filter set.
-    /// log: str
-    ///     The sample log in the data to which the filters apply.
-    /// start: float
-    ///     The lower bound of the first filter set's log filter.
-    /// step: float
-    ///     The width of each filter set's log filter.
-    pub fn add_log_range(
-        &mut self,
-        name: String,
-        log: String,
-        start: f64,
-        step: f64,
-    ) -> Result<()> {
-        let array = self.range_array(start, step)?;
-        self.array_to_log_filters(name, log, array)
-    }
-
     /// Set the amplitude filter for a detector.
     ///
     /// Parameters
@@ -517,8 +411,9 @@ impl BatchData {
                         "Cannot save as results have not been calculated.",
                     ));
                 }
-                let wimda_file = WiMDAFile::new(&self.dataset, &self.filters[i], &self.results[i])?;
-                wimda_file.save_file(format!("{filename_stem}.nxs"), &self.dataset.file)?;
+                let dataset = self.dataset.as_ref().unwrap();
+                let wimda_file = WiMDAFile::new(dataset, &self.filters[i], &self.results[i])?;
+                wimda_file.save_file(format!("{filename_stem}.nxs"), &dataset.file)?;
                 if autofill {
                     self.save_nexus(format!("{filename_stem}.nxs"), ref_file.clone())?;
                 }
@@ -529,10 +424,11 @@ impl BatchData {
                         "Cannot save as results have not been calculated.",
                     ));
                 }
+                let dataset = self.dataset.as_ref().unwrap();
                 for i in 0..self.n_batches() {
                     let wimda_file =
-                        WiMDAFile::new(&self.dataset, &self.filters[i], &self.results[i])?;
-                    wimda_file.save_file(format!("{filename_stem}_{i}.nxs"), &self.dataset.file)?;
+                        WiMDAFile::new(dataset, &self.filters[i], &self.results[i])?;
+                    wimda_file.save_file(format!("{filename_stem}_{i}.nxs"), &dataset.file)?;
                     if autofill {
                         self.save_nexus(format!("{filename_stem}_{i}.nxs"), ref_file.clone())?;
                     }
@@ -576,7 +472,10 @@ impl BatchData {
     }
 
     fn __repr__(&self) -> String {
-        let mut string = self.dataset.__repr__();
+        let mut string = match &self.dataset {
+            Some(data) => data.__repr__(),
+            None => "No data set.".to_string(),
+        };
         for (i, (filters, results)) in self.filters.iter().zip(self.results.iter()).enumerate() {
             string += &format!(
                 "\n\nFilter set {i}:\n{}\n\n{}",
@@ -594,6 +493,16 @@ impl BatchData {
 }
 
 impl BatchData {
+    /// Create an empty BatchData object.
+    pub fn empty(n: usize) -> BatchData {
+        BatchData {
+            dataset: None,
+            results: vec![Histogram::new(0, 32768, 2048); n],
+            filters: vec![Filters::new(); n],
+            data_changed: vec![true; n],
+        }
+    }
+
     /// Resolve a [`FilterIndex`] into a list of valid filter set indices,
     /// checking bounds along the way.
     fn resolve_indices(&self, index: &FilterIndex) -> Result<Vec<usize>> {
@@ -617,21 +526,8 @@ impl BatchData {
         Ok(())
     }
 
-    /// Get the n+1 boundaries of n consecutive intervals of width `step`,
-    /// starting at `start`, where n is the number of batches.
-    fn range_array(&self, start: f64, step: f64) -> Result<Array1<f64>> {
-        if !start.is_finite() || !step.is_finite() {
-            return Err(Error::msg("start and step must be finite."));
-        }
-        if step <= 0. {
-            return Err(Error::msg("step must be greater than zero."));
-        }
-        let end = start + step * (self.n_batches() + 1) as f64;
-        Ok(Array1::range(start, end, step))
-    }
-
     /// Turn an array of n+1 elements into n time filters across the batches.
-    fn array_to_time_filters(&mut self, name: String, input: Array1<f64>) -> Result<()> {
+    pub fn array_to_time_filters(&mut self, name: String, input: Array1<f64>) -> Result<()> {
         self.check_array_len(&input)?;
         for i in 0..self.n_batches() {
             self.add_time_filter(FilterIndex::Index(i), name.clone(), input[i], input[i + 1])?
@@ -640,7 +536,7 @@ impl BatchData {
     }
 
     /// Turn an array of n+1 elements into n sample log filters across the batches.
-    fn array_to_log_filters(
+    pub fn array_to_log_filters(
         &mut self,
         name: String,
         log: String,
@@ -691,11 +587,12 @@ impl BatchData {
     ///     muon nexus v2 file. The ref_file is generated from tools/make_default.py.
     pub fn save_nexus(&self, filename: String, ref_file: String) -> Result<()> {
         // 1. Read p_info from input file
-        let (periods, dwell) = get_period_info(&self.dataset.filename)?;
+        let dataset = self.dataset.as_ref().unwrap();
+        let (periods, dwell) = get_period_info(&dataset.filename)?;
 
         // 2. Setup shapes map
         let mut shapes = std::collections::HashMap::new();
-        let n = self.dataset.n_spec;
+        let n = dataset.n_spec;
         shapes.insert("N".to_string(), n);
         shapes.insert("P".to_string(), periods);
         shapes.insert("NP".to_string(), n * periods);
@@ -721,7 +618,7 @@ mod tests {
         let mock = MockData::new().unwrap();
         let dataset = mock.create(64, 1048576).unwrap();
         BatchData {
-            dataset,
+            dataset: Some(dataset),
             results: (0..n_filter_sets)
                 .map(|_| Histogram::new(0, 32768, 2048))
                 .collect(),
@@ -896,53 +793,6 @@ mod tests {
             assert_eq!(filters.sample_log_filters[0].lower, Some(array[k]));
             assert_eq!(filters.sample_log_filters[0].upper, Some(array[k + 1]));
         }
-    }
-
-    /// range time filters should give each filter set one time filter,
-    /// covering consecutive chunks of the given width.
-    #[test]
-    fn test_range_time_filters() {
-        let mut batch = make_batch(4);
-        batch.add_time_range("f1".to_string(), 1., 0.5).unwrap();
-
-        for (i, filters) in batch.filters.iter().enumerate() {
-            let (starts, ends) = filters.get_time_filter_times();
-            assert_eq!(starts, vec![((1. + i as f64 * 0.5) * 1e9) as usize]);
-            assert_eq!(ends, vec![((1. + (i + 1) as f64 * 0.5) * 1e9) as usize]);
-        }
-    }
-
-    /// range log filters should give each filter set one sample log filter
-    /// on the given log, covering consecutive chunks of the given width.
-    #[test]
-    fn test_range_log_filters() {
-        let mut batch = make_batch(4);
-        batch
-            .add_log_range("lf1".to_string(), "temp".to_string(), 1., 0.5)
-            .unwrap();
-
-        for (k, filters) in batch.filters.into_iter().enumerate() {
-            assert_eq!(filters.get_required_log_names(), vec!["temp".to_string()]);
-            assert_eq!(
-                filters.sample_log_filters[0].lower,
-                Some(1. + k as f64 * 0.5)
-            );
-            assert_eq!(
-                filters.sample_log_filters[0].upper,
-                Some(1. + (k + 1) as f64 * 0.5)
-            );
-        }
-    }
-
-    /// A non-positive or non-finite step should be rejected.
-    #[test]
-    fn test_range_invalid_step() {
-        let mut batch = make_batch(4);
-        assert!(batch.add_time_range("f1".to_string(), 0., 0.).is_err());
-        assert!(batch.add_time_range("f1".to_string(), 0., -1.).is_err());
-        assert!(batch
-            .add_time_range("f1".to_string(), 0., f64::NAN)
-            .is_err());
     }
 
     /// Adding a log filter at a single index should only affect that
