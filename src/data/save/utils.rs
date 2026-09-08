@@ -10,7 +10,7 @@ pub type CopyData = ();
 
 pub trait SaveFile {
     /// Save an object to file.
-    fn save(&self, filename: String, event_data: &File) -> Result<()>;
+    fn save_file(&self, filename: String, event_data: &File) -> Result<()>;
 }
 
 pub trait Save {

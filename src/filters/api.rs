@@ -4,8 +4,6 @@ use std::fs::File;
 
 use anyhow::{Error, Result};
 use ndarray::Array1;
-use pyo3::prelude::{pyclass, pymethods, Bound};
-use pyo3::types::PyType;
 use serde::{Deserialize, Serialize};
 use tabled::{builder::Builder, Table, Tabled};
 
@@ -35,7 +33,6 @@ pub struct LogFilter {
     upper: Option<f64>,
 }
 
-#[pyclass(from_py_object)]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Filters {
     time_filter_type: FilterType,
@@ -45,6 +42,15 @@ pub struct Filters {
 }
 
 impl Filters {
+    pub fn new() -> Filters {
+        Filters {
+            time_filter_type: FilterType::Include,
+            time_filters: Vec::<Filter>::new(),
+            sample_log_filters: Vec::<LogFilter>::new(),
+            amplitudes: HashMap::<usize, f64>::new(),
+        }
+    }
+
     /// Get the start and end points of each time filter.
     pub fn get_time_filter_times(&self) -> (Vec<usize>, Vec<usize>) {
         // note this just gets the intervals for each filter; whether
@@ -118,19 +124,6 @@ impl Filters {
             array[*key] = *value;
         }
         Ok(array)
-    }
-}
-
-#[pymethods]
-impl Filters {
-    #[new]
-    pub fn new() -> Filters {
-        Filters {
-            time_filter_type: FilterType::Include,
-            time_filters: Vec::<Filter>::new(),
-            sample_log_filters: Vec::<LogFilter>::new(),
-            amplitudes: HashMap::<usize, f64>::new(),
-        }
     }
 
     /// Set the time filter type.
@@ -235,9 +228,9 @@ impl Filters {
     }
 
     /// Load filters from a JSON file.
-    #[classmethod]
-    pub fn load(_cls: &Bound<'_, PyType>, filename: String) -> Result<Filters> {
-        _load(filename)
+    pub fn load(filename: String) -> Result<Filters> {
+        let file = File::open(&filename)?;
+        Ok(serde_json::from_reader(file)?)
     }
 
     /// Create a string describing the filter data.
@@ -272,13 +265,6 @@ impl Filters {
         };
         format!("Time filter type: {time_type}\n\nTime filters:\n{times_table}\n\nLog filters:\n{log_table}\n\nAmplitude filters:\n{amps_table}")
     }
-}
-
-/// Internal of load function so we can call it from Rust.
-#[inline(always)]
-fn _load(filename: String) -> Result<Filters> {
-    let file = File::open(&filename)?;
-    Ok(serde_json::from_reader(file)?)
 }
 
 #[cfg(test)]
@@ -820,7 +806,7 @@ mod tests {
 
         let save_result = filters.save(tmp_path.clone());
         assert!(save_result.is_ok());
-        let loaded_filters = _load(tmp_path).unwrap();
+        let loaded_filters = Filters::load(tmp_path).unwrap();
 
         assert_eq!(filters, loaded_filters)
     }
@@ -860,7 +846,7 @@ mod tests {
 
         let save_result = filters.save(tmp_path.clone());
         assert!(save_result.is_ok());
-        let loaded_filters = _load(tmp_path).unwrap();
+        let loaded_filters = Filters::load(tmp_path).unwrap();
 
         assert_eq!(filters, loaded_filters)
     }
@@ -868,7 +854,7 @@ mod tests {
     /// Test loading a file that doesn't exist gives an error.
     #[test]
     fn test_load_nonexistent_file() {
-        let filters = _load("./fake_dir/fake_filters.json".to_string());
+        let filters = Filters::load("./fake_dir/fake_filters.json".to_string());
         assert!(filters.is_err())
     }
 

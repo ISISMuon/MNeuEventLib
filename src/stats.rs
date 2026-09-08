@@ -3,16 +3,11 @@ use std::iter::Iterator;
 
 use anyhow::{Error, Result};
 use ndarray::{s, Array1, Array3};
-use numpy::{PyArray3, ToPyArray};
-use pyo3::prelude::{pyclass, pymethods, Bound};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
 use crate::data::{FrameData, NexusData};
 use crate::filters::{get_weights, Filters, Weights};
 
-type PyHist<'py> = Bound<'py, PyArray3<i32>>;
-
-#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct Histogram {
     pub min_time: f32,
@@ -24,36 +19,6 @@ pub struct Histogram {
     pub n_good_frames: Vec<u32>,
     pub start_time: usize,
     pub end_time: usize,
-}
-
-#[pymethods]
-impl Histogram {
-    fn data<'py>(slf: &Bound<'py, Histogram>) -> PyHist<'py> {
-        let py = slf.py();
-        slf.borrow().hist.to_pyarray(py)
-    }
-
-    fn n_events(&self) -> usize {
-        self.n
-    }
-
-    pub fn __repr__(&self) -> String {
-        let shape = self.hist.shape();
-        let mut string = format!(
-            "Histogram with:\n  time range {}, {}",
-            self.min_time, self.max_time
-        );
-        if shape == [0, 0, 0] {
-            string += &format!("\n  {} bins\n  result not calculated", self.n_bins);
-        } else {
-            let plural_periods = if shape[0] > 1 { "s" } else { "" };
-            string += &format!(
-                "\n  {} period{}\n  {} detectors\n  {} bins\n  {} events",
-                shape[0], plural_periods, shape[1], shape[2], self.n
-            )
-        }
-        string
-    }
 }
 
 impl Histogram {
@@ -144,6 +109,24 @@ impl Histogram {
             get_experiment_times(weights, frame_start_times);
 
         Ok(histogram)
+    }
+
+    pub fn __repr__(&self) -> String {
+        let shape = self.hist.shape();
+        let mut string = format!(
+            "Histogram with:\n  time range {}, {}",
+            self.min_time, self.max_time
+        );
+        if shape == [0, 0, 0] {
+            string += &format!("\n  {} bins\n  result not calculated", self.n_bins);
+        } else {
+            let plural_periods = if shape[0] > 1 { "s" } else { "" };
+            string += &format!(
+                "\n  {} period{}\n  {} detectors\n  {} bins\n  {} events",
+                shape[0], plural_periods, shape[1], shape[2], self.n
+            )
+        }
+        string
     }
 }
 
@@ -304,14 +287,6 @@ mod tests {
         assert_eq!(hist.n_bins, 4);
         assert_eq!(hist.n, 0);
         assert_eq!(hist.hist.dim(), (0, 0, 0));
-    }
-
-    /// Test Histogram::n_events returns correct count.
-    #[test]
-    fn test_histogram_n_events() {
-        let mut hist = Histogram::new(0., 3., 3);
-        hist.n = 42;
-        assert_eq!(hist.n_events(), 42);
     }
 
     /// Test a histogram with no filters is correctly constructed.
