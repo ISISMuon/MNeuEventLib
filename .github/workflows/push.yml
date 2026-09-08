@@ -107,5 +107,5 @@ jobs:
         shell: bash -el {0}
         run: |
           conda activate mantid-env
-          python -m pytest tests/Mantid/
+          python -m pytest tests/integration/
   
