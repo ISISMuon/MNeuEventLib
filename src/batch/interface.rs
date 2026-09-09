@@ -363,6 +363,43 @@ impl BatchData {
         Ok(())
     }
 
+    /// Add two BatchData objects together componentwise.
+    ///
+    /// Parameters
+    /// ----------
+    /// other: BatchData
+    ///     The data to add to this dataset.
+    pub fn add(&self, other: BatchData) -> Result<BatchData> {
+        if self.n_batches() != other.n_batches() {
+            return Err(Error::msg(
+                "Can only add data objects with the same number of batches.",
+            ));
+        }
+
+        let dataset = self.combine_data(&other.dataset)?;
+
+        let results = self.results.clone();
+
+        let data_changed = vec![true; results.len()];
+
+        let mut filters = self.filters.clone();
+        for (i, filter) in filters.iter_mut().enumerate() {
+            filter.extend(other.filters[i].clone())
+        }
+
+        Ok(BatchData {
+            dataset,
+            filters,
+            results,
+            data_changed,
+        })
+    }
+
+    /// Let `+` (add) add objects.
+    pub fn __add__(&self, other: BatchData) -> Result<BatchData> {
+        self.add(other)
+    }
+
     /// Concatenate BatchData objects.
     ///
     /// Parameters
@@ -982,6 +1019,65 @@ mod tests {
                 assert_eq!(ends, vec![4e9 as usize]);
             }
         }
+    }
+
+    /// Adding should merge the filter sets of both objects pairwise,
+    /// leaving the number of filter sets unchanged.
+    #[test]
+    fn test_add() {
+        let mut batch = make_batch(3);
+        for i in 0..3 {
+            batch
+                .add_time_filter(
+                    FilterIndex::Index(i),
+                    format!("a{i}"),
+                    i as f64,
+                    i as f64 + 1.,
+                )
+                .unwrap();
+        }
+
+        let mut other = make_batch(3);
+        for j in 0..3 {
+            other
+                .add_log_filter(
+                    FilterIndex::Index(j),
+                    format!("b{j}"),
+                    format!("log{j}"),
+                    0.,
+                    1.,
+                )
+                .unwrap();
+        }
+
+        let combined = batch.add(other).unwrap();
+
+        assert_eq!(combined.__len__(), 3);
+        assert_eq!(combined.results.len(), 3);
+        assert_eq!(combined.data_changed, vec![true; 3]);
+
+        for (i, filters) in combined.filters.iter().enumerate() {
+            // the time filter comes from this object's filter set i
+            let (starts, ends) = filters.get_time_filter_times();
+            assert_eq!(starts, vec![(i as f64 * 1e9) as usize]);
+            assert_eq!(ends, vec![((i + 1) as f64 * 1e9) as usize]);
+            // the log filter comes from the other object's filter set i
+            assert_eq!(filters.get_required_log_names(), vec![format!("log{i}")]);
+        }
+    }
+
+    /// Adding objects with different numbers of filter sets should error.
+    #[test]
+    fn test_add_mismatched_lengths() {
+        let batch = make_batch(2);
+        let other = make_batch(3);
+
+        let error = batch.add(other).err().unwrap();
+
+        assert_eq!(
+            error.to_string(),
+            "Can only add data objects with the same number of batches.".to_string()
+        );
     }
 
     /// Concatenating should keep each object's own histogram settings.
