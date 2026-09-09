@@ -27,7 +27,7 @@ def mantid_workflow(loader, num):
     data.save(hist_file, default=True)
 
     # load data
-    result = loader(Filename=hist_file)
+    result = loader(Filename=hist_file, deadtimeTable='deadtimes')
     
     # unpack results (Load and LoadMuonNexusV2 has different
     # number of return values
@@ -35,7 +35,7 @@ def mantid_workflow(loader, num):
     T0 = result[2]
     FG = result[3]
     LG = result[4]
-    det = result[7]
+    DT = result[6]
 
     ws1 = ws[0]
     ws2 = ws[1]
@@ -50,7 +50,7 @@ def mantid_workflow(loader, num):
     MPP = MuonPreProcess(InputWorkspace=ws,
                          TimeMin=0,
                          TimeOffset=T0,
-                         DeadTimeTable=det)
+                         DeadTimeTable=DT)
     
     # counts for the groups and periods
     groups = {'fwd': '1-32', 'bwd': '33-64'}
