@@ -8,15 +8,21 @@ from mantid.simpleapi import (CreateWorkspace,
                               Minus,
                               Load,
                               LoadMuonNexusV2)
+from MNeuEventLib import Data
 
 
-def mantid_workflow(loader):
+def mantid_workflow(loader, num):
+    # create event data
     # load data
     dir_path = os.path.dirname(os.path.realpath(__file__))
     file = os.path.join(dir_path,
                         '..',
                         'test_data',
                         'HIFI00195790.nxs')
+    data = Data(file, 64)
+    result = data.calculate()
+    hist_file = os.path.join(dir_path, f'HIFI{num}.nxs')
+    data.save(hist_file, default=True)
     (ws, _, T0, FG,
      LG, _, _, det,
      _, ws1, ws2) = loader(Filename=file)
@@ -66,16 +72,16 @@ def mantid_workflow(loader):
     diff = Minus(LHSWorkspace='long1',
                  RHSWorkspace='long2')
     
- 
+    os.remove(hist_file)
 
 def test_mantid_works():
     ws = CreateWorkspace([1, 2], [3, 4])
 
 
 def test_mantid_workflow_Load():
-    mantid_workflow(Load)
+    mantid_workflow(Load, 42)
 
 
 def test_mantid_workflow_LoadMuonNexusv2():
-    mantid_workflow(LoadMuonNexusV2)
+    mantid_workflow(LoadMuonNexusV2, 51)
 
