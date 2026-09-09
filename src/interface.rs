@@ -2,7 +2,6 @@ use anyhow::Result;
 use numpy::ToPyArray;
 use pyo3::prelude::{pyclass, pymethods, Bound};
 
-use crate::data::save::sanitise::nexus_data::{get_p_info, save_default};
 use crate::batch_interface::{FilterIndex, PyHist};
 use crate::{BatchData, NexusData};
 
@@ -196,8 +195,20 @@ impl Data {
     /// ----------
     /// filename: str
     ///     The filename for the saved file.
-    fn save(&self, filename: String) -> Result<()> {
-        self.inner.save(FilterIndex::Index(0), filename)
+    /// default: bool
+    ///     Whether to use default values for the missing meta-data (this is
+    ///     needed because the event data files has mistakes/problems).
+    ///     This allows the file to be read by Mantid even if the event file
+    ///     is incomplete.
+    /// ref_file: str
+    ///     The reference file for the saved file. (must be a Nexus file)
+    ///     Contains "correct" data that should be copied to the output file.
+    ///     This is only need it the reference file needed is not the standard
+    ///     muon nexus v2 file. The ref_file is generated from tools/make_default.py.
+    #[pyo3(signature = (filename, default=true, ref_file = (PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("files/muon_ref.nxs")).display().to_string()))]
+    fn save(&self, filename: String, default: bool, ref_file: String) -> Result<()> {
+        self.inner
+            .save(FilterIndex::Index(0), filename, default, ref_file.clone())
     }
 
     /// Get the calculated histogram.
@@ -218,47 +229,5 @@ impl Data {
             self.inner.filters[0].__repr__(),
             self.inner.results[0].__repr__()
         )
-    }
-
-    /// Save to a Nexus version 2 file that is compatable with
-    /// Mantid using provided reference file for data.
-    /// This is needed because the event data files has mistakes/problems.
-    ///
-    /// Parameters
-    /// ----------
-    /// filename: str
-    ///     The filename for the saved file.
-    /// ref_file: str
-    ///     The reference file for the saved file. (must be a Nexus file)
-    ///     Contains "correct" data that should be copied to the output file.
-    ///     This can be generated from tools/make_default.py
-    ///
-    /// Returns
-    /// -------
-    /// Result<()>
-    ///     Ok(()) if the file is saved successfully
-    ///     Err(anyhow::Error) if the file cannot be saved
-    #[pyo3(signature = (filename, ref_file = (PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("files/muon_ref.nxs")).display().to_string()))]
-    pub fn save_nexus(&self, filename: String, ref_file: String) -> Result<()> {
-        // 1. Save using the existing WiMDA save logic to `filename`
-        let wimda_file = WiMDAFile::new(self)?;
-        wimda_file.save(filename.clone(), &self.dataset.file)?;
-        // 2. Read p_info from input file
-        let (periods, dwell) = get_p_info(&self.dataset.filename)?;
-
-        // 3. Setup shapes map
-        let mut shapes = std::collections::HashMap::new();
-        let n = self.dataset.n_spec;
-        println!("checking {}", n);
-        shapes.insert("N".to_string(), n);
-        shapes.insert("P".to_string(), periods);
-        shapes.insert("NP".to_string(), n * periods);
-        shapes.insert("PD".to_string(), periods + dwell);
-        shapes.insert("NPD".to_string(), n * (periods + dwell));
-
-        // 4. Run save_default to merge/copy from ref_file
-        save_default(&filename, &ref_file, &shapes)?;
-
-        Ok(())
     }
 }
