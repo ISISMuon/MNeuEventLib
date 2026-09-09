@@ -51,6 +51,11 @@ impl Filters {
         }
     }
 
+    pub fn extend(&mut self, other: Filters) {
+        self.time_filters.extend(other.time_filters);
+        self.sample_log_filters.extend(other.sample_log_filters);
+    }
+
     /// Get the start and end points of each time filter.
     pub fn get_time_filter_times(&self) -> (Vec<usize>, Vec<usize>) {
         // note this just gets the intervals for each filter; whether
