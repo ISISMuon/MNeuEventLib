@@ -12,21 +12,33 @@ from MNeuEventLib import Data
 
 
 def mantid_workflow(loader, num):
-    # create event data
-    # load data
+    # set up
+    periods = ['1', '2']
     dir_path = os.path.dirname(os.path.realpath(__file__))
     file = os.path.join(dir_path,
                         '..',
                         'test_data',
                         'HIFI00195790.nxs')
+   
+    # create histogram data from events
     data = Data(file, 64)
     result = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI{num}.nxs')
     data.save(hist_file, default=True)
-    (ws, _, T0, FG,
-     LG, _, _, det,
-     _, ws1, ws2) = loader(Filename=hist_file)
-    periods = ['1', '2']
+
+    # load data
+    result = loader(Filename=hist_file)
+    
+    # unpack results (Load and LoadMuonNexusV2 has different
+    # number of return values
+    ws = result[0]
+    T0 = result[2]
+    FG = result[3]
+    LG = result[4]
+    det = result[7]
+
+    ws1 = ws[0]
+    ws2 = ws[1]
     
     # mantid expects specific names for the workspaces
     RenameWorkspace(InputWorkspace=ws1,
@@ -72,6 +84,7 @@ def mantid_workflow(loader, num):
     diff = Minus(LHSWorkspace='long1',
                  RHSWorkspace='long2')
     
+    # clean up
     os.remove(hist_file)
 
 def test_mantid_works():
