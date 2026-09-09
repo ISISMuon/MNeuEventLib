@@ -11,7 +11,7 @@ from mantid.simpleapi import (CreateWorkspace,
 
 def mantid_workflow(loader):
     # load data
-     file = '/mnt/babylon/Public/Anthony_Lim/HIFI42.nxs')
+    file = '/mnt/babylon/Public/Anthony_Lim/HIFI42.nxs'
     (ws, _, T0, FG,
      LG, _, _, det,
      _, ws1, ws2) = Loader(Filename=file)
