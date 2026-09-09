@@ -363,6 +363,79 @@ impl BatchData {
         Ok(())
     }
 
+    /// Concatenate BatchData objects.
+    ///
+    /// Parameters
+    /// ----------
+    /// other: BatchData
+    ///     The data to concatenate with this dataset.
+    pub fn concatenate(&self, other: BatchData) -> Result<BatchData> {
+        let dataset = self.combine_data(&other.dataset)?;
+
+        let mut filters = self.filters.clone();
+        filters.extend(other.filters);
+
+        let mut results = self.results.clone();
+        results.extend(other.results);
+
+        let data_changed = vec![true; filters.len()];
+
+        Ok(BatchData {
+            dataset,
+            filters,
+            results,
+            data_changed,
+        })
+    }
+
+    /// Let `&` (and) concatenate objects.
+    pub fn __and__(&self, other: BatchData) -> Result<BatchData> {
+        self.concatenate(other)
+    }
+
+    /// Take all combinations of filters in two BatchData objects;
+    /// i.e. this computes the cartesian product.
+    ///
+    /// Note that histogram settings are reset by this function.
+    ///
+    /// Parameters
+    /// ----------
+    /// other: BatchData
+    ///     The data to combine with this dataset.
+    pub fn combinations(&self, other: BatchData) -> Result<BatchData> {
+        let dataset = self.combine_data(&other.dataset)?;
+
+        let n = self.n_batches();
+        let m = other.n_batches();
+        let result_size = n * m;
+
+        let results = vec![Histogram::new(0., 32.768, 2048); result_size];
+
+        let data_changed = vec![true; result_size];
+
+        let mut filters = Vec::<Filters>::with_capacity(result_size);
+        for i in 0..self.n_batches() {
+            for j in 0..other.n_batches() {
+                // assign i and j to a single index k from (1...n*m)
+                let k = (i - 1) * m + j;
+                filters[k] = self.filters[i].clone();
+                filters[k].extend(other.filters[j].clone());
+            }
+        }
+
+        Ok(BatchData {
+            dataset,
+            filters,
+            results,
+            data_changed,
+        })
+    }
+
+    /// Let `*` (multiply) combine objects.
+    pub fn __mul__(&self, other: BatchData) -> Result<BatchData> {
+        self.combinations(other)
+    }
+
     /// Save a filter set's result to a file.
     ///
     /// Parameters
@@ -492,6 +565,32 @@ impl BatchData {
             )));
         }
         Ok(())
+    }
+
+    /// Check that two datasets are the same or at least one is None;
+    /// if both are None return None, if one is None or both are equal, return the dataset,
+    /// if datasets are different, throw an error.
+    fn combine_data(&self, other: &Option<NexusData>) -> Result<Option<NexusData>> {
+        let data = &self.dataset;
+        if let Some(dataset) = data {
+            match other {
+                // this dataset exists, the other has no data
+                None => Ok(data.clone()),
+                // other dataset exists, check compatibility
+                Some(other_dataset) => {
+                    if dataset.filename == other_dataset.filename {
+                        Ok(data.clone())
+                    } else {
+                        Err(Error::msg(
+                            "Tried to combine BatchData objects with different data!",
+                        ))
+                    }
+                }
+            }
+        } else {
+            // just take other dataset (which is some data or also None)
+            Ok(other.clone())
+        }
     }
 
     /// Turn an array of n+1 elements into n time filters across the batches.
