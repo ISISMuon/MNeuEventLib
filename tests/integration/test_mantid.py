@@ -14,7 +14,7 @@ def mantid_workflow(loader):
     file = '/mnt/babylon/Public/Anthony_Lim/HIFI42.nxs'
     (ws, _, T0, FG,
      LG, _, _, det,
-     _, ws1, ws2) = Loader(Filename=file)
+     _, ws1, ws2) = loader(Filename=file)
     periods = ['1', '2']
     
     # mantid expects specific names for the workspaces
