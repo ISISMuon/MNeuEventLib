@@ -1,3 +1,4 @@
+import os
 from mantid.simpleapi import (CreateWorkspace,
                               RenameWorkspace,
                               MuonPreProcess,
@@ -11,7 +12,11 @@ from mantid.simpleapi import (CreateWorkspace,
 
 def mantid_workflow(loader):
     # load data
-    file = '/mnt/babylon/Public/Anthony_Lim/HIFI42.nxs'
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    file = os.path.join(dir_path,
+                        '..',
+                        'test_data',
+                        'HIFI00195790.nxs')
     (ws, _, T0, FG,
      LG, _, _, det,
      _, ws1, ws2) = loader(Filename=file)
