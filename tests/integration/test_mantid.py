@@ -25,7 +25,7 @@ def mantid_workflow(loader, num):
     data.save(hist_file, default=True)
     (ws, _, T0, FG,
      LG, _, _, det,
-     _, ws1, ws2) = loader(Filename=file)
+     _, ws1, ws2) = loader(Filename=hist_file)
     periods = ['1', '2']
     
     # mantid expects specific names for the workspaces
