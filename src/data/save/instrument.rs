@@ -66,9 +66,9 @@ struct CountsData {
     /// The histogram of counts, indexed [period index, spec index, bin]
     counts: Array3<i32>,
     /// The index of the first relevant bin.
-    first_good_bin: u32,
+    first_good_bin: i32,
     /// The index of the last relevant bin.
-    last_good_bin: u32,
+    last_good_bin: i32,
     /// The index of the bin corresponding to time_zero.
     t0_bin: u32,
 }
@@ -79,8 +79,8 @@ impl Detector1 {
 
         // these should be replaced when these attrs are added to event data
         let t0_bin: u32 = 0;
-        let first_good_bin: u32 = 0;
-        let last_good_bin = (hist.max_time / width).floor() as u32;
+        let first_good_bin: i32 = 0;
+        let last_good_bin = (hist.max_time / width).floor() as i32;
 
         let counts = CountsData {
             counts: hist.hist.clone(),
@@ -116,8 +116,8 @@ impl Save for Detector1 {
         let counts = add_array(group, &self.counts.counts, "counts")?;
         add_str_attr::<44>(&counts, "period_index,spectrum_index,raw_time", "axes")?;
         add_attr(&counts, self.counts.t0_bin, "t0_bin")?;
-        add_attr(&counts, self.counts.first_good_bin as i32, "first_good_bin")?;
-        add_attr(&counts, self.counts.last_good_bin as i32, "last_good_bin")?;
+        add_attr(&counts, self.counts.first_good_bin, "first_good_bin")?;
+        add_attr(&counts, self.counts.last_good_bin, "last_good_bin")?;
         add_attr(&counts, 1, "signal")?;
         add_str_attr::<15>(&counts, "positron_counts", "long_name")?;
 

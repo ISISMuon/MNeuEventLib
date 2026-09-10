@@ -31,20 +31,10 @@ pub fn add_array<T: H5Type, D: Dimension>(
     array: &Array<T, D>,
     name: &str,
 ) -> Result<Dataset> {
-    println!(
-        "adding array {}, with type{}, with shape {:?}",
-        name,
-        <T>::type_descriptor(),
-        array.shape()
-    );
-    //let builder = group.new_dataset_builder();
-    //let builder = builder.with_data(array);
-    //builder.create(name)?;
-    //Ok(group.dataset(name)?)
-    let ds = group.new_dataset::<T>().shape(array.shape()).create(name)?;
-    ds.write(array)?;
-
-    Ok(ds)
+    let builder = group.new_dataset_builder();
+    let builder = builder.with_data(array);
+    builder.create(name)?;
+    Ok(group.dataset(name)?)
 }
 
 pub fn add_str_scalar<const LEN: usize>(

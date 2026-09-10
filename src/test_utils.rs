@@ -17,6 +17,7 @@ const INT_EVENT_FIELDS: [&str; 3] = ["event_id", "event_index", "period_number"]
 pub static HDF5_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 pub fn lock_hdf5_test() -> std::sync::MutexGuard<'static, ()> {
+    // This mutex is needed because hdf5 may not be thread safe.
     HDF5_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 

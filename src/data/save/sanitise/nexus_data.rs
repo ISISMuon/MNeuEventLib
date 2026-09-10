@@ -13,15 +13,14 @@ use ndarray::Array1;
 ///
 /// Parameters
 /// ----------
-/// * `default` - Reference group containing default values
-/// * `dest` - Destination group where default values will be added
-/// * `name` - Name of the dataset to create
-/// * `shapes` - Hashmap which defines the length of each dataset (in terms of periods)
-///
-/// Returns
-/// -------
-/// * `Ok(())` - If the dataset is created successfully
-/// * `Err(anyhow::Error)` - If the dataset cannot be created
+///default: &Group
+///    Reference group containing default values
+///dest: &Group
+///    Destination group where default values will be added
+///name: &str
+///    Name of the dataset to create
+///shapes: HashMap<String, usize>
+///    Hashmap which defines the length of each dataset (in terms of periods)
 fn create_default_dataset(
     default: &Group,
     dest: &Group,
@@ -65,15 +64,16 @@ fn create_default_dataset(
 /// Adds the missing data to the destination file based on the source (reference)
 /// file and the shape information.
 ///
-/// ## Arguments
-/// * `source_parent` - The parent group  from the source (reference) data
-/// * `dest` - The parent group from the destination data
-/// * `name` - The name of the dataset or group to add
-/// * `shapes` - Hashmap which defines the length of each dataset (in terms of periods)
-///
-/// ## Returns
-/// * `Ok(())` - If the dataset or group is added successfully
-/// * `Err(anyhow::Error)` - If the dataset or group cannot be added
+/// Parameters
+/// ----------
+///source_parent: &Group
+///    The parent group  from the source (reference) data
+///dest: &Group
+///    The parent group from the destination data
+///name: &str
+///    The name of the dataset or group to add
+///shapes: HashMap<String, usize>
+///    Hashmap which defines the length of each dataset (in terms of periods)
 fn set_defaults(
     source_parent: &Group,
     dest: &Group,
@@ -127,12 +127,10 @@ fn set_defaults(
 
 /// Replaces "broken" datasets with "fixed" ones (numbers are recorded as null UTF8's)
 ///
-/// ## Arguments
-/// * `new_file` - The destination file
-///
-/// ## Returns
-/// * `Ok(())` - If the datasets are removed successfully
-/// * `Err(anyhow::Error)` - If the datasets cannot be removed
+/// Parameters
+/// ----------
+/// new_file: &File
+///    The destination file
 fn clean_up(new_file: &File) -> Result<()> {
     let hist_data = new_file.group("raw_data_1")?;
 
@@ -197,12 +195,10 @@ fn clean_up(new_file: &File) -> Result<()> {
 
 /// Gets the number of periods and Dwell for the given file.
 ///
-/// ## Arguments
-/// * `file_name` - The name of the file to get the period information from
-///
-/// ## Returns
-/// * `Ok((periods, dwell))` - The number of periods and Dwell
-/// * `Err(anyhow::Error)` - If the period information cannot be retrieved
+/// Parameters
+/// ----------
+/// file_name: &str
+///     The name of the file to get the period information from
 pub fn get_p_info(file_name: &str) -> Result<(usize, usize)> {
     let file = File::open(file_name)?;
     let labels_ds = file.dataset("raw_data_1/periods/labels")?;
@@ -219,14 +215,14 @@ pub fn get_p_info(file_name: &str) -> Result<(usize, usize)> {
 
 /// Saves default values to the output file based on the reference file and shape information.
 ///
-/// ## Arguments
-/// * `output_file` - The name of the output file to save the default values to
-/// * `ref_file` - The name of the reference file to get the default values from
-/// * `shapes` - Hashmap which defines the length of each dataset (in terms of periods)
-///
-/// ## Returns
-/// * `Ok(())` - If the default values are saved successfully
-/// * `Err(anyhow::Error)` - If the default values cannot be saved
+/// Parameters
+/// ----------
+/// output_file: &str
+///     The name of the output file to save the default values to
+/// ref_file: &str
+///     The name of the reference file to get the default values from
+/// shapes: HashMap<String, usize>
+///     Hashmap which defines the length of each dataset (in terms of periods)
 pub fn save_default(
     output_file: &str,
     ref_file: &str,
@@ -276,6 +272,9 @@ mod tests {
     fn create_test_file(
         name: &str,
     ) -> (tempfile::TempDir, File, std::sync::MutexGuard<'static, ()>) {
+        // HDF5 files can't be read from while they are being written to.
+        // This helper method uses the crate's global mutex to prevent other threads from writing
+        // to the file at the same time
         let guard = crate::test_utils::lock_hdf5_test();
         let dir = tempdir().unwrap();
         let path = dir.path().join(format!("{name}.nxs"));
@@ -285,6 +284,7 @@ mod tests {
 
     #[test]
     fn test_get_p_info_varlen_unicode() {
+        // Tests that get_p_info can get the correct number of periods from a variable length unicode dataset
         let (dir, file, _guard) = create_test_file("test_get_p_info_varlen");
         let path = dir.path().join("test_get_p_info_varlen.nxs");
 
@@ -301,6 +301,7 @@ mod tests {
 
     #[test]
     fn test_get_p_info_fixed_ascii() {
+        // Tests that get_p_info can get the correct number of periods from a fixed ascii dataset
         let (dir, file, _guard) = create_test_file("test_get_p_info_fixed");
         let path = dir.path().join("test_get_p_info_fixed.nxs");
 
@@ -316,12 +317,14 @@ mod tests {
 
     #[test]
     fn test_get_p_info_nonexistent_file() {
+        // Tests that get_p_info returns an error if the file does not exist
         let res = get_p_info("nonexistent_path_file.nxs");
         assert!(res.is_err());
     }
 
     #[test]
     fn test_get_p_info_missing_labels() {
+        // Tests that get_p_info returns an error if the labels dataset is missing
         let (dir, file, _guard) = create_test_file("test_get_p_info_missing_labels");
         let path = dir.path().join("test_get_p_info_missing_labels.nxs");
         file.create_group("raw_data_1").unwrap();
@@ -333,6 +336,8 @@ mod tests {
 
     #[test]
     fn test_create_default_dataset_int32() {
+        // Tests that a default dataset can be created with the correct shape, type (i32), values
+        // and attributes
         let (_dir, file, _guard) = create_test_file("test_create_default_int32");
         let default_grp = file.create_group("raw_data_1/dataset_counts").unwrap();
         let dest_grp = file.create_group("dest").unwrap();
@@ -361,6 +366,8 @@ mod tests {
 
     #[test]
     fn test_create_default_dataset_float32() {
+        // Tests that a default dataset can be created with the correct shape, type (f32), values
+        // and attributes
         let (_dir, file, _guard) = create_test_file("test_create_default_float32");
         let default_grp = file.create_group("raw_data_1/dataset_temp").unwrap();
         let dest_grp = file.create_group("dest").unwrap();
@@ -385,6 +392,8 @@ mod tests {
 
     #[test]
     fn test_create_default_dataset_float64() {
+        // Tests that a default dataset can be created with the correct shape, type (f64), values
+        // and attributes
         let (_dir, file, _guard) = create_test_file("test_create_default_float64");
         let default_grp = file.create_group("raw_data_1/dataset_time").unwrap();
         let dest_grp = file.create_group("dest").unwrap();
@@ -409,6 +418,7 @@ mod tests {
 
     #[test]
     fn test_create_default_dataset_unsupported_dtype() {
+        // Tests that an error is returned if the dtype is not supported
         let (_dir, file, _guard) = create_test_file("test_create_default_unsupported");
         let default_grp = file.create_group("raw_data_1/dataset_bad").unwrap();
         let dest_grp = file.create_group("dest").unwrap();
@@ -428,6 +438,10 @@ mod tests {
 
     #[test]
     fn test_set_defaults_dataset_prefixed_default() {
+        // Tests that a default dataset can be identified by the 'dataset_' prefix and that
+        // the prefix is removed when copying to the destination group.
+        // Also tests that the default dataset is created with the correct shape, type (i32),
+        // values and attributes.
         let (_dir, file, _guard) = create_test_file("test_set_defaults_prefixed");
         let src_parent = file.create_group("src").unwrap();
         let dest_parent = file.create_group("dest").unwrap();
@@ -451,6 +465,7 @@ mod tests {
 
     #[test]
     fn test_set_defaults_dataset_already_exists() {
+        // Test that if a default dataset already exists it remains unchanged
         let (_dir, file, _guard) = create_test_file("test_set_defaults_already_exists");
         let src_parent = file.create_group("src").unwrap();
         let dest_parent = file.create_group("dest").unwrap();
@@ -477,6 +492,8 @@ mod tests {
 
     #[test]
     fn test_set_defaults_dataset_copy_when_missing_in_dest() {
+        // Test that if a default dataset is missing in the destination group it is copied
+        // from the reference dataset and that the attributes are copied over.
         let (_dir, file, _guard) = create_test_file("test_set_defaults_copy_ds");
         let src_parent = file.create_group("src").unwrap();
         let dest_parent = file.create_group("dest").unwrap();
@@ -494,6 +511,8 @@ mod tests {
 
     #[test]
     fn test_set_defaults_group_copy_when_missing_in_dest() {
+        // Test that if a default group is missing in the destination group it is copied
+        // from the reference group and that the datasets and attributes are copied over.
         let (_dir, file, _guard) = create_test_file("test_set_defaults_copy_group");
         let src_parent = file.create_group("src").unwrap();
         let dest_parent = file.create_group("dest").unwrap();
@@ -512,6 +531,9 @@ mod tests {
 
     #[test]
     fn test_set_defaults_group_exists_in_both() {
+        // Test that if a group already exists in the destination group but some
+        // of its contents is missing then the missing contents is copied from the
+        // reference group and that the attributes are copied over.
         let (_dir, file, _guard) = create_test_file("test_set_defaults_group_both");
         let src_parent = file.create_group("src").unwrap();
         let dest_parent = file.create_group("dest").unwrap();
@@ -532,6 +554,8 @@ mod tests {
 
     #[test]
     fn test_set_defaults_nonexistent_returns_err() {
+        // Test that if a group or dataset does not exist in the reference group
+        // then an error is returned.
         let (_dir, file, _guard) = create_test_file("test_set_defaults_nonexistent");
         let src_parent = file.create_group("src").unwrap();
         let dest_parent = file.create_group("dest").unwrap();
@@ -543,7 +567,11 @@ mod tests {
 
     #[test]
     fn test_clean_up() {
+        // Test that the clean_up function cleans up the dataset by replacing empty strings
+        // with "Missing" and removing any datasets that are not "experiment_identifier" or "title".
         let (_dir, file, _guard) = create_test_file("test_clean_up");
+        
+        // set up the file
         let raw = file.create_group("raw_data_1").unwrap();
 
         let name_str = VarLenUnicode::from_str("name").unwrap();
@@ -566,8 +594,10 @@ mod tests {
         let target_mat_str = VarLenUnicode::from_str("Carbon").unwrap();
         add_array(&source, &arr0(target_mat_str), "target_material").unwrap();
 
+        // run clean up
         clean_up(&file).unwrap();
 
+        // check that the clean up was successful
         let new_name: FixedAscii<4> = raw.dataset("name").unwrap().read_1d().unwrap()[0];
         assert_eq!(new_name.as_str(), "HIFI");
 
@@ -598,6 +628,8 @@ mod tests {
 
     #[test]
     fn test_save_default_integration() {
+        // check that the save_default function integrates correctly,
+        // calling clean_up and set_defaults
         let _guard = crate::test_utils::lock_hdf5_test();
         let dir = tempdir().unwrap();
         let ref_path = dir.path().join("ref.nxs");

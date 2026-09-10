@@ -12,7 +12,11 @@ from MNeuEventLib import Data
 
 
 def mantid_workflow(loader, num):
-    # set up
+    """
+    Creates a histogram file from event data, then executes a Mantid muon workflow.
+    :param loader: the Mantid load method to use
+    :param num: a number to make the files unique in case of multiple runs
+    """
     periods = ['1', '2']
     dir_path = os.path.dirname(os.path.realpath(__file__))
     file = os.path.join(dir_path,
@@ -24,7 +28,7 @@ def mantid_workflow(loader, num):
     data = Data(file, 64)
     result = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI{num}.nxs')
-    data.save(hist_file, default=True)
+    data.save(hist_file, autofill=True)
 
     # load data
     result = loader(Filename=hist_file, deadtimeTable='deadtimes')
@@ -88,13 +92,30 @@ def mantid_workflow(loader, num):
     os.remove(hist_file)
 
 def test_mantid_works():
-    ws = CreateWorkspace([1, 2], [3, 4])
+    """
+    Test that Mantid is properly installed with a simple workflow.
+    """
+    _ = CreateWorkspace([1, 2], [3, 4])
 
 
 def test_mantid_workflow_Load():
+    """
+    Test that Mantid can load the library's output histogram data
+    using the 'Load' method.
+    The 'Load' method checks the file against all of the different
+    load algoriths in Mantid and uses the one with the 'best' match.
+    It should identify the file as a Muon Nexus V2.
+    """
     mantid_workflow(Load, 42)
 
 
 def test_mantid_workflow_LoadMuonNexusv2():
+    """
+    Test that Mantid can load the the library's output histogram data
+    using the 'LoadMuonNexusV2' method.
+    This method is what should be called by the 'Load' method
+    and should be used when the
+    file is known to be a Muon Nexus V2 file.
+    """
     mantid_workflow(LoadMuonNexusV2, 51)
 

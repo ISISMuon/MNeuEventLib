@@ -195,9 +195,10 @@ impl Data {
     /// ----------
     /// filename: str
     ///     The filename for the saved file.
-    /// default: bool
-    ///     Whether to use default values for the missing meta-data (this is
-    ///     needed because the event data files has mistakes/problems).
+    /// autofill: bool
+    ///     Whether to automatically fill the file with default values for 
+    ///     the missing meta-data (this is needed because the event data files 
+    ///     has mistakes/problems).
     ///     This allows the file to be read by Mantid even if the event file
     ///     is incomplete.
     /// ref_file: str
@@ -205,10 +206,10 @@ impl Data {
     ///     Contains "correct" data that should be copied to the output file.
     ///     This is only need it the reference file needed is not the standard
     ///     muon nexus v2 file. The ref_file is generated from tools/make_default.py.
-    #[pyo3(signature = (filename, default=true, ref_file = (PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("files/muon_ref.nxs")).display().to_string()))]
-    fn save(&self, filename: String, default: bool, ref_file: String) -> Result<()> {
+    #[pyo3(signature = (filename, autofill=true, ref_file = (PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("files/muon_ref.nxs")).display().to_string()))]
+    fn save(&self, filename: String, autofill: bool, ref_file: String) -> Result<()> {
         self.inner
-            .save(FilterIndex::Index(0), filename, default, ref_file.clone())
+            .save(FilterIndex::Index(0), filename, autofill, ref_file.clone())
     }
 
     /// Get the calculated histogram.

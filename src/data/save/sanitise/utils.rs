@@ -5,7 +5,6 @@ use hdf5::types::H5Type;
 use hdf5::{Group, Location};
 use ndarray::{Array, Dimension};
 
-//use hdf5_metno as hdf5;
 use hdf5::Result as OtherResult;
 use hdf5_metno_sys::{h5a, h5p, h5s, h5t};
 use std::ffi::CString;
@@ -14,14 +13,14 @@ use std::os::raw::c_void;
 /// A wrapper around _copy_attr which checks if the
 /// attribute already exists and skips if it does.
 ///
-/// ## Arguments
-/// * `src` - The source group
-/// * `dst` - The destination group
-/// * `name` - The name of the attribute to copy
-///
-/// ## Returns
-/// * `Ok(())` - If the attribute is copied successfully
-/// * `Err(anyhow::Error)` - If the attribute cannot be copied
+/// Parameters
+/// ----------
+/// src: &Location
+///    The source group
+/// dst: &Location
+///    The destination group
+/// name: &str
+///    The name of the attribute to copy
 pub fn copy_attr(src: &Location, dst: &Location, name: &str) -> Result<()> {
     hdf5::sync::sync(|| unsafe { _copy_attr(src, dst, name) })
 }
@@ -29,14 +28,14 @@ pub fn copy_attr(src: &Location, dst: &Location, name: &str) -> Result<()> {
 /// Copies a single attribute from `src` to `dst`, regardless of its HDF5 datatype
 /// (ints, floats, fixed/var-length strings, enums, compounds, arrays...).
 ///
-/// ## Arguments
-/// * `src` - The source group
-/// * `dst` - The destination group
-/// * `name` - The name of the attribute to copy
-///
-/// ## Returns
-/// * `Ok(())` - If the attribute is copied successfully
-/// * `Err(anyhow::Error)` - If the attribute cannot be copied
+/// Parameters
+/// ----------
+/// src: &Location
+///    The source group
+/// dst: &Location
+///    The destination group
+/// name: &str
+///    The name of the attribute to copy
 unsafe fn _copy_attr(src: &Location, dst: &Location, name: &str) -> Result<()> {
     if dst.attr_names()?.contains(&name.to_string()) {
         println!("Attribute '{name}' already exists in destination dataset, skipping");
@@ -114,14 +113,14 @@ unsafe fn _copy_attr(src: &Location, dst: &Location, name: &str) -> Result<()> {
 /// Replaces a dataset with a new one, copying all attributes from
 //  the old dataset to the new one.
 ///
-/// ## Arguments
-/// * `group` - The group containing the dataset
-/// * `name` - The name of the dataset to replace
-/// * `new_data` - The new data to replace the dataset with
-///
-/// ## Returns
-/// * `Ok(())` - If the dataset is replaced successfully
-/// * `Err(hdf5::Error)` - If the dataset cannot be replaced
+/// Parameters
+/// ----------
+/// group: &Group
+///    The group containing the dataset
+/// name: &str
+///    The name of the dataset to replace
+/// new_data: &Array<T, D>
+///    The new data to replace the dataset with
 pub fn replace_dataset<T: H5Type, D: Dimension>(
     group: &Group,
     name: &str,
@@ -149,13 +148,12 @@ pub fn replace_dataset<T: H5Type, D: Dimension>(
 
 /// Cleans up a string dataset by replacing empty strings with "Missing".
 ///
-/// ## Arguments
-/// * `group` - The group containing the dataset
-/// * `name` - The name of the dataset to clean
-///
-/// ## Returns
-/// * `Ok(())` - If the dataset is cleaned successfully
-/// * `Err(anyhow::Error)` - If the dataset cannot be cleaned
+/// Parameters
+/// ----------
+/// group: &Group
+///    The group containing the dataset
+/// name: &str
+///    The name of the dataset to clean
 pub fn clean_str_dataset<const LEN: usize>(group: &Group, name: &str) -> Result<()> {
     let is_scalar = group.dataset(name).unwrap().shape().is_empty();
     let value: &hdf5::types::VarLenUnicode = if is_scalar {
@@ -174,16 +172,17 @@ pub fn clean_str_dataset<const LEN: usize>(group: &Group, name: &str) -> Result<
 /// Replaces a string dataset with a new one,
 /// copying all attributes from the old dataset to the new one.
 ///
-/// ## Arguments
-/// * `group` - The group containing the dataset
-/// * `name` - The name of the dataset to replace
-/// * `new_value` - The new value to replace the dataset with
-/// * `bad_value` - The value to replace (ignores if the current value is
-///   not equal to `bad_value`)
-///
-/// ## Returns
-/// * `Ok(())` - If the dataset is replaced successfully
-/// * `Err(anyhow::Error)` - If the dataset cannot be replaced
+/// Parameters
+/// ----------
+/// group: &Group
+///    The group containing the dataset
+/// name: &str
+///    The name of the dataset to replace
+/// new_value: &str
+///    The new value to replace the dataset with
+/// bad_value: &str
+///    The value to replace (ignores if the current value is
+///    not equal to `bad_value`)
 pub fn replace_str_dataset<const LEN: usize>(
     group: &Group,
     name: &str,
@@ -223,6 +222,9 @@ mod tests {
     fn create_test_file(
         name: &str,
     ) -> (tempfile::TempDir, File, std::sync::MutexGuard<'static, ()>) {
+        /// HDF5 files can't be read from while they are being written to.
+        // This helper method uses the crate's global mutex to prevent other threads from writing
+        // to the file at the same time
         let guard = crate::test_utils::lock_hdf5_test();
         let dir = tempdir().unwrap();
         let path = dir.path().join(format!("{name}.nxs"));
@@ -232,6 +234,7 @@ mod tests {
 
     #[test]
     fn test_copy_attr_scalar() {
+        // Tests that a scalar attribute is copied correctly
         let (_dir, file, _guard) = create_test_file("test_copy_attr_scalar");
         let src = file.create_group("src").unwrap();
         let dst = file.create_group("dst").unwrap();
@@ -245,6 +248,7 @@ mod tests {
 
     #[test]
     fn test_copy_attr_str() {
+        // Tests that a string attribute is copied correctly
         let (_dir, file, _guard) = create_test_file("test_copy_attr_str");
         let src = file.create_group("src").unwrap();
         let dst = file.create_group("dst").unwrap();
@@ -258,6 +262,7 @@ mod tests {
 
     #[test]
     fn test_copy_attr_already_exists_skipped() {
+        // Tests that if the attribute already exists, it is not overwritten
         let (_dir, file, _guard) = create_test_file("test_copy_attr_already_exists");
         let src = file.create_group("src").unwrap();
         let dst = file.create_group("dst").unwrap();
@@ -274,6 +279,7 @@ mod tests {
 
     #[test]
     fn test_copy_attr_nonexistent_fails() {
+        // Tests that if the attribute does not exist, it returns an error
         let (_dir, file, _guard) = create_test_file("test_copy_attr_nonexistent");
         let src = file.create_group("src").unwrap();
         let dst = file.create_group("dst").unwrap();
@@ -284,6 +290,8 @@ mod tests {
 
     #[test]
     fn test_replace_dataset() {
+        // Tests that a dataset's values can be replaced correctly
+        // including copying the original dataset's attributes to the 'new' dataset
         let (_dir, file, _guard) = create_test_file("test_replace_dataset");
         let group = file.create_group("grp").unwrap();
 
@@ -305,6 +313,8 @@ mod tests {
 
     #[test]
     fn test_clean_str_dataset_empty_scalar() {
+        // Tests that an empty string dataset is replaced with 'Missing'
+        // and that the original dataset's attributes are copied to the 'new' dataset
         let (_dir, file, _guard) = create_test_file("test_clean_str_empty_scalar");
         let group = file.create_group("grp").unwrap();
 
@@ -324,6 +334,7 @@ mod tests {
 
     #[test]
     fn test_clean_str_dataset_nonempty_scalar() {
+        // Tests that a non-empty string dataset is not modified
         let (_dir, file, _guard) = create_test_file("test_clean_str_nonempty_scalar");
         let group = file.create_group("grp").unwrap();
 
@@ -339,6 +350,8 @@ mod tests {
 
     #[test]
     fn test_clean_str_dataset_1d_array() {
+        // Tests that an empty string dataset in a 1D array is replaced with 'Missing'
+        // and that the original dataset's attributes are copied to the 'new' dataset
         let (_dir, file, _guard) = create_test_file("test_clean_str_1d");
         let group = file.create_group("grp").unwrap();
 
@@ -355,6 +368,8 @@ mod tests {
 
     #[test]
     fn test_replace_str_dataset_matching_bad_value() {
+        // Tests that if the dataset contains the bad value, it is replaced with the new value
+        // and that the original dataset's attributes are copied to the 'new' dataset
         let (_dir, file, _guard) = create_test_file("test_replace_str_match");
         let group = file.create_group("grp").unwrap();
 
@@ -374,6 +389,7 @@ mod tests {
 
     #[test]
     fn test_replace_str_dataset_nonmatching_bad_value() {
+        // Tests that if the dataset does not contain the bad value, it is not modified
         let (_dir, file, _guard) = create_test_file("test_replace_str_nomatch");
         let group = file.create_group("grp").unwrap();
 

@@ -389,17 +389,23 @@ impl BatchData {
     ///     needed because the event data files has mistakes/problems).
     ///     This allows the file to be read by Mantid even if the event file
     ///     is incomplete.
+    /// autofill: bool
+    ///     Whether to use automatically fill the file with
+    ///     default values for the missing meta-data (this is
+    ///     needed because the event data files has mistakes/problems).
+    ///     This allows the file to be read by Mantid even if the event file
+    ///     is incomplete.
     /// ref_file: str
     ///     The reference file for the saved file. (must be a Nexus file)
     ///     Contains "correct" data that should be copied to the output file.
     ///     This is only need it the reference file needed is not the standard
     ///     muon nexus v2 file. The ref_file is generated from tools/make_default.py.
-    #[pyo3(signature = (index, filename, default=true, ref_file = (PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("files/muon_ref.nxs")).display().to_string()))]
+    #[pyo3(signature = (index, filename, autofill=true, ref_file = (PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("files/muon_ref.nxs")).display().to_string()))]
     pub fn save(
         &self,
         index: FilterIndex,
         filename: String,
-        default: bool,
+        autofill: bool,
         ref_file: String,
     ) -> Result<()> {
         let filename_stem = if filename.to_lowercase().ends_with(".nxs") {
@@ -417,7 +423,7 @@ impl BatchData {
                 }
                 let wimda_file = WiMDAFile::new(&self.dataset, &self.filters[i], &self.results[i])?;
                 wimda_file.save_file(format!("{filename_stem}.nxs"), &self.dataset.file)?;
-                if default {
+                if autofill {
                     self.save_nexus(format!("{filename_stem}.nxs"), ref_file.clone())?;
                 }
             }
@@ -431,7 +437,7 @@ impl BatchData {
                     let wimda_file =
                         WiMDAFile::new(&self.dataset, &self.filters[i], &self.results[i])?;
                     wimda_file.save_file(format!("{filename_stem}_{i}.nxs"), &self.dataset.file)?;
-                    if default {
+                    if autofill {
                         self.save_nexus(format!("{filename_stem}_{i}.nxs"), ref_file.clone())?;
                     }
                 }
