@@ -222,7 +222,7 @@ mod tests {
     fn create_test_file(
         name: &str,
     ) -> (tempfile::TempDir, File, std::sync::MutexGuard<'static, ()>) {
-        /// HDF5 files can't be read from while they are being written to.
+        // HDF5 files can't be read from while they are being written to.
         // This helper method uses the crate's global mutex to prevent other threads from writing
         // to the file at the same time
         let guard = crate::test_utils::lock_hdf5_test();

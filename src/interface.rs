@@ -196,8 +196,8 @@ impl Data {
     /// filename: str
     ///     The filename for the saved file.
     /// autofill: bool
-    ///     Whether to automatically fill the file with default values for 
-    ///     the missing meta-data (this is needed because the event data files 
+    ///     Whether to automatically fill the file with default values for
+    ///     the missing meta-data (this is needed because the event data files
     ///     has mistakes/problems).
     ///     This allows the file to be read by Mantid even if the event file
     ///     is incomplete.
