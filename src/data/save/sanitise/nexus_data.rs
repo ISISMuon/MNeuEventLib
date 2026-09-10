@@ -570,7 +570,7 @@ mod tests {
         // Test that the clean_up function cleans up the dataset by replacing empty strings
         // with "Missing" and removing any datasets that are not "experiment_identifier" or "title".
         let (_dir, file, _guard) = create_test_file("test_clean_up");
-        
+
         // set up the file
         let raw = file.create_group("raw_data_1").unwrap();
 
