@@ -64,7 +64,7 @@ pub fn get_filter_times(data: &NexusData, filters: &Filters) -> Result<(Vec<u64>
         Ok(logs) => logs,
         Err(info) => return Err(Error::msg(format!("Failed to get logs: {info}"))),
     };
-    let log_times = filters.get_log_filter_times(value_logs);
+    let log_times = filters.get_log_filter_times(value_logs)?;
     let (log_starts, log_ends) = log_times
         .into_values()
         .reduce(|(acc_starts, acc_ends), (x_starts, x_ends)| {

@@ -151,6 +151,7 @@ pub fn slog_range(name: String, log: String, start: f64, end: f64, step: f64) ->
 mod tests {
     use super::*;
     use crate::consts::ToNanoseconds;
+    use crate::filters::LogPredicate;
 
     /// The bounds of every filter set's single time filter, in order of
     /// filter set.
@@ -173,7 +174,10 @@ mod tests {
             .map(|filters| {
                 assert_eq!(filters.sample_log_filters.len(), 1);
                 let filter = &filters.sample_log_filters[name];
-                (filter.lower.unwrap(), filter.upper.unwrap())
+                let LogPredicate::Range { lower, upper } = &filter.predicate else {
+                    panic!("expected a range log filter")
+                };
+                (lower.unwrap(), upper.unwrap())
             })
             .collect()
     }

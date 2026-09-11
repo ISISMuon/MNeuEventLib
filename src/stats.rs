@@ -99,7 +99,7 @@ impl Histogram {
                     Ok(logs) => logs,
                     Err(info) => return Err(Error::msg(format!("Failed to get logs: {info}"))),
                 };
-                let log_filter_times = filters.get_log_filter_times(value_logs);
+                let log_filter_times = filters.get_log_filter_times(value_logs)?;
                 get_log_weights(log_filter_times, &frame_start_times)
             };
             time_weights & log_weights
