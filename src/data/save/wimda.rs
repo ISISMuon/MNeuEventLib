@@ -260,9 +260,10 @@ mod tests {
     #[test]
     fn test_wimda_file_new_selog_length() {
         let data = calculated_data();
-        let wimda = WiMDAFile::new(&data.dataset, &data.filters[0], &data.results[0]).unwrap();
+        let dataset = &data.dataset.unwrap();
+        let wimda = WiMDAFile::new(dataset, &data.filters[0], &data.results[0]).unwrap();
 
-        assert_eq!(wimda.selog.len(), data.dataset.sample_log_names.len());
+        assert_eq!(wimda.selog.len(), dataset.sample_log_names.len());
     }
 
     /// Saving a `WiMDAFile` should produce a valid file with the expected
@@ -270,14 +271,15 @@ mod tests {
     #[test]
     fn test_wimda_save_creates_expected_structure() {
         let data = calculated_data();
-        let wimda = WiMDAFile::new(&data.dataset, &data.filters[0], &data.results[0]).unwrap();
+        let dataset = &data.dataset.unwrap();
+        let wimda = WiMDAFile::new(dataset, &data.filters[0], &data.results[0]).unwrap();
 
         let mut tmp_path = temp_dir();
         tmp_path.push("wimda_test_structure.nxs");
         let tmp_path_str = tmp_path.to_str().unwrap().to_string();
 
         wimda
-            .save_file(tmp_path_str.clone(), &data.dataset.file)
+            .save_file(tmp_path_str.clone(), &dataset.file)
             .unwrap();
 
         let output = File::open(tmp_path_str).unwrap();
@@ -308,14 +310,15 @@ mod tests {
     #[test]
     fn test_wimda_save_sample_name_defaults_to_unknown_when_empty() {
         let data = calculated_data();
-        let wimda = WiMDAFile::new(&data.dataset, &data.filters[0], &data.results[0]).unwrap();
+        let dataset = &data.dataset.unwrap();
+        let wimda = WiMDAFile::new(dataset, &data.filters[0], &data.results[0]).unwrap();
 
         let mut tmp_path = temp_dir();
         tmp_path.push("wimda_test_sample_name.nxs");
         let tmp_path_str = tmp_path.to_str().unwrap().to_string();
 
         wimda
-            .save_file(tmp_path_str.clone(), &data.dataset.file)
+            .save_file(tmp_path_str.clone(), &dataset.file)
             .unwrap();
 
         let output = File::open(tmp_path_str).unwrap();
@@ -336,14 +339,15 @@ mod tests {
     #[test]
     fn test_wimda_save_user_1_default_when_missing() {
         let data = calculated_data();
-        let wimda = WiMDAFile::new(&data.dataset, &data.filters[0], &data.results[0]).unwrap();
+        let dataset = &data.dataset.unwrap();
+        let wimda = WiMDAFile::new(dataset, &data.filters[0], &data.results[0]).unwrap();
 
         let mut tmp_path = temp_dir();
         tmp_path.push("wimda_test_user_1.nxs");
         let tmp_path_str = tmp_path.to_str().unwrap().to_string();
 
         wimda
-            .save_file(tmp_path_str.clone(), &data.dataset.file)
+            .save_file(tmp_path_str.clone(), &dataset.file)
             .unwrap();
 
         let output = File::open(tmp_path_str).unwrap();
