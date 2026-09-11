@@ -49,6 +49,28 @@ impl MockData {
         Ok(dataset.create(name)?)
     }
 
+    /// Add a sample log to the mock data object.
+    ///
+    /// Builds the `<name>/value_log/{time,value}` structure that NexusData expects,
+    /// in a real (temporary) HDF5 file - so tests using this exercise the actual
+    /// read path rather than constructing a SampleLog directly.
+    pub fn add_sample_log<T>(&self, name: &str, time: Array1<f64>, value: Array1<T>) -> Result<()>
+    where
+        T: H5Type,
+    {
+        let log_group = self.sample_logs.create_group(name)?;
+        let value_log = log_group.create_group("value_log")?;
+        value_log
+            .new_dataset_builder()
+            .with_data(&time)
+            .create("time")?;
+        value_log
+            .new_dataset_builder()
+            .with_data(&value)
+            .create("value")?;
+        Ok(())
+    }
+
     /// Turn the mock data object into a real NexusData object.
     pub fn create(&self, n_spec: usize, chunk_size: usize) -> Result<NexusData> {
         for field in FLOAT_EVENT_FIELDS {

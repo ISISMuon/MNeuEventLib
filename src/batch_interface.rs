@@ -3,8 +3,8 @@ use numpy::{PyArray3, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Borrowed, Bound, FromPyObject, PyAny};
 use pyo3::types::{PyInt, PyString};
 
-use crate::data::{NexusData, SaveFile, WiMDAFile};
-use crate::filters::Filters;
+use crate::data::{NexusData, SampleLog, SaveFile, WiMDAFile};
+use crate::filters::{Filters, LogPredicate};
 use crate::stats::Histogram;
 
 pub type PyHist<'py> = Bound<'py, PyArray3<i32>>;
@@ -233,8 +233,42 @@ impl BatchData {
         lower: f64,
         upper: f64,
     ) -> Result<()> {
+        self.validate_log_filter(
+            &log,
+            &LogPredicate::Range {
+                lower: Some(lower),
+                upper: Some(upper),
+            },
+        )?;
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_log_filter(name.clone(), log.clone(), Some(lower), Some(upper))?;
+            self.data_changed[i] = true;
+        }
+        Ok(())
+    }
+
+    /// Add a sample log filter matching a string log against a specific value.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int | str
+    ///     Either 'all', or the index of the filter set to modify.
+    /// name: str
+    ///     The name of the log filter. Must be unique within each modified filter set.
+    /// log: str
+    ///     The sample log in the data to which the filter applies. Must hold text.
+    /// value: str
+    ///     The value to match. Matching is case-insensitive.
+    pub fn add_string_log_filter(
+        &mut self,
+        index: FilterIndex,
+        name: String,
+        log: String,
+        value: String,
+    ) -> Result<()> {
+        self.validate_log_filter(&log, &LogPredicate::Equals(value.clone()))?;
+        for i in self.resolve_indices(&index)? {
+            self.filters[i].add_string_log_filter(name.clone(), log.clone(), value.clone())?;
             self.data_changed[i] = true;
         }
         Ok(())
@@ -275,6 +309,13 @@ impl BatchData {
         log: String,
         lower: f64,
     ) -> Result<()> {
+        self.validate_log_filter(
+            &log,
+            &LogPredicate::Range {
+                lower: Some(lower),
+                upper: None,
+            },
+        )?;
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_log_filter_above(name.clone(), log.clone(), lower)?;
             self.data_changed[i] = true;
@@ -301,6 +342,13 @@ impl BatchData {
         log: String,
         upper: f64,
     ) -> Result<()> {
+        self.validate_log_filter(
+            &log,
+            &LogPredicate::Range {
+                lower: None,
+                upper: Some(upper),
+            },
+        )?;
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_log_filter_below(name.clone(), log.clone(), upper)?;
             self.data_changed[i] = true;
@@ -448,6 +496,26 @@ impl BatchData {
         }
     }
 
+    /// Check that a log filter can actually be applied to the data.
+    fn validate_log_filter(&self, log: &str, predicate: &LogPredicate) -> Result<()> {
+        let sample_log = self.dataset.get_sample_log(&log.to_string())?;
+        match (sample_log, predicate) {
+            (SampleLog::Str(_), LogPredicate::Equals(_)) => Ok(()),
+            (SampleLog::Str(_), LogPredicate::Range { .. }) => Err(Error::msg(format!(
+                "Sample log {} holds text, so it cannot be filtered on a range of \
+                         values. Use add_string_log_filter to filter it on a specific value.",
+                log,
+            ))),
+            (_, LogPredicate::Equals(_)) => Err(Error::msg(format!(
+                "Sample log {} holds numbers, so it cannot be filtered on a \
+                                 string value. Use add_log_filter, add_log_filter_above or \
+                                 add_log_filter_below.",
+                log,
+            ))),
+            _ => Ok(()),
+        }
+    }
+
     /// Check that a given index is valid for this BatchData's filter sets.
     fn check_index(&self, index: usize) -> Result<()> {
         if index >= self.n_batches() {
@@ -467,14 +535,36 @@ impl BatchData {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
     use crate::test_utils::MockData;
+    use hdf5::types::VarLenUnicode;
     use ndarray::Array1;
 
     /// Build a BatchData with `n` filter sets using MockData as the
     /// underlying dataset (no real .nxs file needed).
     fn make_batch(n_filter_sets: usize) -> BatchData {
         let mock = MockData::new().unwrap();
+        // log filters are validated against the data when they are added, so the mock
+        // needs to actually contain the logs these tests filter on
+        mock.add_sample_log(
+            "temp",
+            Array1::from_vec(vec![0., 1., 2., 3.]),
+            Array1::from_vec(vec![0.5, 1.5, 2.5, 3.5]),
+        )
+        .unwrap();
+        mock.add_sample_log(
+            "status",
+            Array1::from_vec(vec![0., 1., 2., 3.]),
+            Array1::from_vec(
+                ["IDLE", "RUNNING", "RUNNING", "PAUSED"]
+                    .iter()
+                    .map(|s| VarLenUnicode::from_str(s).unwrap())
+                    .collect::<Vec<VarLenUnicode>>(),
+            ),
+        )
+        .unwrap();
         let dataset = mock.create(64, 1048576).unwrap();
         BatchData {
             dataset,
@@ -713,6 +803,40 @@ mod tests {
         for filters in &batch.filters {
             assert!(filters.get_required_log_names().is_empty());
         }
+    }
+
+    /// Adding a string log filter should apply it to the named filter sets.
+    #[test]
+    fn test_add_string_log_filter() {
+        let mut batch = make_batch(2);
+        batch
+            .add_string_log_filter(
+                FilterIndex::All,
+                "running".to_string(),
+                "status".to_string(),
+                "RUNNING".to_string(),
+            )
+            .unwrap();
+
+        for filters in &batch.filters {
+            assert_eq!(filters.get_required_log_names(), vec!["status".to_string()]);
+        }
+    }
+
+    /// A filter naming a log that isn't in the data is rejected when it is added,
+    /// rather than at calculate time.
+    #[test]
+    fn test_add_log_filter_missing_log() {
+        let mut batch = make_batch(1);
+        let result = batch.add_log_filter(
+            FilterIndex::Index(0),
+            "broken".to_string(),
+            "nonexistent".to_string(),
+            1.0,
+            2.0,
+        );
+
+        assert!(result.is_err());
     }
 
     /// Setting an amplitude filter at a single index should only affect

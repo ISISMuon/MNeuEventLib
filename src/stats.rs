@@ -54,7 +54,7 @@ impl Histogram {
             Ok(logs) => logs,
             Err(info) => return Err(Error::msg(format!("Failed to get logs: {info}"))),
         };
-        let (log_starts, log_ends) = filters.get_log_filter_times(value_logs);
+        let (log_starts, log_ends) = filters.get_log_filter_times(value_logs)?;
 
         let filters_exist = !time_starts.is_empty() || !log_starts.is_empty();
 
