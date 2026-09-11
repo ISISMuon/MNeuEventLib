@@ -109,7 +109,7 @@ impl SaveFile for WiMDAFile {
         let output = File::create(&filename)?;
         let hist_data = output.create_group("raw_data_1")?;
         let event_data = input_file.group("raw_data_1")?;
-        add_nx_class(&hist_data, "NXEntry")?;
+        add_nx_class(&hist_data, "NXentry")?;
 
         self.save(&hist_data, &event_data)?;
         println!("Saved to output file {filename}");
@@ -269,6 +269,7 @@ mod tests {
     /// top-level `raw_data_1` group and key datasets.
     #[test]
     fn test_wimda_save_creates_expected_structure() {
+        let _guard = crate::test_utils::lock_hdf5_test();
         let data = calculated_data();
         let wimda = WiMDAFile::new(&data.dataset, &data.filters[0], &data.results[0]).unwrap();
 
@@ -284,7 +285,7 @@ mod tests {
         let hist_data = output.group("raw_data_1").unwrap();
 
         let nx_class: VarLenUnicode = hist_data.attr("NX_class").unwrap().read_scalar().unwrap();
-        assert_eq!(nx_class.as_str(), "NXEntry");
+        assert_eq!(nx_class.as_str(), "NXentry");
 
         let raw_frames: u32 = hist_data.dataset("raw_frames").unwrap().read_1d().unwrap()[0];
         assert_eq!(raw_frames, wimda.raw_frames);
@@ -307,6 +308,7 @@ mod tests {
     /// with "unknown" (WiMDA crashes on an empty sample name).
     #[test]
     fn test_wimda_save_sample_name_defaults_to_unknown_when_empty() {
+        let _guard = crate::test_utils::lock_hdf5_test();
         let data = calculated_data();
         let wimda = WiMDAFile::new(&data.dataset, &data.filters[0], &data.results[0]).unwrap();
 
@@ -335,6 +337,7 @@ mod tests {
     /// default one attributing the file to MNeuEventLib/RAL.
     #[test]
     fn test_wimda_save_user_1_default_when_missing() {
+        let _guard = crate::test_utils::lock_hdf5_test();
         let data = calculated_data();
         let wimda = WiMDAFile::new(&data.dataset, &data.filters[0], &data.results[0]).unwrap();
 
