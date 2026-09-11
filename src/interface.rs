@@ -77,6 +77,20 @@ impl Data {
         self.inner.set_time_type(FilterIndex::Index(0), filter_type)
     }
 
+    /// Set the overwrite behaviour for filters.
+    ///
+    /// Parameters
+    /// ----------
+    /// overwrite_type: str
+    ///     The overwrite behaviour. Must be 'strict', 'relaxed', or 'free':  
+    ///     - 'strict' produces an error on attempted overwrite;
+    ///     - 'relaxed' allows and produces a warning;
+    ///     - 'free' allows with no warning.
+    fn set_overwrite_type(&mut self, overwrite_type: String) -> Result<()> {
+        self.inner
+            .set_overwrite_type(FilterIndex::Index(0), overwrite_type)
+    }
+
     /// Add a time filter.
     ///
     /// Parameters
@@ -208,9 +222,29 @@ impl Data {
         self.inner.results[0].n
     }
 
+    /// Save the current set of filters to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename for the saved file.
+    fn save_filters(&self, filename: String) -> Result<()> {
+        self.inner.save_filters(0, filename)
+    }
+
+    /// Load a set of filters from a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename for the filters.
+    fn load_filters(&mut self, filename: String) -> Result<()> {
+        self.inner.load_filters(0, filename)
+    }
+
     fn __repr__(&self) -> String {
         format!(
-            "{}\n\n{}\n\n{}",
+            "{}\n\n{}{}",
             self.inner.dataset.__repr__(),
             self.inner.filters[0].__repr__(),
             self.inner.results[0].__repr__()
