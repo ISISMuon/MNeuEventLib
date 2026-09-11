@@ -65,6 +65,19 @@ impl NexusData {
                             output.set_item("unit".to_string(), log.unit)?;
                         }
                     )+
+                    // String logs return `value` as a list[str] rather than an ndarray
+                    SampleLog::Str(log) => {
+                        output.set_item("name".to_string(), log.name)?;
+                        output.set_item("time".to_string(), log.time.to_pyarray(py))?;
+                        output.set_item(
+                            "value".to_string(),
+                            log.value
+                                .iter()
+                                .map(|v| v.to_string())
+                                .collect::<Vec<String>>(),
+                        )?;
+                        output.set_item("unit".to_string(), log.unit)?;
+                    }
                 }
             }
         }
@@ -266,8 +279,11 @@ fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<NexusD
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
     use crate::test_utils::MockData;
+    use hdf5::types::{VarLenAscii, VarLenUnicode};
 
     fn test_data() -> NexusData {
         let path = Path::new("./tests/test_data/HIFI00195790.nxs");
@@ -318,6 +334,63 @@ mod tests {
 
         let log = data.get_sample_log(&"Lunch".to_string());
         assert!(log.is_err())
+    }
+
+    /// Test a variable-length UTF-8 sample log is read.
+    #[test]
+    fn test_load_string_sample_log() {
+        let mock = MockData::new().unwrap();
+        mock.add_sample_log(
+            "status",
+            Array1::from_vec(vec![0., 3., 10.]),
+            Array1::from_vec(
+                ["IDLE", "RUNNING", "PAUSED"]
+                    .iter()
+                    .map(|s| VarLenUnicode::from_str(s).unwrap())
+                    .collect::<Vec<VarLenUnicode>>(),
+            ),
+        )
+        .unwrap();
+        let data = mock.create(64, 1048576).unwrap();
+
+        let log = data.get_sample_log(&"status".to_string()).unwrap();
+
+        match log {
+            SampleLog::Str(log) => {
+                let values: Vec<String> = log.value.iter().map(|v| v.to_string()).collect();
+                assert_eq!(values, vec!["IDLE", "RUNNING", "PAUSED"]);
+                assert_eq!(log.time, Array1::from_vec(vec![0., 3., 10.]));
+            }
+            _ => panic!("a string sample log should load as SampleLog::Str"),
+        }
+    }
+
+    /// Test an ASCII string log is normalised onto the same Str variant
+    #[test]
+    fn test_load_ascii_sample_log_normalises_to_unicode() {
+        let mock = MockData::new().unwrap();
+        mock.add_sample_log(
+            "status",
+            Array1::from_vec(vec![0., 1.]),
+            Array1::from_vec(
+                ["IDLE", "RUNNING"]
+                    .iter()
+                    .map(|s| VarLenAscii::from_ascii(s).unwrap())
+                    .collect::<Vec<VarLenAscii>>(),
+            ),
+        )
+        .unwrap();
+        let data = mock.create(64, 1048576).unwrap();
+
+        let log = data.get_sample_log(&"status".to_string()).unwrap();
+
+        match log {
+            SampleLog::Str(log) => {
+                let values: Vec<String> = log.value.iter().map(|v| v.to_string()).collect();
+                assert_eq!(values, vec!["IDLE", "RUNNING"]);
+            }
+            _ => panic!("an ASCII sample log should load as SampleLog::Str"),
+        }
     }
 
     /// Test that an amplitude histogram is successfully created for some data.

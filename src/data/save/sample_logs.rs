@@ -25,6 +25,7 @@ impl Save for SampleLog {
             SampleLog::U64(log) => log.save_with_narrowing(group),
             SampleLog::F32(log) => log.save_to_group(group),
             SampleLog::F64(log) => log.save_with_narrowing(group),
+            SampleLog::Str(log) => log.save_to_group(group),
         }
     }
 }
@@ -73,7 +74,7 @@ where
 }
 
 pub fn get_all_sample_logs(event_data: &NexusData, filters: &Filters) -> Result<Vec<SampleLog>> {
-    let (mut time_starts, mut time_ends) = filters.get_time_filter_times();
+    let (time_starts, time_ends) = filters.get_time_filter_times();
 
     let log_names = filters.get_required_log_names();
 
@@ -81,10 +82,11 @@ pub fn get_all_sample_logs(event_data: &NexusData, filters: &Filters) -> Result<
         Ok(logs) => logs,
         Err(info) => return Err(Error::msg(format!("Failed to get logs: {info}"))),
     };
-    let (log_starts, log_ends) = filters.get_log_filter_times(value_logs);
+    let (log_starts, log_ends) = filters.get_log_filter_times(value_logs)?;
 
-    time_starts.extend(log_starts);
-    time_ends.extend(log_ends);
+    // the two kinds of filter are applied separately rather than concatenated, because
+    // time filters may be include or exclude, while log filters are always include.
+    let time_include = filters.is_include();
 
     Ok(event_data
         .sample_log_names
@@ -92,9 +94,14 @@ pub fn get_all_sample_logs(event_data: &NexusData, filters: &Filters) -> Result<
         // we use filter_map to skip unloadable sample logs
         .filter_map(|name| {
             match event_data.get_sample_log(name) {
-                Ok(sample_log) => match time_starts.is_empty() {
-                    true => Some(sample_log),
-                    false => Some(sample_log.apply_filters(&time_starts, &time_ends)),
+                Ok(mut sample_log) => {
+                    if !time_starts.is_empty() {
+                        sample_log = sample_log.apply_filters(&time_starts, &time_ends, time_include);
+                    }
+                    if !log_starts.is_empty() {
+                        sample_log = sample_log.apply_filters(&log_starts, &log_ends, true);
+                    }
+                    Some(sample_log)
                 }
                 Err(error) => {
                     // if sample log is unsupported, ignore in output
