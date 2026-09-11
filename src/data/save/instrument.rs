@@ -3,6 +3,7 @@ use hdf5::types::VarLenUnicode;
 use hdf5::Group;
 use ndarray::{Array1, Array3};
 
+use crate::consts::ToMicroseconds;
 use crate::data::save::utils::*;
 use crate::stats::Histogram;
 
@@ -75,12 +76,12 @@ struct CountsData {
 
 impl Detector1 {
     fn new(hist: &Histogram, n_spec: usize) -> Detector1 {
-        let width = (hist.max_time - hist.min_time) / hist.n_bins as f32;
+        let width = (hist.max_time - hist.min_time).to_micros() / hist.n_bins as f32;
 
         // these should be replaced when these attrs are added to event data
         let t0_bin: u32 = 0;
         let first_good_bin: u32 = 0;
-        let last_good_bin = (hist.max_time / width).floor() as u32;
+        let last_good_bin = (hist.max_time.to_micros() / width).floor() as u32;
 
         let counts = CountsData {
             counts: hist.hist.clone(),
@@ -89,7 +90,11 @@ impl Detector1 {
             t0_bin,
         };
 
-        let raw_time = Array1::linspace(hist.min_time, hist.max_time, hist.n_bins + 1);
+        let raw_time = Array1::linspace(
+            hist.min_time.to_micros(),
+            hist.max_time.to_micros(),
+            hist.n_bins + 1,
+        );
         let corrected_time = raw_time.clone().map(|t| t + width / 2.);
 
         let resolution = (width * 1e6) as i32;
@@ -183,8 +188,8 @@ mod tests {
 
         let raw_time = &instrument.detector_1.raw_time;
         assert_eq!(raw_time.len(), data.n_bins + 1);
-        assert_eq!(*raw_time.first().unwrap(), data.min_time);
-        assert_eq!(*raw_time.last().unwrap(), data.max_time);
+        assert_eq!(*raw_time.first().unwrap(), data.min_time.to_micros());
+        assert_eq!(*raw_time.last().unwrap(), data.max_time.to_micros());
     }
 
     /// `counts.counts` should be a clone of the histogram, matching shape
@@ -202,7 +207,7 @@ mod tests {
     #[test]
     fn test_instrument_good_bins_explicit_values() {
         // min_time=0, max_time=10, n_bins=10 -> width = 1
-        let data = crate::stats::Histogram::new(0., 10., 10);
+        let data = crate::stats::Histogram::new(0, 10000, 10);
 
         let instrument = Instrument::new(&data, 64);
         let counts = &instrument.detector_1.counts;
@@ -220,7 +225,7 @@ mod tests {
     /// picoseconds (width * 1e6), truncated to an integer.
     #[test]
     fn test_instrument_resolution_calculation() {
-        let data = crate::stats::Histogram::new(0., 10., 10);
+        let data = crate::stats::Histogram::new(0, 10000, 10);
 
         let instrument = Instrument::new(&data, 64);
 
