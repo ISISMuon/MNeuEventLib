@@ -36,3 +36,4 @@ def make_single_period_data(multi_period,
 
         replace(tmp, 'number', 1, 'int32')
         replace(tmp, 'type', [1], 'int32')
+    return
