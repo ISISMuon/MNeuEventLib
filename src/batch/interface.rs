@@ -622,8 +622,8 @@ impl BatchData {
     ///
     /// Parameters
     /// ----------
-    /// index: int
-    ///     The index of the histogram to get.
+    /// index: int | str
+    ///     Either 'all', or the index or label of the histogram to get.
     pub fn get_histogram<'py>(
         slf: &Bound<'py, BatchData>,
         index: FilterIndex,
@@ -641,8 +641,8 @@ impl BatchData {
     ///
     /// Parameters
     /// ----------
-    /// index: int
-    ///     The index of the histogram to get.
+    /// index: int | str
+    ///     Either 'all', or the index or label of the histogram to get.
     pub fn get_n_events(&self, index: FilterIndex) -> Result<Vec<usize>> {
         Ok(self
             .resolve_indices(&index)?
