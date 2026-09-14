@@ -311,7 +311,7 @@ fn make_histogram(
 mod tests {
     use super::*;
 
-    /// Run a histogram over one chunk of data. 
+    /// Run a histogram over one chunk of data.
     #[allow(clippy::too_many_arguments)]
     fn histogram_one_chunk(
         times: Array1<u32>,
