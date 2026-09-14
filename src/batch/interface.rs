@@ -10,16 +10,21 @@ use crate::stats::Histogram;
 
 pub type PyHist<'py> = Bound<'py, PyArray3<i32>>;
 
+/// The reserved word selecting every filter set.
+const ALL_KEYWORD: &str = "all";
+
 /// The index of a filter set (and its corresponding result) within a
 /// [`BatchData`], or a request to apply an operation to every filter set.
 ///
-/// From Python this can be constructed from either an integer (e.g. `0`,
-/// `1`, ...) or the string `"all"` (case-insensitive).
+/// From Python this can be constructed from an integer (e.g. `0`, `1`, ...),
+/// the string `"all"` (case-insensitive), or the label of a filter set.
 pub enum FilterIndex {
     /// Apply the operation to every filter set.
     All,
     /// Apply the operation to a single filter set at this index.
     Index(usize),
+    /// Apply the operation to the single filter set carrying this label.
+    Label(String),
 }
 
 impl<'a, 'py> FromPyObject<'a, 'py> for FilterIndex {
@@ -29,14 +34,20 @@ impl<'a, 'py> FromPyObject<'a, 'py> for FilterIndex {
         // If index is given as an integer, turn into Index integer
         if let Ok(index) = obj.cast::<PyInt>() {
             return Ok(FilterIndex::Index(index.extract()?));
-        // If index is given as a string, check it is 'all' or fail
+        // If index is given as a string, it is either 'all' or a label.
+        // We cannot tell a valid label from a typo here, as we have no access
+        // to the BatchData; the lookup in `resolve_indices` raises instead.
         } else if let Ok(string) = obj.cast::<PyString>() {
-            if string.extract::<String>()?.to_lowercase() == "all" {
+            let string = string.extract::<String>()?;
+            if string.to_lowercase() == ALL_KEYWORD {
                 return Ok(FilterIndex::All);
             }
+            return Ok(FilterIndex::Label(string));
         }
         // If index is anything else, fail
-        Err(Error::msg("Filter index must be a number or 'all'"))
+        Err(Error::msg(
+            "Filter index must be a number, a label, or 'all'",
+        ))
     }
 }
 
@@ -48,8 +59,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for FilterIndex {
 ///
 /// Filter-mutating methods take an extra `index: FilterIndex` parameter,
 /// which is either `"all"` (apply the change to every filter
-/// set) or `i` (apply the change to filter set `i`
-/// only).
+/// set), `i` (apply the change to filter set `i` only), or the label of
+/// a filter set (apply the change to the set carrying that label).
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct BatchData {
@@ -57,7 +68,8 @@ pub struct BatchData {
     pub dataset: Option<NexusData>,
     pub results: Vec<Histogram>,
     pub filters: Vec<Filters>,
-    data_changed: Vec<bool>, // whether data has changed since last calculation, per filter set
+    labels: Vec<Option<String>>, // the optional label of each filter set
+    data_changed: Vec<bool>,     // whether data has changed since last calculation, per filter set
 }
 
 #[pymethods]
@@ -92,6 +104,7 @@ impl BatchData {
                 .map(|_| Histogram::new(0., 32.768, 2048))
                 .collect(),
             filters: (0..n_filter_sets).map(|_| Filters::new()).collect(),
+            labels: vec![None; n_filter_sets],
             data_changed: vec![true; n_filter_sets],
         })
     }
@@ -144,7 +157,7 @@ impl BatchData {
     /// Parameters
     /// ----------
     /// index: int | str
-    ///     Either 'all', or the index of the filter set to modify.
+    ///     Either 'all', or the index or label of the filter set to modify.
     /// min_time: float
     ///     The minimum time bound for the histogram.
     /// max_time: float
@@ -179,7 +192,7 @@ impl BatchData {
     /// Parameters
     /// ----------
     /// index: int | str
-    ///     Either 'all', or the index of the filter set to modify.
+    ///     Either 'all', or the index or label of the filter set to modify.
     /// filter_type: str
     ///     The type for the time filters. Must be 'exclude' or 'include'.
     pub fn set_time_type(&mut self, index: FilterIndex, filter_type: String) -> Result<()> {
@@ -195,7 +208,7 @@ impl BatchData {
     /// Parameters
     /// ----------
     /// index: int | str
-    ///     Either 'all', or the index of the filter set to modify.
+    ///     Either 'all', or the index or label of the filter set to modify.
     /// name: str
     ///     The name of the time filter. Must be unique within each modified filter set.
     /// start: float
@@ -221,7 +234,7 @@ impl BatchData {
     /// Parameters
     /// ----------
     /// index: int | str
-    ///     Either 'all', or the index of the filter set to modify.
+    ///     Either 'all', or the index or label of the filter set to modify.
     /// name: str
     ///     The name of the time filter to remove.
     pub fn remove_time_filter(&mut self, index: FilterIndex, name: String) -> Result<()> {
@@ -237,7 +250,7 @@ impl BatchData {
     /// Parameters
     /// ----------
     /// index: int | str
-    ///     Either 'all', or the index of the filter set to modify.
+    ///     Either 'all', or the index or label of the filter set to modify.
     /// name: str
     ///     The name of the log filter. Must be unique within each modified filter set.
     /// log: str
@@ -266,7 +279,7 @@ impl BatchData {
     /// Parameters
     /// ----------
     /// index: int | str
-    ///     Either 'all', or the index of the filter set to modify.
+    ///     Either 'all', or the index or label of the filter set to modify.
     /// name: str
     ///     The name of the log filter to remove.
     pub fn remove_log_filter(&mut self, index: FilterIndex, name: String) -> Result<()> {
@@ -282,7 +295,7 @@ impl BatchData {
     /// Parameters
     /// ----------
     /// index: int | str
-    ///     Either 'all', or the index of the filter set to modify.
+    ///     Either 'all', or the index or label of the filter set to modify.
     /// name: str
     ///     The name of the log filter. Must be unique within each modified filter set.
     /// log: str
@@ -308,7 +321,7 @@ impl BatchData {
     /// Parameters
     /// ----------
     /// index: int | str
-    ///     Either 'all', or the index of the filter set to modify.
+    ///     Either 'all', or the index or label of the filter set to modify.
     /// name: str
     ///     The name of the log filter. Must be unique within each modified filter set.
     /// log: str
@@ -334,7 +347,7 @@ impl BatchData {
     /// Parameters
     /// ----------
     /// index: int | str
-    ///     Either 'all', or the index of the filter set to modify.
+    ///     Either 'all', or the index or label of the filter set to modify.
     /// detector: int
     ///     The detector to set a filter for.
     /// amp: float
@@ -352,7 +365,7 @@ impl BatchData {
     /// Parameters
     /// ----------
     /// index: int | str
-    ///     Either 'all', or the index of the filter set to modify.
+    ///     Either 'all', or the index or label of the filter set to modify.
     /// amp: float
     ///     The maximum amplitude that should be ignored.
     pub fn set_amps_baseline(&mut self, index: FilterIndex, amp: f64) -> Result<()> {
@@ -363,7 +376,62 @@ impl BatchData {
         Ok(())
     }
 
+    /// Label a filter set, so it can be addressed by that label instead of
+    /// by its index.
+    ///
+    /// Note that unlike the filter-mutating methods, `index` here must be an
+    /// integer: a label cannot be given to every filter set at once, as
+    /// labels are unique.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int
+    ///     The index of the filter set to label.
+    /// label: str | None
+    ///     The label to give the filter set. Must not be empty, must not be
+    ///     'all', and must not already be in use by another filter set.
+    ///     Pass `None` to remove an existing label.
+    pub fn set_label(&mut self, index: usize, label: Option<String>) -> Result<()> {
+        self.check_index(index)?;
+        match label {
+            None => self.labels[index] = None,
+            Some(label) => {
+                if label.is_empty() {
+                    return Err(Error::msg("A filter set label cannot be empty."));
+                }
+                if label.to_lowercase() == ALL_KEYWORD {
+                    return Err(Error::msg(format!(
+                        "'{label}' cannot be used as a filter set label, \
+                         as '{ALL_KEYWORD}' selects every filter set."
+                    )));
+                }
+                // relabelling a set with its own label is a no-op, not a clash
+                if let Some(existing) = self.find_label(&label) {
+                    if existing != index {
+                        return Err(Error::msg(format!(
+                            "Filter set {existing} is already labelled '{label}'. \
+                             Labels must be unique."
+                        )));
+                    }
+                }
+                self.labels[index] = Some(label);
+            }
+        }
+        Ok(())
+    }
+
+    /// The label of each filter set, in index order, with `None` for the
+    /// filter sets that are unlabelled.
+    #[getter]
+    pub fn labels(&self) -> Vec<Option<String>> {
+        self.labels.clone()
+    }
+
     /// Add two BatchData objects together componentwise.
+    ///
+    /// Note that labels are dropped by this function, as each resulting
+    /// filter set is built from a filter set of *each* object and so
+    /// corresponds to neither.
     ///
     /// Parameters
     /// ----------
@@ -390,6 +458,7 @@ impl BatchData {
         Ok(BatchData {
             dataset,
             filters,
+            labels: vec![None; results.len()],
             results,
             data_changed,
         })
@@ -401,6 +470,10 @@ impl BatchData {
     }
 
     /// Concatenate BatchData objects.
+    ///
+    /// Labels are carried over, as each filter set of each object becomes a
+    /// filter set of the result unchanged. It is therefore an error for both
+    /// objects to use the same label.
     ///
     /// Parameters
     /// ----------
@@ -415,11 +488,28 @@ impl BatchData {
         let mut results = self.results.clone();
         results.extend(other.results);
 
+        // labels stay aligned with their filter sets automatically, but the
+        // two objects were labelled independently, so may clash
+        if let Some(clash) = other
+            .labels
+            .iter()
+            .flatten()
+            .find(|label| self.find_label(label).is_some())
+        {
+            return Err(Error::msg(format!(
+                "Both objects have a filter set labelled '{clash}'. \
+                 Labels must be unique; relabel one with set_label()."
+            )));
+        }
+        let mut labels = self.labels.clone();
+        labels.extend(other.labels);
+
         let data_changed = vec![true; filters.len()];
 
         Ok(BatchData {
             dataset,
             filters,
+            labels,
             results,
             data_changed,
         })
@@ -433,7 +523,9 @@ impl BatchData {
     /// Take all combinations of filters in two BatchData objects;
     /// i.e. this computes the cartesian product.
     ///
-    /// Note that histogram settings are reset by this function.
+    /// Note that histogram settings are reset by this function, and labels
+    /// are dropped, as each resulting filter set is built from a *pair* of
+    /// filter sets and so corresponds to neither of them.
     ///
     /// Parameters
     /// ----------
@@ -463,6 +555,7 @@ impl BatchData {
         Ok(BatchData {
             dataset,
             filters,
+            labels: vec![None; result_size],
             results,
             data_changed,
         })
@@ -477,8 +570,8 @@ impl BatchData {
     ///
     /// Parameters
     /// ----------
-    /// index: int
-    ///     The index of the filter set/result to save. If 'all',
+    /// index: int | str
+    ///     The index or label of the filter set/result to save. If 'all',
     ///     an index number will be appended to each filename.
     /// filename: str
     ///     The filename for the saved file.
@@ -489,8 +582,15 @@ impl BatchData {
             filename.clone()
         };
 
+        // a label names exactly one filter set, so saves as a single index does
+        let index = match index {
+            FilterIndex::Label(label) => FilterIndex::Index(self.label_to_index(&label)?),
+            other => other,
+        };
+
         match index {
             FilterIndex::Index(i) => {
+                self.check_index(i)?;
                 if self.results[i].hist.shape() == [0, 0, 0] {
                     return Err(Error::msg(
                         "Cannot save as results have not been calculated.",
@@ -512,6 +612,8 @@ impl BatchData {
                     wimda_file.save_file(format!("{filename_stem}_{i}.nxs"), &dataset.file)?;
                 }
             }
+            // resolved into an Index above
+            FilterIndex::Label(_) => unreachable!(),
         }
         Ok(())
     }
@@ -555,8 +657,14 @@ impl BatchData {
             None => "No data set.".to_string(),
         };
         for (i, (filters, results)) in self.filters.iter().zip(self.results.iter()).enumerate() {
+            // the index is shown whether or not the set is labelled, as
+            // filter sets stay addressable by position either way
+            let label = match &self.labels[i] {
+                Some(label) => format!(" ({label})"),
+                None => String::new(),
+            };
             string += &format!(
-                "\n\nFilter set {i}:\n{}\n\n{}",
+                "\n\nFilter set {i}{label}:\n{}\n\n{}",
                 filters.__repr__(),
                 results.__repr__()
             );
@@ -577,6 +685,7 @@ impl BatchData {
             dataset: None,
             results: vec![Histogram::new(0., 32.768, 2048); n],
             filters: vec![Filters::new(); n],
+            labels: vec![None; n],
             data_changed: vec![true; n],
         }
     }
@@ -590,7 +699,27 @@ impl BatchData {
                 self.check_index(*i)?;
                 Ok(vec![*i])
             }
+            FilterIndex::Label(label) => Ok(vec![self.label_to_index(label)?]),
         }
+    }
+
+    /// Find the filter set carrying a given label, or error if not found.
+    fn label_to_index(&self, label: &str) -> Result<usize> {
+        self.find_label(label).ok_or_else(|| {
+            // PyO3 downcasts back out of anyhow, so this raises a real KeyError
+            let available = self.labels.iter().flatten().cloned().collect::<Vec<_>>();
+            let available = if available.is_empty() {
+                "no filter sets are labelled".to_string()
+            } else {
+                format!("available labels are {}", available.join(", "))
+            };
+            Error::msg(format!("No filter set labelled '{label}': {available}."))
+        })
+    }
+
+    /// Get the index of a given label.
+    fn find_label(&self, label: &str) -> Option<usize> {
+        self.labels.iter().position(|l| l.as_deref() == Some(label))
     }
 
     /// Check that a given index is valid for this BatchData's filter sets.
@@ -694,6 +823,7 @@ mod tests {
                 .map(|_| Histogram::new(0., 32.768, 2048))
                 .collect(),
             filters: (0..n_filter_sets).map(|_| Filters::new()).collect(),
+            labels: vec![None; n_filter_sets],
             data_changed: vec![true; n_filter_sets],
         }
     }
@@ -720,6 +850,199 @@ mod tests {
         let batch = make_batch(3);
         let result = batch.resolve_indices(&FilterIndex::Index(3));
         assert!(result.is_err());
+    }
+
+    /// resolve_indices(Label) should return the index of the labelled set.
+    #[test]
+    fn test_resolve_indices_by_label() {
+        let mut batch = make_batch(3);
+        batch
+            .set_label(1, Some("my_favourite".to_string()))
+            .unwrap();
+
+        let indices = batch
+            .resolve_indices(&FilterIndex::Label("my_favourite".to_string()))
+            .unwrap();
+        assert_eq!(indices, vec![1]);
+    }
+
+    /// A label already used by another filter set should be rejected.
+    #[test]
+    fn test_duplicate_label_rejected() {
+        let mut batch = make_batch(3);
+        batch
+            .set_label(0, Some("my_favourite".to_string()))
+            .unwrap();
+
+        assert!(batch
+            .set_label(1, Some("my_favourite".to_string()))
+            .is_err());
+        // the failed call should not have changed anything
+        assert_eq!(
+            batch.labels(),
+            vec![Some("my_favourite".to_string()), None, None]
+        );
+    }
+
+    /// 'all' is reserved for selecting every filter set, in any case.
+    #[test]
+    fn test_all_rejected_as_label() {
+        let mut batch = make_batch(2);
+        assert!(batch.set_label(0, Some("all".to_string())).is_err());
+        assert!(batch.set_label(0, Some("ALL".to_string())).is_err());
+    }
+
+    /// An empty label cannot be used, as it names nothing.
+    #[test]
+    fn test_empty_label_rejected() {
+        let mut batch = make_batch(2);
+        assert!(batch.set_label(0, Some(String::new())).is_err());
+    }
+
+    /// Labelling an out-of-range filter set should error.
+    #[test]
+    fn test_set_label_out_of_range() {
+        let mut batch = make_batch(2);
+        assert!(batch
+            .set_label(5, Some("my_favourite".to_string()))
+            .is_err());
+    }
+
+    /// Relabelling a filter set should drop its previous label, rather than
+    /// leaving the set addressable by both.
+    #[test]
+    fn test_relabelling_drops_old_label() {
+        let mut batch = make_batch(2);
+        batch.set_label(0, Some("old".to_string())).unwrap();
+        batch.set_label(0, Some("new".to_string())).unwrap();
+
+        assert_eq!(batch.labels(), vec![Some("new".to_string()), None]);
+        assert!(batch
+            .resolve_indices(&FilterIndex::Label("old".to_string()))
+            .is_err());
+    }
+
+    /// Filter-mutating methods should accept a label in place of an index.
+    #[test]
+    fn test_add_time_filter_by_label() {
+        let mut batch = make_batch(3);
+        batch
+            .set_label(1, Some("my_favourite".to_string()))
+            .unwrap();
+        batch
+            .add_time_filter(
+                FilterIndex::Label("my_favourite".to_string()),
+                "f1".to_string(),
+                1.0,
+                2.0,
+            )
+            .unwrap();
+
+        let (starts0, _) = batch.filters[0].get_time_filter_times();
+        let (starts1, ends1) = batch.filters[1].get_time_filter_times();
+        let (starts2, _) = batch.filters[2].get_time_filter_times();
+
+        assert!(starts0.is_empty());
+        assert_eq!(starts1, vec![1e9 as usize]);
+        assert_eq!(ends1, vec![2e9 as usize]);
+        assert!(starts2.is_empty());
+    }
+
+    /// Results should be addressable by label too, via the same mechanism.
+    #[test]
+    fn test_get_n_events_by_label() {
+        let mut batch = make_batch(3);
+        batch
+            .set_label(2, Some("my_favourite".to_string()))
+            .unwrap();
+        // set distinct counts so the lookup can't pass by picking the wrong set
+        batch.results[2].n = 42;
+
+        let by_label = batch
+            .get_n_events(FilterIndex::Label("my_favourite".to_string()))
+            .unwrap();
+        assert_eq!(by_label, vec![42]);
+        assert_eq!(by_label, batch.get_n_events(FilterIndex::Index(2)).unwrap());
+    }
+
+    /// Concatenation preserves labels, shifting them with their filter sets.
+    #[test]
+    fn test_concatenate_preserves_and_shifts_labels() {
+        let mut left = make_batch(2);
+        left.set_label(1, Some("left".to_string())).unwrap();
+        let mut right = make_batch(2);
+        right.set_label(0, Some("right".to_string())).unwrap();
+
+        let combined = left.concatenate(right).unwrap();
+
+        assert_eq!(
+            combined.labels(),
+            vec![
+                None,
+                Some("left".to_string()),
+                Some("right".to_string()),
+                None
+            ]
+        );
+        // 'right' was index 0 of its own object, and is index 2 of the result
+        assert_eq!(
+            combined
+                .resolve_indices(&FilterIndex::Label("right".to_string()))
+                .unwrap(),
+            vec![2]
+        );
+    }
+
+    /// Concatenating two objects that use the same label should error, as
+    /// labels must stay unique.
+    #[test]
+    fn test_concatenate_duplicate_label_errors() {
+        let mut left = make_batch(2);
+        left.set_label(0, Some("sweep".to_string())).unwrap();
+        let mut right = make_batch(2);
+        right.set_label(1, Some("sweep".to_string())).unwrap();
+
+        assert!(left.concatenate(right).is_err());
+    }
+
+    /// add() merges two filter sets into one, so the result corresponds to
+    /// neither input and labels are dropped.
+    #[test]
+    fn test_add_drops_labels() {
+        let mut left = make_batch(2);
+        left.set_label(0, Some("left".to_string())).unwrap();
+        let mut right = make_batch(2);
+        right.set_label(1, Some("right".to_string())).unwrap();
+
+        let combined = left.add(right).unwrap();
+        assert_eq!(combined.labels(), vec![None, None]);
+    }
+
+    /// combinations() builds each filter set from a pair, so the result
+    /// corresponds to neither input and labels are dropped.
+    #[test]
+    fn test_combinations_drops_labels() {
+        let mut left = make_batch(2);
+        left.set_label(0, Some("left".to_string())).unwrap();
+        let mut right = make_batch(3);
+        right.set_label(1, Some("right".to_string())).unwrap();
+
+        let combined = left.combinations(right).unwrap();
+        assert_eq!(combined.labels(), vec![None; 6]);
+    }
+
+    /// __repr__ should show a label when there is one, and just the index
+    /// when there is not.
+    #[test]
+    fn test_repr_shows_labels() {
+        let mut batch = make_batch(2);
+        batch
+            .set_label(1, Some("my_favourite".to_string()))
+            .unwrap();
+
+        let repr = batch.__repr__();
+        assert!(repr.contains("Filter set 0:"));
+        assert!(repr.contains("Filter set 1 (my_favourite):"));
     }
 
     /// BatchData::new should error when n_filter_sets is 0.
