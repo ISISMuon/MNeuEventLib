@@ -27,8 +27,8 @@ def mantid_workflow(load_result, periods):
     LG = load_result[4]
     DT = load_result[6]
 
-    ws1 = ws[0]
     if len(periods) > 1:
+        ws1 = ws[0]
         ws2 = ws[1]
         # mantid expects specific names for the workspaces
         RenameWorkspace(InputWorkspace=ws1,
@@ -112,7 +112,7 @@ def test_mantid_workflow_Load_multi():
     result = Load(Filename=hist_file, deadtimeTable='deadtimes')
  
     mantid_workflow(result, periods)
-    os.remove('HIFI002.nxs')
+    os.remove(hist_file)
 
 def test_mantid_workflow_LoadMuonNexusv2_multi():
     """
@@ -139,7 +139,7 @@ def test_mantid_workflow_LoadMuonNexusv2_multi():
     result = LoadMuonNexusV2(Filename=hist_file, deadtimeTable='deadtimes')
  
     mantid_workflow(result, periods)
-    os.remove('HIFI021.nxs')
+    os.remove(hist_file)
 
 def test_mantid_workflow_Load_single():
     """
@@ -166,7 +166,7 @@ def test_mantid_workflow_Load_single():
     result = Load(Filename=hist_file, deadtimeTable='deadtimes')
  
     mantid_workflow(result, periods)
-    os.remove('HIFI032.nxs')
+    os.remove(hist_file)
     os.remove('HIFI001.nxs')
 
 def test_mantid_workflow_LoadMuonNexusv2_single():
@@ -195,5 +195,5 @@ def test_mantid_workflow_LoadMuonNexusv2_single():
     result = LoadMuonNexusV2(Filename=hist_file, deadtimeTable='deadtimes')
  
     mantid_workflow(result, periods)
-    os.remove('HIFI042.nxs')
+    os.remove(hist_file)
     os.remove('HIFI0001.nxs')
