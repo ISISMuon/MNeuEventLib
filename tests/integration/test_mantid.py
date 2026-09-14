@@ -185,8 +185,8 @@ def test_mantid_workflow_LoadMuonNexusv2_single():
                         'test_data',
                         'HIFI00195790.nxs')
    
-    event_file = os.path.join(dir_path, f'HIFI0001.nxs')
-    new_file = make_single_period_data(file, event_file)
+    event_file = os.path.join(dir_path, f'HIFI0007.nxs')
+    make_single_period_data(file, event_file)
     # create histogram data from events
     data = Data(event_file, 64)
     result = data.calculate()
