@@ -74,8 +74,6 @@ def mantid_workflow(load_result, periods):
     diff = Minus(LHSWorkspace='long1',
                  RHSWorkspace='long2')
     
-    # clean up
-    os.remove(hist_file)
 
 def test_mantid_works():
     """
@@ -146,15 +144,15 @@ def test_mantid_workflow_Load_single():
     load algoriths in Mantid and uses the one with the 'best' match.
     It should identify the file as a Muon Nexus V2.
     """
-    periods = ['1', '2']
+    periods = ['1']
     dir_path = os.path.dirname(os.path.realpath(__file__))
     file = os.path.join(dir_path,
                         '..',
                         'test_data',
                         'HIFI00195790.nxs')
-    new_file = make_single_period_data(file, 'HIFI001.nxs')
+    make_single_period_data(file, 'HIFI001.nxs')
     # create histogram data from events
-    data = Data(new_file, 64)
+    data = Data('HIFI001.nxs', 64)
     result = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI0032.nxs')
     data.save(hist_file, autofill=True)
@@ -174,7 +172,7 @@ def test_mantid_workflow_LoadMuonNexusv2_single():
     and should be used when the
     file is known to be a Muon Nexus V2 file.
     """
-    periods = ['1', '2']
+    periods = ['1']
     dir_path = os.path.dirname(os.path.realpath(__file__))
     file = os.path.join(dir_path,
                         '..',
@@ -183,7 +181,7 @@ def test_mantid_workflow_LoadMuonNexusv2_single():
    
     new_file = make_single_period_data(file, 'HIFI0001.nxs')
     # create histogram data from events
-    data = Data(new_file, 64)
+    data = Data('HIFI0001.nxs', 64)
     result = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI042.nxs')
     data.save(hist_file, autofill=True)
