@@ -28,13 +28,17 @@ def mantid_workflow(load_result, periods):
     DT = load_result[6]
 
     ws1 = ws[0]
-    ws2 = ws[1]
-    
-    # mantid expects specific names for the workspaces
-    RenameWorkspace(InputWorkspace=ws1,
-                    OutputWorkspace='HIFI207745_raw_data_period_1 MA')
-    RenameWorkspace(InputWorkspace=ws2,
-                    OutputWorkspace='HIFI207745_raw_data_period_2 MA')
+    if len(periods) > 1:
+        ws2 = ws[1]
+        # mantid expects specific names for the workspaces
+        RenameWorkspace(InputWorkspace=ws1,
+                        OutputWorkspace='HIFI207745_raw_data_period_1 MA')
+        RenameWorkspace(InputWorkspace=ws2,
+                        OutputWorkspace='HIFI207745_raw_data_period_2 MA')
+    else:
+        # mantid expects specific names for the workspaces
+        RenameWorkspace(InputWorkspace=ws,
+                        OutputWorkspace='HIFI207745_raw_data MA')
     
     # pre-process step
     MPP = MuonPreProcess(InputWorkspace=ws,
@@ -70,10 +74,11 @@ def mantid_workflow(load_result, periods):
                              InputWorkspace1=counts['fwd'+p],
                              InputWorkspace2=counts['bwd'+p])
     
-    # diff in pair asymmetries
-    diff = Minus(LHSWorkspace='long1',
-                 RHSWorkspace='long2')
-    
+    if len(periods) > 1:
+        # diff in pair asymmetries
+        diff = Minus(LHSWorkspace='long1',
+                     RHSWorkspace='long2')
+        
 
 def test_mantid_works():
     """
