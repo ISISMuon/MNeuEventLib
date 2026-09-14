@@ -702,8 +702,8 @@ impl BatchData {
     ///
     /// Parameters
     /// ----------
-    /// index: int
-    ///     The index of the histogram to get.
+    /// index: int | str
+    ///     Either 'all', or the index or label of the histogram to get.
     pub fn get_histogram<'py>(
         slf: &Bound<'py, BatchData>,
         index: FilterIndex,
@@ -721,8 +721,8 @@ impl BatchData {
     ///
     /// Parameters
     /// ----------
-    /// index: int
-    ///     The index of the histogram to get.
+    /// index: int | str
+    ///     Either 'all', or the index or label of the histogram to get.
     pub fn get_n_events(&self, index: FilterIndex) -> Result<Vec<usize>> {
         Ok(self
             .resolve_indices(&index)?
@@ -1104,8 +1104,8 @@ mod tests {
         let (starts2, _) = batch.filters[2].get_time_filter_times();
 
         assert!(starts0.is_empty());
-        assert_eq!(starts1, vec![1e9 as usize]);
-        assert_eq!(ends1, vec![2e9 as usize]);
+        assert_eq!(starts1, vec![1e9 as u64]);
+        assert_eq!(ends1, vec![2e9 as u64]);
         assert!(starts2.is_empty());
     }
 
