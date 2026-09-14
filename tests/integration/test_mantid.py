@@ -158,7 +158,7 @@ def test_mantid_workflow_Load_single():
     event_file = os.path.join(dir_path, f'HIFI001.nxs')
     make_single_period_data(file, event_file)
     # create histogram data from events
-    data = Data('HIFI001.nxs', 64)
+    data = Data(event_file, 64)
     result = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI0032.nxs')
     data.save(hist_file, autofill=True)
@@ -188,7 +188,7 @@ def test_mantid_workflow_LoadMuonNexusv2_single():
     event_file = os.path.join(dir_path, f'HIFI0001.nxs')
     new_file = make_single_period_data(file, event_file)
     # create histogram data from events
-    data = Data('HIFI0001.nxs', 64)
+    data = Data(event_file, 64)
     result = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI042.nxs')
     data.save(hist_file, autofill=True)
