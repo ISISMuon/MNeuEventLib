@@ -9,37 +9,23 @@ from mantid.simpleapi import (CreateWorkspace,
                               Load,
                               LoadMuonNexusV2)
 from MNeuEventLib import Data
+from MNeuEventLib.test_helpers import make_single_period_data
 
 
-def mantid_workflow(loader, num):
+def mantid_workflow(load_result, periods):
     """
-    Creates a histogram file from event data, then executes a Mantid muon workflow.
-    :param loader: the Mantid load method to use
-    :param num: a number to make the files unique in case of multiple runs
+    Executes a Mantid muon workflow from the result of a loader.
+    :param load_result: the result of Mantid load method
+    :param periods: a list of the periods for the dataset
     """
-    periods = ['1', '2']
-    dir_path = os.path.dirname(os.path.realpath(__file__))
-    file = os.path.join(dir_path,
-                        '..',
-                        'test_data',
-                        'HIFI00195790.nxs')
    
-    # create histogram data from events
-    data = Data(file, 64)
-    result = data.calculate()
-    hist_file = os.path.join(dir_path, f'HIFI{num}.nxs')
-    data.save(hist_file, autofill=True)
-
-    # load data
-    result = loader(Filename=hist_file, deadtimeTable='deadtimes')
-    
     # unpack results (Load and LoadMuonNexusV2 has different
     # number of return values
-    ws = result[0]
-    T0 = result[2]
-    FG = result[3]
-    LG = result[4]
-    DT = result[6]
+    ws = load_result[0]
+    T0 = load_result[2]
+    FG = load_result[3]
+    LG = load_result[4]
+    DT = load_result[6]
 
     ws1 = ws[0]
     ws2 = ws[1]
@@ -98,24 +84,113 @@ def test_mantid_works():
     _ = CreateWorkspace([1, 2], [3, 4])
 
 
-def test_mantid_workflow_Load():
+def test_mantid_workflow_Load_multi():
     """
     Test that Mantid can load the library's output histogram data
-    using the 'Load' method.
+    using the 'Load' method for multi-period data.
     The 'Load' method checks the file against all of the different
     load algoriths in Mantid and uses the one with the 'best' match.
     It should identify the file as a Muon Nexus V2.
     """
-    mantid_workflow(Load, 42)
+    periods = ['1', '2']
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    file = os.path.join(dir_path,
+                        '..',
+                        'test_data',
+                        'HIFI00195790.nxs')
+   
+    # create histogram data from events
+    data = Data(file, 64)
+    result = data.calculate()
+    hist_file = os.path.join(dir_path, f'HIFI002.nxs')
+    data.save(hist_file, autofill=True)
 
+    # mantid workflow
+    result = Load(Filename=hist_file, deadtimeTable='deadtimes')
+ 
+    mantid_workflow(result, periods)
+    os.remove('HIFI002.nxs')
 
-def test_mantid_workflow_LoadMuonNexusv2():
+def test_mantid_workflow_LoadMuonNexusv2_multi():
     """
     Test that Mantid can load the the library's output histogram data
-    using the 'LoadMuonNexusV2' method.
+    using the 'LoadMuonNexusV2' method for multiperiod data.
     This method is what should be called by the 'Load' method
     and should be used when the
     file is known to be a Muon Nexus V2 file.
     """
-    mantid_workflow(LoadMuonNexusV2, 51)
+    periods = ['1', '2']
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    file = os.path.join(dir_path,
+                        '..',
+                        'test_data',
+                        'HIFI00195790.nxs')
+   
+    # create histogram data from events
+    data = Data(file, 64)
+    result = data.calculate()
+    hist_file = os.path.join(dir_path, f'HIFI021.nxs')
+    data.save(hist_file, autofill=True)
 
+    # mantid workflow
+    result = LoadMuonNexusV2(Filename=hist_file, deadtimeTable='deadtimes')
+ 
+    mantid_workflow(result, periods)
+    os.remove('HIFI021.nxs')
+
+def test_mantid_workflow_Load_single():
+    """
+    Test that Mantid can load the library's output histogram data
+    using the 'Load' method for single-period data.
+    The 'Load' method checks the file against all of the different
+    load algoriths in Mantid and uses the one with the 'best' match.
+    It should identify the file as a Muon Nexus V2.
+    """
+    periods = ['1', '2']
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    file = os.path.join(dir_path,
+                        '..',
+                        'test_data',
+                        'HIFI00195790.nxs')
+    new_file = make_single_period_data(file, 'HIFI001.nxs')
+    # create histogram data from events
+    data = Data(new_file, 64)
+    result = data.calculate()
+    hist_file = os.path.join(dir_path, f'HIFI0032.nxs')
+    data.save(hist_file, autofill=True)
+
+    # mantid workflow
+    result = Load(Filename=hist_file, deadtimeTable='deadtimes')
+ 
+    mantid_workflow(result, periods)
+    os.remove('HIFI032.nxs')
+    os.remove('HIFI001.nxs')
+
+def test_mantid_workflow_LoadMuonNexusv2_single():
+    """
+    Test that Mantid can load the the library's output histogram data
+    using the 'LoadMuonNexusV2' method for multiperiod data.
+    This method is what should be called by the 'Load' method
+    and should be used when the
+    file is known to be a Muon Nexus V2 file.
+    """
+    periods = ['1', '2']
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    file = os.path.join(dir_path,
+                        '..',
+                        'test_data',
+                        'HIFI00195790.nxs')
+   
+    new_file = make_single_period_data(file, 'HIFI0001.nxs')
+    # create histogram data from events
+    data = Data(new_file, 64)
+    result = data.calculate()
+    hist_file = os.path.join(dir_path, f'HIFI042.nxs')
+    data.save(hist_file, autofill=True)
+
+    # mantid workflow
+    result = LoadMuonNexusV2(Filename=hist_file, deadtimeTable='deadtimes')
+ 
+    mantid_workflow(result, periods)
+    os.remove('HIFI042.nxs')
+    os.remove('HIFI0001.nxs')
