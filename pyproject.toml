@@ -4,6 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "MNeuEventLib"
+description = "Event data filtering library for ISIS Neutron and Muon Source."
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Rust",
@@ -15,6 +16,7 @@ dependencies = [
   "numpy", 
   "matplotlib",
 ]
+license = "BSD-3-Clause"
 
 [project.optional-dependencies]
 # Dependencies required to build the documentation.
