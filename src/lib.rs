@@ -18,8 +18,9 @@ mod filters;
 mod interface;
 mod stats;
 use interface::Data;
-mod batch_interface;
-use batch_interface::BatchData;
+mod batch;
+use batch::BatchData;
+use batch::{log_geomspace, log_linspace, log_range, time_geomspace, time_linspace, time_range};
 mod consts;
 mod utils;
 
@@ -32,5 +33,11 @@ fn core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NexusData>()?;
     m.add_class::<Data>()?;
     m.add_class::<BatchData>()?;
+    m.add_function(wrap_pyfunction!(time_linspace, m)?)?;
+    m.add_function(wrap_pyfunction!(time_geomspace, m)?)?;
+    m.add_function(wrap_pyfunction!(time_range, m)?)?;
+    m.add_function(wrap_pyfunction!(log_linspace, m)?)?;
+    m.add_function(wrap_pyfunction!(log_geomspace, m)?)?;
+    m.add_function(wrap_pyfunction!(log_range, m)?)?;
     Ok(())
 }

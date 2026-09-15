@@ -29,15 +29,15 @@ pub struct Filter {
 pub struct LogFilter {
     name: String,
     log: String,
-    lower: Option<f64>,
-    upper: Option<f64>,
+    pub lower: Option<f64>,
+    pub upper: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Filters {
     time_filter_type: FilterType,
     time_filters: Vec<Filter>,
-    sample_log_filters: Vec<LogFilter>,
+    pub sample_log_filters: Vec<LogFilter>,
     amplitudes: HashMap<usize, f64>,
 }
 
@@ -49,6 +49,11 @@ impl Filters {
             sample_log_filters: Vec::<LogFilter>::new(),
             amplitudes: HashMap::<usize, f64>::new(),
         }
+    }
+
+    pub fn extend(&mut self, other: Filters) {
+        self.time_filters.extend(other.time_filters);
+        self.sample_log_filters.extend(other.sample_log_filters);
     }
 
     /// Get the start and end points of each time filter.
@@ -707,6 +712,96 @@ mod tests {
         let mut filters = Filters::new();
         let result = filters.remove_log_filter("nonexistent".to_string());
         assert!(result.is_err());
+    }
+
+    /// Test extending a filter set appends the other's time and log filters.
+    #[test]
+    fn test_extend() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+        filters
+            .add_log_filter("log1".to_string(), "temp".to_string(), Some(0.), Some(1.))
+            .unwrap();
+
+        let mut other = Filters::new();
+        other
+            .add_time_filter("filter2".to_string(), 3.0, 4.0)
+            .unwrap();
+        other
+            .add_log_filter("log2".to_string(), "pw".to_string(), Some(2.), Some(3.))
+            .unwrap();
+
+        filters.extend(other);
+
+        assert_eq!(
+            filters.time_filters,
+            vec![
+                Filter {
+                    name: "filter1".to_string(),
+                    start: 1.,
+                    end: 2.
+                },
+                Filter {
+                    name: "filter2".to_string(),
+                    start: 3.,
+                    end: 4.
+                },
+            ]
+        );
+        assert_eq!(
+            filters.sample_log_filters,
+            vec![
+                LogFilter {
+                    name: "log1".to_string(),
+                    log: "temp".to_string(),
+                    lower: Some(0.),
+                    upper: Some(1.)
+                },
+                LogFilter {
+                    name: "log2".to_string(),
+                    log: "pw".to_string(),
+                    lower: Some(2.),
+                    upper: Some(3.)
+                },
+            ]
+        );
+    }
+
+    /// Test extending by an empty filter set leaves the filters unchanged.
+    #[test]
+    fn test_extend_empty() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+        filters
+            .add_log_filter("log1".to_string(), "temp".to_string(), Some(0.), Some(1.))
+            .unwrap();
+        let expected = filters.clone();
+
+        filters.extend(Filters::new());
+
+        assert_eq!(filters, expected);
+    }
+
+    /// Test extending an empty filter set takes on the other's filters.
+    #[test]
+    fn test_extend_into_empty() {
+        let mut other = Filters::new();
+        other
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+        other
+            .add_log_filter("log1".to_string(), "temp".to_string(), Some(0.), Some(1.))
+            .unwrap();
+
+        let mut filters = Filters::new();
+        filters.extend(other.clone());
+
+        assert_eq!(filters.time_filters, other.time_filters);
+        assert_eq!(filters.sample_log_filters, other.sample_log_filters);
     }
 
     /// Test setting an amplitude for a given detector works.

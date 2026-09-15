@@ -1,4 +1,5 @@
 use anyhow::{Error, Result};
+use ndarray::Array1;
 use numpy::{PyArray3, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Borrowed, Bound, FromPyObject, PyAny};
 use pyo3::types::{PyInt, PyString};
@@ -53,7 +54,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for FilterIndex {
 #[derive(Clone)]
 pub struct BatchData {
     #[pyo3(get)]
-    pub dataset: NexusData,
+    pub dataset: Option<NexusData>,
     pub results: Vec<Histogram>,
     pub filters: Vec<Filters>,
     data_changed: Vec<bool>, // whether data has changed since last calculation, per filter set
@@ -86,13 +87,26 @@ impl BatchData {
         }
         let dataset = NexusData::new(filename, n_spec, chunk_size)?;
         Ok(BatchData {
-            dataset,
+            dataset: Some(dataset),
             results: (0..n_filter_sets)
                 .map(|_| Histogram::new(0., 32.768, 2048))
                 .collect(),
             filters: (0..n_filter_sets).map(|_| Filters::new()).collect(),
             data_changed: vec![true; n_filter_sets],
         })
+    }
+
+    /// Set the dataset for the current Data object.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: String
+    ///     The name of the dataset.
+    #[pyo3(signature = (filename, n_spec, chunk_size=1048576))]
+    pub fn set_data(&mut self, filename: String, n_spec: usize, chunk_size: usize) -> Result<()> {
+        let dataset = NexusData::new(filename, n_spec, chunk_size)?;
+        self.dataset = Some(dataset);
+        Ok(())
     }
 
     /// Calculate the histograms for the current data and each filter set.
@@ -103,14 +117,21 @@ impl BatchData {
     ///     This object, with `results[i]` holding the histogram calculated
     ///     from `dataset` and `filters[i]`, for each `i`.
     pub fn calculate(&mut self) -> Result<BatchData> {
-        for i in 0..self.n_batches() {
-            if self.data_changed[i] {
-                let result = self.results[i].calculate(&self.dataset, &self.filters[i])?;
-                self.data_changed[i] = false;
-                self.results[i] = result;
+        match &self.dataset {
+            Some(dataset) => {
+                for i in 0..self.n_batches() {
+                    if self.data_changed[i] {
+                        let result = self.results[i].calculate(dataset, &self.filters[i])?;
+                        self.data_changed[i] = false;
+                        self.results[i] = result;
+                    }
+                }
+                Ok(self.clone())
             }
+            None => Err(Error::msg(
+                "Dataset has not been set! Set with the set_data() method.",
+            )),
         }
-        Ok(self.clone())
     }
 
     /// Force histograms to be recalculated even if the data hasn't changed.
@@ -342,6 +363,116 @@ impl BatchData {
         Ok(())
     }
 
+    /// Add two BatchData objects together componentwise.
+    ///
+    /// Parameters
+    /// ----------
+    /// other: BatchData
+    ///     The data to add to this dataset.
+    pub fn add(&self, other: BatchData) -> Result<BatchData> {
+        if self.n_batches() != other.n_batches() {
+            return Err(Error::msg(
+                "Can only add data objects with the same number of batches.",
+            ));
+        }
+
+        let dataset = self.combine_data(&other.dataset)?;
+
+        let results = self.results.clone();
+
+        let data_changed = vec![true; results.len()];
+
+        let mut filters = self.filters.clone();
+        for (i, filter) in filters.iter_mut().enumerate() {
+            filter.extend(other.filters[i].clone())
+        }
+
+        Ok(BatchData {
+            dataset,
+            filters,
+            results,
+            data_changed,
+        })
+    }
+
+    /// Let `+` (add) add objects.
+    pub fn __add__(&self, other: BatchData) -> Result<BatchData> {
+        self.add(other)
+    }
+
+    /// Concatenate BatchData objects.
+    ///
+    /// Parameters
+    /// ----------
+    /// other: BatchData
+    ///     The data to concatenate with this dataset.
+    pub fn concatenate(&self, other: BatchData) -> Result<BatchData> {
+        let dataset = self.combine_data(&other.dataset)?;
+
+        let mut filters = self.filters.clone();
+        filters.extend(other.filters);
+
+        let mut results = self.results.clone();
+        results.extend(other.results);
+
+        let data_changed = vec![true; filters.len()];
+
+        Ok(BatchData {
+            dataset,
+            filters,
+            results,
+            data_changed,
+        })
+    }
+
+    /// Let `&` (and) concatenate objects.
+    pub fn __and__(&self, other: BatchData) -> Result<BatchData> {
+        self.concatenate(other)
+    }
+
+    /// Take all combinations of filters in two BatchData objects;
+    /// i.e. this computes the cartesian product.
+    ///
+    /// Note that histogram settings are reset by this function.
+    ///
+    /// Parameters
+    /// ----------
+    /// other: BatchData
+    ///     The data to combine with this dataset.
+    pub fn combinations(&self, other: BatchData) -> Result<BatchData> {
+        let dataset = self.combine_data(&other.dataset)?;
+
+        let n = self.n_batches();
+        let m = other.n_batches();
+        let result_size = n * m;
+
+        let results = vec![Histogram::new(0., 32.768, 2048); result_size];
+
+        let data_changed = vec![true; result_size];
+
+        let mut filters = Vec::<Filters>::with_capacity(result_size);
+        for i in 0..n {
+            for j in 0..m {
+                // pushing in this order puts the pair (i, j) at index i * m + j
+                let mut combined = self.filters[i].clone();
+                combined.extend(other.filters[j].clone());
+                filters.push(combined);
+            }
+        }
+
+        Ok(BatchData {
+            dataset,
+            filters,
+            results,
+            data_changed,
+        })
+    }
+
+    /// Let `*` (multiply) combine objects.
+    pub fn __mul__(&self, other: BatchData) -> Result<BatchData> {
+        self.combinations(other)
+    }
+
     /// Save a filter set's result to a file.
     ///
     /// Parameters
@@ -365,8 +496,9 @@ impl BatchData {
                         "Cannot save as results have not been calculated.",
                     ));
                 }
-                let wimda_file = WiMDAFile::new(&self.dataset, &self.filters[i], &self.results[i])?;
-                wimda_file.save_file(format!("{filename_stem}.nxs"), &self.dataset.file)?;
+                let dataset = self.dataset.as_ref().unwrap();
+                let wimda_file = WiMDAFile::new(dataset, &self.filters[i], &self.results[i])?;
+                wimda_file.save_file(format!("{filename_stem}.nxs"), &dataset.file)?;
             }
             FilterIndex::All => {
                 if self.results.iter().any(|r| r.hist.shape() == [0, 0, 0]) {
@@ -374,10 +506,10 @@ impl BatchData {
                         "Cannot save as results have not been calculated.",
                     ));
                 }
+                let dataset = self.dataset.as_ref().unwrap();
                 for i in 0..self.n_batches() {
-                    let wimda_file =
-                        WiMDAFile::new(&self.dataset, &self.filters[i], &self.results[i])?;
-                    wimda_file.save_file(format!("{filename_stem}_{i}.nxs"), &self.dataset.file)?;
+                    let wimda_file = WiMDAFile::new(dataset, &self.filters[i], &self.results[i])?;
+                    wimda_file.save_file(format!("{filename_stem}_{i}.nxs"), &dataset.file)?;
                 }
             }
         }
@@ -418,7 +550,10 @@ impl BatchData {
     }
 
     fn __repr__(&self) -> String {
-        let mut string = self.dataset.__repr__();
+        let mut string = match &self.dataset {
+            Some(data) => data.__repr__(),
+            None => "No data set.".to_string(),
+        };
         for (i, (filters, results)) in self.filters.iter().zip(self.results.iter()).enumerate() {
             string += &format!(
                 "\n\nFilter set {i}:\n{}\n\n{}",
@@ -436,6 +571,16 @@ impl BatchData {
 }
 
 impl BatchData {
+    /// Create an empty BatchData object.
+    pub fn empty(n: usize) -> BatchData {
+        BatchData {
+            dataset: None,
+            results: vec![Histogram::new(0., 32.768, 2048); n],
+            filters: vec![Filters::new(); n],
+            data_changed: vec![true; n],
+        }
+    }
+
     /// Resolve a [`FilterIndex`] into a list of valid filter set indices,
     /// checking bounds along the way.
     fn resolve_indices(&self, index: &FilterIndex) -> Result<Vec<usize>> {
@@ -459,6 +604,73 @@ impl BatchData {
         Ok(())
     }
 
+    /// Check that two datasets are the same or at least one is None;
+    /// if both are None return None, if one is None or both are equal, return the dataset,
+    /// if datasets are different, throw an error.
+    fn combine_data(&self, other: &Option<NexusData>) -> Result<Option<NexusData>> {
+        let data = &self.dataset;
+        if let Some(dataset) = data {
+            match other {
+                // this dataset exists, the other has no data
+                None => Ok(data.clone()),
+                // other dataset exists, check compatibility
+                Some(other_dataset) => {
+                    if dataset.filename == other_dataset.filename {
+                        Ok(data.clone())
+                    } else {
+                        Err(Error::msg(
+                            "Tried to combine BatchData objects with different data!",
+                        ))
+                    }
+                }
+            }
+        } else {
+            // just take other dataset (which is some data or also None)
+            Ok(other.clone())
+        }
+    }
+
+    /// Turn an array of n+1 elements into n time filters across the batches.
+    pub fn array_to_time_filters(&mut self, name: String, input: Array1<f64>) -> Result<()> {
+        self.check_array_len(&input)?;
+        for i in 0..self.n_batches() {
+            self.add_time_filter(FilterIndex::Index(i), name.clone(), input[i], input[i + 1])?
+        }
+        Ok(())
+    }
+
+    /// Turn an array of n+1 elements into n sample log filters across the batches.
+    pub fn array_to_log_filters(
+        &mut self,
+        name: String,
+        log: String,
+        input: Array1<f64>,
+    ) -> Result<()> {
+        self.check_array_len(&input)?;
+        for i in 0..self.n_batches() {
+            self.add_log_filter(
+                FilterIndex::Index(i),
+                name.clone(),
+                log.clone(),
+                input[i],
+                input[i + 1],
+            )?
+        }
+        Ok(())
+    }
+
+    /// Check that an array holds enough elements to bound every batch.
+    fn check_array_len(&self, input: &Array1<f64>) -> Result<()> {
+        if input.len() < self.n_batches() + 1 {
+            return Err(Error::msg(format!(
+                "Not enough values ({}) to bound {} filter sets.",
+                input.len(),
+                self.n_batches()
+            )));
+        }
+        Ok(())
+    }
+
     /// Get the number of batches.
     fn n_batches(&self) -> usize {
         self.filters.len()
@@ -477,7 +689,7 @@ mod tests {
         let mock = MockData::new().unwrap();
         let dataset = mock.create(64, 1048576).unwrap();
         BatchData {
-            dataset,
+            dataset: Some(dataset),
             results: (0..n_filter_sets)
                 .map(|_| Histogram::new(0., 32.768, 2048))
                 .collect(),
@@ -622,6 +834,38 @@ mod tests {
         assert!(starts1.is_empty())
     }
 
+    /// array time filters should give each filter set one time filter.
+    #[test]
+    fn test_array_to_time_filters() {
+        let mut batch = make_batch(4);
+        let array = Array1::from_vec(vec![1., 3., 4., 5., 10.]);
+        batch
+            .array_to_time_filters("f1".to_string(), array.clone())
+            .unwrap();
+
+        for (i, filters) in batch.filters.iter().enumerate() {
+            let (starts, ends) = filters.get_time_filter_times();
+            assert_eq!(starts, vec![(array[i] as f64 * 1e9) as usize]);
+            assert_eq!(ends, vec![(array[i + 1] as f64 * 1e9) as usize]);
+        }
+    }
+
+    /// array log filters should give each filter set one sample log filter.
+    #[test]
+    fn test_array_log_filters() {
+        let mut batch = make_batch(4);
+        let array = Array1::from_vec(vec![1., 3., 4., 5., 10.]);
+        batch
+            .array_to_log_filters("lf1".to_string(), "temp".to_string(), array.clone())
+            .unwrap();
+
+        for (k, filters) in batch.filters.into_iter().enumerate() {
+            assert_eq!(filters.get_required_log_names(), vec!["temp".to_string()]);
+            assert_eq!(filters.sample_log_filters[0].lower, Some(array[k]));
+            assert_eq!(filters.sample_log_filters[0].upper, Some(array[k + 1]));
+        }
+    }
+
     /// Adding a log filter at a single index should only affect that
     /// filter set.
     #[test]
@@ -746,6 +990,283 @@ mod tests {
                 ndarray::Array1::from_vec(vec![0., 0., 4.4, 0., 0., 0.])
             );
         }
+    }
+
+    /// Concatenating should append the other object's filter sets and
+    /// results, keeping the order of both.
+    #[test]
+    fn test_concatenate() {
+        let mut batch = make_batch(2);
+        batch
+            .add_time_filter(FilterIndex::All, "a".to_string(), 1.0, 2.0)
+            .unwrap();
+        let mut other = make_batch(3);
+        other
+            .add_time_filter(FilterIndex::All, "b".to_string(), 3.0, 4.0)
+            .unwrap();
+
+        let combined = batch.concatenate(other).unwrap();
+
+        assert_eq!(combined.__len__(), 5);
+        assert_eq!(combined.results.len(), 5);
+        for (i, filters) in combined.filters.iter().enumerate() {
+            let (starts, ends) = filters.get_time_filter_times();
+            if i < 2 {
+                assert_eq!(starts, vec![1e9 as usize]);
+                assert_eq!(ends, vec![2e9 as usize]);
+            } else {
+                assert_eq!(starts, vec![3e9 as usize]);
+                assert_eq!(ends, vec![4e9 as usize]);
+            }
+        }
+    }
+
+    /// Adding should merge the filter sets of both objects pairwise,
+    /// leaving the number of filter sets unchanged.
+    #[test]
+    fn test_add() {
+        let mut batch = make_batch(3);
+        for i in 0..3 {
+            batch
+                .add_time_filter(
+                    FilterIndex::Index(i),
+                    format!("a{i}"),
+                    i as f64,
+                    i as f64 + 1.,
+                )
+                .unwrap();
+        }
+
+        let mut other = make_batch(3);
+        for j in 0..3 {
+            other
+                .add_log_filter(
+                    FilterIndex::Index(j),
+                    format!("b{j}"),
+                    format!("log{j}"),
+                    0.,
+                    1.,
+                )
+                .unwrap();
+        }
+
+        let combined = batch.add(other).unwrap();
+
+        assert_eq!(combined.__len__(), 3);
+        assert_eq!(combined.results.len(), 3);
+        assert_eq!(combined.data_changed, vec![true; 3]);
+
+        for (i, filters) in combined.filters.iter().enumerate() {
+            // the time filter comes from this object's filter set i
+            let (starts, ends) = filters.get_time_filter_times();
+            assert_eq!(starts, vec![(i as f64 * 1e9) as usize]);
+            assert_eq!(ends, vec![((i + 1) as f64 * 1e9) as usize]);
+            // the log filter comes from the other object's filter set i
+            assert_eq!(filters.get_required_log_names(), vec![format!("log{i}")]);
+        }
+    }
+
+    /// Adding objects with different numbers of filter sets should error.
+    #[test]
+    fn test_add_mismatched_lengths() {
+        let batch = make_batch(2);
+        let other = make_batch(3);
+
+        let error = batch.add(other).err().unwrap();
+
+        assert_eq!(
+            error.to_string(),
+            "Can only add data objects with the same number of batches.".to_string()
+        );
+    }
+
+    /// Concatenating should keep each object's own histogram settings.
+    #[test]
+    fn test_concatenate_keeps_histogram_settings() {
+        let mut batch = make_batch(1);
+        batch
+            .set_histogram_settings(FilterIndex::All, 0., 1., 10)
+            .unwrap();
+        let mut other = make_batch(1);
+        other
+            .set_histogram_settings(FilterIndex::All, 0., 2., 20)
+            .unwrap();
+
+        let combined = batch.concatenate(other).unwrap();
+
+        assert_eq!(
+            (
+                combined.results[0].min_time,
+                combined.results[0].max_time,
+                combined.results[0].n_bins
+            ),
+            (0., 1., 10)
+        );
+        assert_eq!(
+            (
+                combined.results[1].min_time,
+                combined.results[1].max_time,
+                combined.results[1].n_bins
+            ),
+            (0., 2., 20)
+        );
+    }
+
+    /// Combining should produce the cartesian product of both filter sets,
+    /// ordered with the other object's filter sets varying fastest.
+    #[test]
+    fn test_combinations() {
+        let mut batch = make_batch(2);
+        batch
+            .add_time_filter(FilterIndex::Index(0), "a0".to_string(), 1.0, 2.0)
+            .unwrap();
+        batch
+            .add_time_filter(FilterIndex::Index(1), "a1".to_string(), 3.0, 4.0)
+            .unwrap();
+
+        let mut other = make_batch(3);
+        for j in 0..3 {
+            other
+                .add_log_filter(
+                    FilterIndex::Index(j),
+                    format!("b{j}"),
+                    format!("log{j}"),
+                    0.,
+                    1.,
+                )
+                .unwrap();
+        }
+
+        let combined = batch.combinations(other).unwrap();
+
+        assert_eq!(combined.__len__(), 6);
+        assert_eq!(combined.results.len(), 6);
+        assert_eq!(combined.data_changed, vec![true; 6]);
+
+        for i in 0..2 {
+            for j in 0..3 {
+                let k = i * 3 + j;
+                let filters = &combined.filters[k];
+                // the time filter comes from this object's filter set i
+                let (starts, ends) = filters.get_time_filter_times();
+                assert_eq!(starts, vec![((2 * i + 1) as f64 * 1e9) as usize]);
+                assert_eq!(ends, vec![((2 * i + 2) as f64 * 1e9) as usize]);
+                // the log filter comes from the other object's filter set j
+                assert_eq!(filters.get_required_log_names(), vec![format!("log{j}")]);
+            }
+        }
+    }
+
+    /// Combining with a single-filter-set object should leave the number of
+    /// filter sets unchanged.
+    #[test]
+    fn test_combinations_with_single_filter_set() {
+        let mut batch = make_batch(3);
+        batch
+            .add_time_filter(FilterIndex::All, "a".to_string(), 1.0, 2.0)
+            .unwrap();
+        let mut other = make_batch(1);
+        other
+            .add_log_filter(
+                FilterIndex::All,
+                "b".to_string(),
+                "temp".to_string(),
+                0.,
+                1.,
+            )
+            .unwrap();
+
+        let combined = batch.combinations(other).unwrap();
+
+        assert_eq!(combined.__len__(), 3);
+        for filters in &combined.filters {
+            let (starts, _) = filters.get_time_filter_times();
+            assert_eq!(starts, vec![1e9 as usize]);
+            assert_eq!(filters.get_required_log_names(), vec!["temp".to_string()]);
+        }
+    }
+
+    /// Combining objects with the same dataset should keep that dataset.
+    #[test]
+    fn test_combine_data_same_dataset() {
+        let batch = make_batch(1);
+        let other = make_batch(1);
+
+        let dataset = batch.combine_data(&other.dataset).unwrap();
+
+        assert_eq!(
+            dataset.unwrap().filename,
+            batch.dataset.as_ref().unwrap().filename
+        );
+    }
+
+    /// Combining an object holding data with one holding none should keep
+    /// the data, whichever side it is on.
+    #[test]
+    fn test_combine_data_one_none() {
+        let batch = make_batch(1);
+        let empty = BatchData::empty(1);
+
+        let dataset = batch.combine_data(&empty.dataset).unwrap();
+        assert!(dataset.is_some());
+
+        let dataset = empty.combine_data(&batch.dataset).unwrap();
+        assert_eq!(
+            dataset.unwrap().filename,
+            batch.dataset.as_ref().unwrap().filename
+        );
+    }
+
+    /// Combining two objects with no data should give no data.
+    #[test]
+    fn test_combine_data_both_none() {
+        let batch = BatchData::empty(1);
+        let other = BatchData::empty(1);
+
+        let dataset = batch.combine_data(&other.dataset).unwrap();
+
+        assert!(dataset.is_none());
+    }
+
+    /// Combining objects with different datasets should error.
+    #[test]
+    fn test_combine_data_different_datasets() {
+        let batch = make_batch(1);
+        let mut other = make_batch(1);
+        other.dataset.as_mut().unwrap().filename = "somewhere_else.nxs".to_string();
+
+        let error = batch.combine_data(&other.dataset).err().unwrap();
+
+        assert_eq!(
+            error.to_string(),
+            "Tried to combine BatchData objects with different data!".to_string()
+        );
+    }
+
+    /// Concatenating an object with data onto one without should carry the
+    /// data over to the result.
+    #[test]
+    fn test_concatenate_takes_other_dataset() {
+        let batch = BatchData::empty(2);
+        let other = make_batch(1);
+
+        let combined = batch.concatenate(other).unwrap();
+
+        assert!(combined.dataset.is_some());
+        assert_eq!(combined.__len__(), 3);
+    }
+
+    /// Combining an object with data onto one without should carry the data
+    /// over to the result.
+    #[test]
+    fn test_combinations_takes_other_dataset() {
+        let batch = BatchData::empty(2);
+        let other = make_batch(3);
+
+        let combined = batch.combinations(other).unwrap();
+
+        assert!(combined.dataset.is_some());
+        assert_eq!(combined.__len__(), 6);
     }
 
     /// Setting the time filter type at a single index should only affect
