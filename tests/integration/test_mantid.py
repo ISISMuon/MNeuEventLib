@@ -1,4 +1,5 @@
 import os
+import gc
 from mantid.simpleapi import (CreateWorkspace,
                               RenameWorkspace,
                               MuonPreProcess,
@@ -299,6 +300,7 @@ def test_mantid_workflow_Load_batch_single():
     hist_file = os.path.join(dir_path, f'HIFI303.nxs')
     data.save('All', hist_file, autofill=True)
     del data
+    gc.collect()  # force Rust drop to release file handle (Windows WinError 32)
 
     for k in range(4):
         hist_file_k = os.path.join(dir_path, f'HIFI303_{k+1}.nxs')
@@ -333,6 +335,7 @@ def test_mantid_workflow_LoadMuonNexusv2_batch_single():
     hist_file = os.path.join(dir_path, f'HIFI403.nxs')
     data.save('All', hist_file, autofill=True)
     del data
+    gc.collect()  # force Rust drop to release file handle (Windows WinError 32)
 
     for k in range(4):
         hist_file_k = os.path.join(dir_path, f'HIFI403_{k+1}.nxs')
