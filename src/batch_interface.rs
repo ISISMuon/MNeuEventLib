@@ -169,6 +169,24 @@ impl BatchData {
         Ok(())
     }
 
+    /// Set the overwrite behaviour for filters.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int | str
+    ///     Either 'all', or the index of the filter set to modify.
+    /// overwrite_type: str
+    ///     The overwrite behaviour. Must be 'strict', 'relaxed', or 'free':  
+    ///     - 'strict' produces an error on attempted overwrite;
+    ///     - 'relaxed' allows and produces a warning;
+    ///     - 'free' allows with no warning.
+    pub fn set_overwrite_type(&mut self, index: FilterIndex, overwrite_type: String) -> Result<()> {
+        for i in self.resolve_indices(&index)? {
+            self.filters[i].set_overwrite_type(&overwrite_type)?
+        }
+        Ok(())
+    }
+
     /// Add a time filter.
     ///
     /// Parameters
@@ -384,6 +402,32 @@ impl BatchData {
         Ok(())
     }
 
+    /// Save a set of filters to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: usize
+    ///     The index of a specific filter set.
+    /// filename: str
+    ///     The filename for the saved file.
+    pub fn save_filters(&self, index: usize, filename: String) -> Result<()> {
+        self.filters[index].save(filename)
+    }
+
+    /// Load a set of filters from a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: usize
+    ///     The index to load the filter set into.
+    /// filename: str
+    ///     The filename for the filters.
+    pub fn load_filters(&mut self, index: usize, filename: String) -> Result<()> {
+        let filters = Filters::load(filename)?;
+        self.filters[index] = filters;
+        Ok(())
+    }
+
     /// Get a calculated histogram.
     ///
     /// Parameters
@@ -421,7 +465,7 @@ impl BatchData {
         let mut string = self.dataset.__repr__();
         for (i, (filters, results)) in self.filters.iter().zip(self.results.iter()).enumerate() {
             string += &format!(
-                "\n\nFilter set {i}:\n{}\n\n{}",
+                "\n\nFilter set {i}:\n{}{}",
                 filters.__repr__(),
                 results.__repr__()
             );
@@ -641,7 +685,7 @@ mod tests {
         assert!(batch.filters[1].get_required_log_names().is_empty());
         assert_eq!(
             batch.filters[2].get_required_log_names(),
-            vec!["temp".to_string()]
+            ["temp".to_string()].into()
         );
     }
 
@@ -661,7 +705,10 @@ mod tests {
             .unwrap();
 
         for filters in &batch.filters {
-            assert_eq!(filters.get_required_log_names(), vec!["temp".to_string()]);
+            assert_eq!(
+                filters.get_required_log_names(),
+                ["temp".to_string()].into()
+            );
         }
     }
 
@@ -686,7 +733,7 @@ mod tests {
 
         assert_eq!(
             batch.filters[0].get_required_log_names(),
-            vec!["temp".to_string()]
+            ["temp".to_string()].into()
         );
         assert!(batch.filters[1].get_required_log_names().is_empty());
     }
