@@ -232,7 +232,7 @@ def test_mantid_workflow_Load_batch_multi():
                         'HIFI00195790.nxs')
    
     # create histogram data from events
-    data = BatchData(file, n_spec=64, n_filters=5)
+    data = BatchData(file, 64, 5)
     data = add_filters(data)
 
     _ = data.calculate()
