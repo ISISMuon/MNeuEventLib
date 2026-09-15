@@ -24,16 +24,17 @@ def make_single_period_data(multi_period,
     """
     shutil.copy(multi_period,
                 single_period)
-    with h5py.File(single_period, 'a') as f:
-        data = f['raw_data_1']
-        tmp = data['detector_1_events']
-        N = tmp['period_number'].len()
-        zeros = np.zeros(N)
-        replace(tmp, 'period_number', zeros, 'int64')
+    f = h5py.File(single_period, 'a')
+    data = f['raw_data_1']
+    tmp = data['detector_1_events']
+    N = tmp['period_number'].len()
+    zeros = np.zeros(N)
+    replace(tmp, 'period_number', zeros, 'int64')
 
-        tmp = data['periods']
-        replace(tmp, 'labels', 'period_1', 'S8')
+    tmp = data['periods']
+    replace(tmp, 'labels', 'period_1', 'S8')
 
-        replace(tmp, 'number', 1, 'int32')
-        replace(tmp, 'type', [1], 'int32')
+    replace(tmp, 'number', 1, 'int32')
+    replace(tmp, 'type', [1], 'int32')
+    f.close()
     return
