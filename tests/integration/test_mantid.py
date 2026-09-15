@@ -236,10 +236,10 @@ def test_mantid_workflow_Load_batch_multi():
     data = add_filters(data)
 
     _ = data.calculate()
-    hist_file = os.path.join(dir_path, f'HIFI003.nxs')
+    hist_file = os.path.join(dir_path, f'HIFI103.nxs')
     data.save('All', hist_file, autofill=True)
     for k in range(4):
-        hist_file_k = os.path.join(dir_path, f'HIFI003_{k+1}.nxs')
+        hist_file_k = os.path.join(dir_path, f'HIFI103_{k+1}.nxs')
         # mantid workflow
         result = Load(Filename=hist_file_k, deadtimeTable='deadtimes')
         mantid_workflow(result, periods)
