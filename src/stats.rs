@@ -17,8 +17,8 @@ pub struct Histogram {
     pub n: usize,
     pub n_frames: Vec<u32>,
     pub n_good_frames: Vec<u32>,
-    pub start_time: usize,
-    pub end_time: usize,
+    pub start_time: u64,
+    pub end_time: u64,
 }
 
 impl Histogram {
@@ -58,7 +58,7 @@ impl Histogram {
 
         let filters_exist = !time_starts.is_empty() || !log_starts.is_empty();
 
-        let frame_start_times: Array1<usize> = data.frame_times.read_1d()?;
+        let frame_start_times: Array1<u64> = data.frame_times.read_1d()?;
 
         let weights = if filters_exist {
             let time_weights = if time_starts.is_empty() {
@@ -142,7 +142,7 @@ pub fn get_period_frames(periods: &Array1<u32>, n_periods: usize, weights: &Weig
 }
 
 /// Get the start and end times of the (optionally filtered) experiment.
-pub fn get_experiment_times(weights: Weights, frame_start_times: Array1<usize>) -> (usize, usize) {
+pub fn get_experiment_times(weights: Weights, frame_start_times: Array1<u64>) -> (u64, u64) {
     (
         frame_start_times[weights.get_first_one().unwrap()],
         frame_start_times[weights.get_last_one().unwrap()],
@@ -579,7 +579,7 @@ mod tests {
     /// when all frames are kept.
     #[test]
     fn test_get_experiment_times_no_filter() {
-        let frame_start_times = Array1::<usize>::from_vec(vec![100, 200, 300, 400, 500]);
+        let frame_start_times = Array1::<u64>::from_vec(vec![100, 200, 300, 400, 500]);
         let weights = Weights::ones(5);
 
         let (start, end) = get_experiment_times(weights, frame_start_times);
@@ -592,7 +592,7 @@ mod tests {
     /// end times when only a subset of frames are kept (filtered).
     #[test]
     fn test_get_experiment_times_with_filter() {
-        let frame_start_times = Array1::<usize>::from_vec(vec![100, 200, 300, 400, 500]);
+        let frame_start_times = Array1::<u64>::from_vec(vec![100, 200, 300, 400, 500]);
         // keep frames 1, 2, 3 only -> raw bits: 0b01110
         let weights = Weights::from_raw(vec![0b01110]);
 

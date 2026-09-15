@@ -5,7 +5,7 @@ use hdf5::types::{FloatSize, IntSize, TypeDescriptor, VarLenUnicode};
 use hdf5::Dataset;
 use ndarray::Array1;
 
-use crate::consts::S_TO_NS;
+use crate::consts::ToNanoseconds;
 
 // Pattern-matching is the only way to access the internal value log,
 // so this macro lets you call a method of ValueLog from inside the
@@ -96,7 +96,7 @@ impl SampleLog {
 
     /// Given a lower and upper limit, get the list of time starts and ends
     /// corresponding to the log filter.
-    pub fn to_time_ranges(&self, lower: f64, upper: f64) -> (Vec<usize>, Vec<usize>) {
+    pub fn to_time_ranges(&self, lower: f64, upper: f64) -> (Vec<u64>, Vec<u64>) {
         match self {
             SampleLog::I8(log) => log.to_time_ranges(&(lower as i8), &(upper as i8)),
             SampleLog::I16(log) => log.to_time_ranges(&(lower as i16), &(upper as i16)),
@@ -114,7 +114,7 @@ impl SampleLog {
     /// Given a list of filter starts and ends, return the sample log with filter applied.
     ///
     /// Assumes that start_times and end_times are sorted arrays.
-    pub fn apply_filters(&self, start_times: &[usize], end_times: &[usize]) -> SampleLog {
+    pub fn apply_filters(&self, start_times: &[u64], end_times: &[u64]) -> SampleLog {
         bind! {self, apply_filters(start_times, end_times)}
     }
 }
@@ -132,19 +132,19 @@ where
     T: PartialOrd,
 {
     /// Internal implementation of SampleLog.to_time_ranges
-    fn to_time_ranges(&self, lower: &T, upper: &T) -> (Vec<usize>, Vec<usize>) {
-        let mut starts = Vec::<usize>::new();
-        let mut ends = Vec::<usize>::new();
+    fn to_time_ranges(&self, lower: &T, upper: &T) -> (Vec<u64>, Vec<u64>) {
+        let mut starts = Vec::<u64>::new();
+        let mut ends = Vec::<u64>::new();
         let mut in_range: bool = false; // represents whether we are currently in the band
         for (index, value) in self.value.iter().enumerate() {
             if !in_range {
                 if value <= upper && value >= lower {
-                    starts.push((self.time[index] * S_TO_NS) as usize);
+                    starts.push(self.time[index].to_ns());
                     in_range = true;
                 }
             } else {
                 if value > upper || value < lower {
-                    ends.push((self.time[index - 1] * S_TO_NS) as usize);
+                    ends.push(self.time[index - 1].to_ns());
                     in_range = false;
                 }
             }
@@ -152,7 +152,7 @@ where
 
         // if still in range at end, we need to add the last datapoint to the ends
         if in_range {
-            ends.push((self.time.last().unwrap() * S_TO_NS) as usize);
+            ends.push(self.time.last().unwrap().to_ns());
         }
         (starts, ends)
     }
@@ -163,7 +163,7 @@ where
     T: Clone,
 {
     /// Internal implementation of SampleLog.apply_filters.
-    fn apply_filters(&self, start_times: &[usize], end_times: &[usize]) -> ValueLog<T> {
+    fn apply_filters(&self, start_times: &[u64], end_times: &[u64]) -> ValueLog<T> {
         // we use these indices to ignore overlaps in filters.
         //
         // Note that as the start_times and end_times are sorted, we will never get a scenario
@@ -193,7 +193,7 @@ where
         let max_start_idx = start_times.len() - 1;
 
         for (k, t) in self.time.iter().enumerate() {
-            let time_ns = (t * S_TO_NS) as usize;
+            let time_ns = t.to_ns();
             if in_filter {
                 if time_ns >= end_times[current_end_idx] {
                     // end of interval
@@ -246,8 +246,8 @@ mod tests {
         };
 
         let (starts, ends) = value_log.to_time_ranges(&1., &2.);
-        let expected_starts = vec![(1. * S_TO_NS) as usize];
-        let expected_ends = vec![(2. * S_TO_NS) as usize];
+        let expected_starts = vec![1_f64.to_ns()];
+        let expected_ends = vec![2_f64.to_ns()];
 
         assert_eq!(starts, expected_starts);
         assert_eq!(ends, expected_ends)
@@ -268,7 +268,7 @@ mod tests {
 
         let (starts, ends) = value_log.to_time_ranges(&0., &2.);
         let expected_starts = vec![0];
-        let expected_ends = vec![(2. * S_TO_NS) as usize];
+        let expected_ends = vec![2_f64.to_ns()];
 
         assert_eq!(starts, expected_starts);
         assert_eq!(ends, expected_ends)
@@ -288,8 +288,8 @@ mod tests {
         };
 
         let (starts, ends) = value_log.to_time_ranges(&1., &4.);
-        let expected_starts = vec![(1. * S_TO_NS) as usize];
-        let expected_ends = vec![(4. * S_TO_NS) as usize];
+        let expected_starts = vec![1_f64.to_ns()];
+        let expected_ends = vec![4_f64.to_ns()];
 
         assert_eq!(starts, expected_starts);
         assert_eq!(ends, expected_ends)
@@ -310,8 +310,8 @@ mod tests {
 
         // f(t) is between 2 and 8 for t = 1-2 and 4-5
         let (starts, ends) = value_log.to_time_ranges(&2., &8.);
-        let expected_starts = vec![(1. * S_TO_NS) as usize, (4. * S_TO_NS) as usize];
-        let expected_ends = vec![(2. * S_TO_NS) as usize, (5. * S_TO_NS) as usize];
+        let expected_starts = vec![1_f64.to_ns(), 4_f64.to_ns()];
+        let expected_ends = vec![2_f64.to_ns(), 5_f64.to_ns()];
 
         assert_eq!(starts, expected_starts);
         assert_eq!(ends, expected_ends)
@@ -339,8 +339,8 @@ mod tests {
         // filters are [0.15, 0.22], [0.55, 0.83]
         // 0  1  2  3  4  5  6  7  8  9   values
         //     ^--^        ^--------^     exclude
-        let filter_starts = vec![(0.15 * S_TO_NS) as usize, (0.55 * S_TO_NS) as usize];
-        let filter_ends = vec![(0.22 * S_TO_NS) as usize, (0.83 * S_TO_NS) as usize];
+        let filter_starts = vec![0.15.to_ns(), 0.55.to_ns()];
+        let filter_ends = vec![0.22.to_ns(), 0.83.to_ns()];
         let new_log = log.apply_filters(&filter_starts, &filter_ends);
 
         let expected_vals = Array1::<f64>::from_vec(vec![0., 1., 3., 4., 5., 9.]);
@@ -356,16 +356,8 @@ mod tests {
         // 0  1  2  3  4  5  6  7  8  9   values
         //   ^-------^           ^---^    exclude
         //        ^--------^
-        let filter_starts = vec![
-            (0.06 * S_TO_NS) as usize,
-            (0.22 * S_TO_NS) as usize,
-            (0.71 * S_TO_NS) as usize,
-        ];
-        let filter_ends = vec![
-            (0.35 * S_TO_NS) as usize,
-            (0.56 * S_TO_NS) as usize,
-            (0.89 * S_TO_NS) as usize,
-        ];
+        let filter_starts = vec![0.06.to_ns(), 0.22.to_ns(), 0.71.to_ns()];
+        let filter_ends = vec![0.35.to_ns(), 0.56.to_ns(), 0.89.to_ns()];
         let new_log = log.apply_filters(&filter_starts, &filter_ends);
 
         let expected_vals = Array1::<f64>::from_vec(vec![0., 6., 7., 9.]);
@@ -381,7 +373,7 @@ mod tests {
         // 0  1  2  3  4  5  6  7  8  9  values
         // ^----------------^          exclude
         let filter_starts = vec![0];
-        let filter_ends = vec![(0.61 * S_TO_NS) as usize];
+        let filter_ends = vec![0.61.to_ns()];
         let new_log = log.apply_filters(&filter_starts, &filter_ends);
 
         let expected_vals = Array1::<f64>::from_vec(vec![7., 8., 9.]);
@@ -395,8 +387,8 @@ mod tests {
         // filter [0.45, inf]
         // 0  1  2  3  4  5  6  7  8  9  values
         //              ^------------... exclude
-        let filter_starts = vec![(0.45 * S_TO_NS) as usize];
-        let filter_ends = vec![usize::MAX];
+        let filter_starts = vec![0.45.to_ns()];
+        let filter_ends = vec![u64::MAX];
         let new_log = log.apply_filters(&filter_starts, &filter_ends);
 
         let expected_vals = Array1::<f64>::from_vec(vec![0., 1., 2., 3., 4.]);
