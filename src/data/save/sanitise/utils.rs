@@ -1,113 +1,135 @@
 use crate::data::save::utils::*;
 
 use anyhow::Result;
-use hdf5::types::H5Type;
-use hdf5::{Group, Location};
 use ndarray::{Array, Dimension};
 
 use hdf5::Result as OtherResult;
-use hdf5_metno_sys::{h5a, h5p, h5s, h5t};
-use std::ffi::CString;
-use std::os::raw::c_void;
+use hdf5::{
+    types::{
+        FixedAscii, FixedUnicode, FloatSize, IntSize, TypeDescriptor, VarLenAscii, VarLenUnicode,
+    },
+    Group, H5Type, Location,
+};
 
-/// A wrapper around _copy_attr which checks if the
-/// attribute already exists and skips if it does.
-///
-/// Parameters
-/// ----------
-/// src: &Location
-///    The source group
-/// dst: &Location
-///    The destination group
-/// name: &str
-///    The name of the attribute to copy
-pub fn copy_attr(src: &Location, dst: &Location, name: &str) -> Result<()> {
-    hdf5::sync::sync(|| unsafe { _copy_attr(src, dst, name) })
+use seq_macro::seq;
+
+/// A method for copying fixed-length ascii attributes.
+/// Change the upper bound if there are longer fixed-length ascii attributes.
+fn copy_fixed_ascii(
+    source: &Location,
+    target: &Location,
+    attr_name: &str,
+    len: usize,
+) -> anyhow::Result<()> {
+    seq!(N in 1..=128 {
+        match len {
+            #(N => copy_attribute::<FixedAscii<N>>(source, target, attr_name),)*
+            _ => anyhow::bail!(
+                "copy_attr: fixed-ascii length {len} for '{attr_name}' exceeds the supported range"
+            ),
+        }
+    })
 }
 
-/// Copies a single attribute from `src` to `dst`, regardless of its HDF5 datatype
-/// (ints, floats, fixed/var-length strings, enums, compounds, arrays...).
+/// A method for copying fixed-length unicode attributes.
+/// Change the upper bound if there are longer fixed-length unicode attributes.
+fn copy_fixed_unicode(
+    source: &Location,
+    target: &Location,
+    attr_name: &str,
+    len: usize,
+) -> anyhow::Result<()> {
+    seq!(N in 1..=128 {
+        match len {
+            #(N => copy_attribute::<FixedUnicode<N>>(source, target, attr_name),)*
+            _ => anyhow::bail!(
+                "copy_attr: fixed-unicode length {len} for '{attr_name}' exceeds the supported range"
+            ),
+        }
+    })
+}
+
+/// A method to copy an attribute of statically-known type `T`,
+/// while preserving the attribute name.
 ///
 /// Parameters
 /// ----------
-/// src: &Location
+/// source: &Location
 ///    The source group
-/// dst: &Location
+/// target: &Location
 ///    The destination group
-/// name: &str
+/// attr_name: &str
 ///    The name of the attribute to copy
-unsafe fn _copy_attr(src: &Location, dst: &Location, name: &str) -> Result<()> {
-    if dst.attr_names()?.contains(&name.to_string()) {
-        println!("Attribute '{name}' already exists in destination dataset, skipping");
+pub fn copy_attribute<T: H5Type + Clone>(
+    source: &Location,
+    target: &Location,
+    attr_name: &str,
+) -> Result<()> {
+    let src_attr = source.attr(attr_name)?;
+
+    if src_attr.is_scalar() {
+        let value: T = src_attr.read_scalar()?;
+        target
+            .new_attr::<T>()
+            .create(attr_name)?
+            .write_scalar(&value)?;
+    } else {
+        let data: ndarray::ArrayD<T> = src_attr.read_dyn()?;
+        target
+            .new_attr::<T>()
+            .shape(src_attr.shape())
+            .create(attr_name)?
+            .write(&data)?;
+    }
+    Ok(())
+}
+
+/// A helper method to copy an attribute of dynamically-known type,
+/// while preserving the attribute name.
+/// The ascii and unicode values cannot be recorded as variable length,
+/// as this causes the programme to crash. This is because HDF5
+/// does not register between fixed and variable length
+/// string types.
+/// Parameters
+/// ----------
+/// source: &Location
+///    The source group
+/// target: &Location
+///    The destination group
+/// attr_name: &str
+///    The name of the attribute to copy
+pub fn copy_attr(source: &Location, target: &Location, attr_name: &str) -> Result<()> {
+    if target.attr(attr_name).is_ok() {
         return Ok(());
     }
-    let cname = CString::new(name)?;
+    let src_attr = source.attr(attr_name)?;
+    let desc = src_attr.dtype()?.to_descriptor()?;
 
-    let attr_id = h5a::H5Aopen(src.id(), cname.as_ptr(), h5p::H5P_DEFAULT);
-    if attr_id < 0 {
-        return Err(anyhow::anyhow!("H5Aopen failed for '{name}'"));
+    macro_rules! copy_as {
+        ($t:ty) => {
+            copy_attribute::<$t>(source, target, attr_name)
+        };
     }
-
-    let type_id = h5a::H5Aget_type(attr_id);
-    if type_id < 0 {
-        h5a::H5Aclose(attr_id);
-        return Err(anyhow::anyhow!("H5Aget_type failed for '{name}'"));
-    }
-
-    let space_id = h5a::H5Aget_space(attr_id);
-    if space_id < 0 {
-        h5t::H5Tclose(type_id);
-        h5a::H5Aclose(attr_id);
-        return Err(anyhow::anyhow!("H5Aget_space failed for '{name}'"));
-    }
-
-    let storage_size = h5a::H5Aget_storage_size(attr_id) as usize;
-
-    let mut buf: Vec<u8> = vec![0u8; storage_size.max(1)];
-    let read_res = h5a::H5Aread(attr_id, type_id, buf.as_mut_ptr() as *mut c_void);
-
-    let new_attr_id = h5a::H5Acreate2(
-        dst.id(),
-        cname.as_ptr(),
-        type_id,
-        space_id,
-        h5p::H5P_DEFAULT,
-        h5p::H5P_DEFAULT,
-    );
-
-    if read_res >= 0 && new_attr_id >= 0 {
-        h5a::H5Awrite(new_attr_id, type_id, buf.as_ptr() as *const c_void);
-
-        // H5Treclaim frees memory that HDF5 internally allocated inside `buf` during
-        // H5Aread, but only for variable-length types. For fixed-length types HDF5
-        // writes directly into our buffer with no extra allocation, so no reclaim is
-        // needed. Additionally, H5P_DEFAULT is not a valid plist for H5Treclaim in
-        // HDF5 1.12+ (triggers an assertion failure), so we must use an explicit
-        // dataset-transfer property list created from H5P_CLS_DATASET_XFER.
-        if h5t::H5Tis_variable_str(type_id) > 0 {
-            let dxpl_id = h5p::H5Pcreate(*h5p::H5P_CLS_DATASET_XFER);
-            if dxpl_id >= 0 {
-                h5t::H5Treclaim(type_id, space_id, dxpl_id, buf.as_mut_ptr() as *mut c_void);
-                h5p::H5Pclose(dxpl_id);
-            }
+    match desc {
+        TypeDescriptor::Integer(IntSize::U1) => copy_as!(i8),
+        TypeDescriptor::Integer(IntSize::U2) => copy_as!(i16),
+        TypeDescriptor::Integer(IntSize::U4) => copy_as!(i32),
+        TypeDescriptor::Integer(IntSize::U8) => copy_as!(i64),
+        TypeDescriptor::Unsigned(IntSize::U1) => copy_as!(u8),
+        TypeDescriptor::Unsigned(IntSize::U2) => copy_as!(u16),
+        TypeDescriptor::Unsigned(IntSize::U4) => copy_as!(u32),
+        TypeDescriptor::Unsigned(IntSize::U8) => copy_as!(u64),
+        TypeDescriptor::Float(FloatSize::U4) => copy_as!(f32),
+        TypeDescriptor::Float(FloatSize::U8) => copy_as!(f64),
+        TypeDescriptor::Boolean => copy_as!(bool),
+        TypeDescriptor::VarLenAscii => copy_as!(VarLenAscii),
+        TypeDescriptor::VarLenUnicode => copy_as!(VarLenUnicode),
+        TypeDescriptor::FixedAscii(len) => copy_fixed_ascii(source, target, attr_name, len),
+        TypeDescriptor::FixedUnicode(len) => copy_fixed_unicode(source, target, attr_name, len),
+        other => {
+            anyhow::bail!("copy_attr: unsupported type for attribute '{attr_name}': {other:?}")
         }
     }
-
-    if new_attr_id >= 0 {
-        h5a::H5Aclose(new_attr_id);
-    }
-    h5s::H5Sclose(space_id);
-    h5t::H5Tclose(type_id);
-    h5a::H5Aclose(attr_id);
-
-    if read_res < 0 {
-        return Err(anyhow::anyhow!("H5Aread failed for '{name}'"));
-    }
-    if new_attr_id < 0 {
-        return Err(anyhow::anyhow!("H5Acreate2 failed for '{name}'"));
-    }
-
-    Ok(())
 }
 
 /// Replaces a dataset with a new one, copying all attributes from
@@ -125,7 +147,7 @@ pub fn replace_dataset<T: H5Type, D: Dimension>(
     group: &Group,
     name: &str,
     new_data: &Array<T, D>,
-) -> OtherResult<()> {
+) -> Result<()> {
     let old = group.dataset(name)?;
     let attr_names = old.attr_names()?;
     let tmp_name = format!("{name}__tmp");

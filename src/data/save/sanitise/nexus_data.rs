@@ -27,15 +27,21 @@ fn create_default_dataset(
     _name: &str,
     shapes: &HashMap<String, usize>,
 ) -> Result<()> {
-    let name = default.name().split("dataset_").last()?.to_string();
+    let name = default
+        .name()
+        .split("dataset_")
+        .last()
+        .ok_or(anyhow!("Default dataset name not found"))?
+        .to_string();
     let key: String = default
         .dataset("shape")?
         .read_scalar::<hdf5::types::VarLenUnicode>()?
         .as_str()
         .to_string();
-    let len: usize = *shapes.get(&key)?;
-    let dtype: &hdf5::types::VarLenUnicode =
-        &default.dataset("dtype")?.read_scalar()?;
+    let len: usize = *shapes
+        .get(&key)
+        .ok_or(anyhow!("Shape of default dataset not found"))?;
+    let dtype: &hdf5::types::VarLenUnicode = &default.dataset("dtype")?.read_scalar()?;
     if dtype.as_str() == "int32" {
         let default_value = default.dataset("default")?.read_scalar::<i32>()?;
         if let Err(e) = add_array(dest, &Array1::from_elem(len, default_value), &name) {
@@ -197,7 +203,7 @@ fn clean_up(new_file: &File) -> Result<()> {
 /// ----------
 /// file_name: &str
 ///     The name of the file to get the period information from
-pub fn get_p_info(file_name: &str) -> Result<(usize, usize)> {
+pub fn get_period_info(file_name: &str) -> Result<(usize, usize)> {
     let file = File::open(file_name)?;
     let labels_ds = file.dataset("raw_data_1/periods/labels")?;
     let labels = if let Ok(lbl) = labels_ds.read_scalar::<VarLenUnicode>() {
@@ -281,8 +287,8 @@ mod tests {
     }
 
     #[test]
-    fn test_get_p_info_varlen_unicode() {
-        // Tests that get_p_info can get the correct number of periods from a variable length unicode dataset
+    fn test_get_period_info_varlen_unicode() {
+        // Tests that get_period_info can get the correct number of periods from a variable length unicode dataset
         let (dir, file, _guard) = create_test_file("test_get_p_info_varlen");
         let path = dir.path().join("test_get_p_info_varlen.nxs");
 
@@ -292,14 +298,14 @@ mod tests {
         add_array(&periods_grp, &arr0(labels), "labels").unwrap();
         drop(file);
 
-        let (periods, dwell) = get_p_info(path.to_str().unwrap()).unwrap();
+        let (periods, dwell) = get_period_info(path.to_str().unwrap()).unwrap();
         assert_eq!(periods, 3);
         assert_eq!(dwell, 0);
     }
 
     #[test]
-    fn test_get_p_info_fixed_ascii() {
-        // Tests that get_p_info can get the correct number of periods from a fixed ascii dataset
+    fn test_get_period_info_fixed_ascii() {
+        // Tests that get_period_info can get the correct number of periods from a fixed ascii dataset
         let (dir, file, _guard) = create_test_file("test_get_p_info_fixed");
         let path = dir.path().join("test_get_p_info_fixed.nxs");
 
@@ -308,27 +314,27 @@ mod tests {
         let labels = FixedAscii::<256>::from_ascii(b"P1,P2,P3,P4,P5").unwrap();
         add_array(&periods_grp, &arr0(labels), "labels").unwrap();
         drop(file);
-        let (periods, dwell) = get_p_info(path.to_str().unwrap()).unwrap();
+        let (periods, dwell) = get_period_info(path.to_str().unwrap()).unwrap();
         assert_eq!(periods, 5);
         assert_eq!(dwell, 0);
     }
 
     #[test]
-    fn test_get_p_info_nonexistent_file() {
-        // Tests that get_p_info returns an error if the file does not exist
-        let res = get_p_info("nonexistent_path_file.nxs");
+    fn test_get_period_info_nonexistent_file() {
+        // Tests that get_period_info returns an error if the file does not exist
+        let res = get_period_info("nonexistent_path_file.nxs");
         assert!(res.is_err());
     }
 
     #[test]
-    fn test_get_p_info_missing_labels() {
-        // Tests that get_p_info returns an error if the labels dataset is missing
-        let (dir, file, _guard) = create_test_file("test_get_p_info_missing_labels");
-        let path = dir.path().join("test_get_p_info_missing_labels.nxs");
+    fn test_get_period_info_missing_labels() {
+        // Tests that get_period_info returns an error if the labels dataset is missing
+        let (dir, file, _guard) = create_test_file("test_get_period_info_missing_labels");
+        let path = dir.path().join("test_get_period_info_missing_labels.nxs");
         file.create_group("raw_data_1").unwrap();
         drop(file);
 
-        let res = get_p_info(path.to_str().unwrap());
+        let res = get_period_info(path.to_str().unwrap());
         assert!(res.is_err());
     }
 

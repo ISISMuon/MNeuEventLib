@@ -1,4 +1,4 @@
-use crate::data::save::sanitise::nexus_data::{get_p_info, save_default};
+use crate::data::save::sanitise::nexus_data::{get_period_info, save_default};
 use crate::data::{NexusData, SaveFile, WiMDAFile};
 use crate::filters::Filters;
 use crate::stats::Histogram;
@@ -358,7 +358,7 @@ impl BatchData {
     ///     muon nexus v2 file. The ref_file is generated from tools/make_default.py.
     pub fn save_nexus(&self, filename: String, ref_file: String) -> Result<()> {
         // 1. Read p_info from input file
-        let (periods, dwell) = get_p_info(&self.dataset.filename)?;
+        let (periods, dwell) = get_period_info(&self.dataset.filename)?;
 
         // 2. Setup shapes map
         let mut shapes = std::collections::HashMap::new();
