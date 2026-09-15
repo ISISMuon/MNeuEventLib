@@ -125,6 +125,26 @@ impl Data {
             .add_log_filter(FilterIndex::Index(0), name, log, lower, upper)
     }
 
+    /// Add a sample log filter matching a string log against a specific value.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: str
+    ///     The name of the log filter. Must be unique.
+    /// log: str
+    ///     The sample log in the data to which the filter applies. Must hold text.
+    /// value: str
+    ///     The value to match. Matching is case-insensitive.
+    pub fn add_string_log_filter(
+        &mut self,
+        name: String,
+        log: String,
+        value: String,
+    ) -> Result<()> {
+        self.inner
+            .add_string_log_filter(FilterIndex::Index(0), name, log, value)
+    }
+
     /// Remove a sample log filter.
     ///
     /// Parameters
