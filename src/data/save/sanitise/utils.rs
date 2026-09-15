@@ -41,7 +41,7 @@ unsafe fn _copy_attr(src: &Location, dst: &Location, name: &str) -> Result<()> {
         println!("Attribute '{name}' already exists in destination dataset, skipping");
         return Ok(());
     }
-    let cname = CString::new(name).unwrap();
+    let cname = CString::new(name)?;
 
     let attr_id = h5a::H5Aopen(src.id(), cname.as_ptr(), h5p::H5P_DEFAULT);
     if attr_id < 0 {
@@ -136,7 +136,7 @@ pub fn replace_dataset<T: H5Type, D: Dimension>(
     new_ds.write(new_data)?;
 
     for attr_name in &attr_names {
-        let _ = copy_attr(&old, &new_ds, attr_name);
+        copy_attr(&old, &new_ds, attr_name)?;
     }
 
     drop(old);
@@ -155,11 +155,11 @@ pub fn replace_dataset<T: H5Type, D: Dimension>(
 /// name: &str
 ///    The name of the dataset to clean
 pub fn clean_str_dataset<const LEN: usize>(group: &Group, name: &str) -> Result<()> {
-    let is_scalar = group.dataset(name).unwrap().shape().is_empty();
+    let is_scalar = group.dataset(name)?.shape().is_empty();
     let value: &hdf5::types::VarLenUnicode = if is_scalar {
-        &group.dataset(name).unwrap().read_scalar().unwrap()
+        &group.dataset(name)?.read_scalar()?
     } else {
-        &group.dataset(name).unwrap().read_1d().unwrap()[0]
+        &group.dataset(name)?.read_1d()?[0]
     };
     if value.as_str() == "" {
         replace_str_dataset::<7>(group, name, "Missing", "")?;
@@ -189,17 +189,17 @@ pub fn replace_str_dataset<const LEN: usize>(
     new_value: &str,
     bad_value: &str,
 ) -> Result<()> {
-    let is_scalar = group.dataset(name).unwrap().shape().is_empty();
+    let is_scalar = group.dataset(name)?.shape().is_empty();
     let value: &hdf5::types::VarLenUnicode = if is_scalar {
-        &group.dataset(name).unwrap().read_scalar().unwrap()
+        &group.dataset(name)?.read_scalar()?
     } else {
-        &group.dataset(name).unwrap().read_1d().unwrap()[0]
+        &group.dataset(name)?.read_1d()?[0]
     };
     if value.as_str() != bad_value {
         return Ok(());
     }
     // collect attributes
-    let dataset = group.dataset(name).unwrap();
+    let dataset = group.dataset(name)?;
     let attr_names = dataset.attr_names()?;
     group.unlink(name)?;
     add_str_scalar::<LEN>(group, new_value, name)?;

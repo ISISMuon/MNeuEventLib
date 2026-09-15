@@ -384,7 +384,8 @@ impl BatchData {
     ///     The index of the filter set/result to save. If 'all',
     ///     an index number will be appended to each filename.
     /// filename: str
-    ///     The filename for the saved file.    /// default: bool
+    ///     The filename for the saved file.
+    /// default: bool
     ///     Whether to use default values for the missing meta-data (this is
     ///     needed because the event data files has mistakes/problems).
     ///     This allows the file to be read by Mantid even if the event file
@@ -392,7 +393,7 @@ impl BatchData {
     /// autofill: bool
     ///     Whether to use automatically fill the file with
     ///     default values for the missing meta-data (this is
-    ///     needed because the event data files has mistakes/problems).
+    ///     needed because the event data files have mistakes/problems).
     ///     This allows the file to be read by Mantid even if the event file
     ///     is incomplete.
     /// ref_file: str

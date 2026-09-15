@@ -9,7 +9,7 @@ If the reference file is saved as <ref> (assume
 this includes the file path), then when saving 
 event data to histograms, the command would be
 
-data.save(<output>, autofill=Ture, ref_file=<ref>)
+data.save(<output>, autofill=True, ref_file=<ref>)
 
 where <output> is the name of the file you want
 to save to, and data is the event data 

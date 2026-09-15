@@ -27,28 +27,26 @@ fn create_default_dataset(
     _name: &str,
     shapes: &HashMap<String, usize>,
 ) -> Result<()> {
-    let name = default.name().split("dataset_").last().unwrap().to_string();
+    let name = default.name().split("dataset_").last()?.to_string();
     let key: String = default
-        .dataset("shape")
-        .unwrap()
-        .read_scalar::<hdf5::types::VarLenUnicode>()
-        .unwrap()
+        .dataset("shape")?
+        .read_scalar::<hdf5::types::VarLenUnicode>()?
         .as_str()
         .to_string();
-    let len: usize = *shapes.get(&key).unwrap();
+    let len: usize = *shapes.get(&key)?;
     let dtype: &hdf5::types::VarLenUnicode =
-        &default.dataset("dtype").unwrap().read_scalar().unwrap();
+        &default.dataset("dtype")?.read_scalar()?;
     if dtype.as_str() == "int32" {
-        let default_value = default.dataset("default").unwrap().read_scalar::<i32>()?;
+        let default_value = default.dataset("default")?.read_scalar::<i32>()?;
         if let Err(e) = add_array(dest, &Array1::from_elem(len, default_value), &name) {
             eprintln!("error: {e}");
             eprintln!("chain: {e:?}");
         };
     } else if dtype.as_str() == "float32" {
-        let default_value = default.dataset("default").unwrap().read_scalar::<f32>()?;
+        let default_value = default.dataset("default")?.read_scalar::<f32>()?;
         add_array(dest, &Array1::from_elem(len, default_value), &name)?;
     } else if dtype.as_str() == "float64" {
-        let default_value = default.dataset("default").unwrap().read_scalar::<f64>()?;
+        let default_value = default.dataset("default")?.read_scalar::<f64>()?;
         add_array(dest, &Array1::from_elem(len, default_value), &name)?;
     } else {
         return Err(anyhow!("Unsupported default dataset type {:?}", dtype));
@@ -84,7 +82,7 @@ fn set_defaults(
         /* we know this is a group that defines a period
         dependent dataset */
         println!("create default {}", name);
-        create_default_dataset(&source_parent.group(name).unwrap(), dest, name, shapes)?;
+        create_default_dataset(&source_parent.group(name)?, dest, name, shapes)?;
         Ok(())
     } else if source_parent.dataset(name).is_ok() && dest.dataset(name).is_ok() {
         // if dataset exists in both files
@@ -104,10 +102,10 @@ fn set_defaults(
     } else if source_parent.group(name).is_ok() && dest.group(name).is_ok() {
         // if group exists in both files
         println!("group {} exists in both files, going deeper", name);
-        for member in source_parent.group(name).unwrap().member_names()? {
+        for member in source_parent.group(name)?.member_names()? {
             set_defaults(
-                &source_parent.group(name).unwrap(),
-                &dest.group(name).unwrap(),
+                &source_parent.group(name)?,
+                &dest.group(name)?,
                 member.as_str(),
                 shapes,
             )?;
@@ -143,7 +141,7 @@ fn clean_up(new_file: &File) -> Result<()> {
                 continue;
             } else if let Ok(_dataset) = sample.dataset(&name) {
                 if name == "thickness" {
-                    let default = Array1::from_shape_vec(1, vec![0.0f32]).unwrap();
+                    let default = Array1::from_shape_vec(1, vec![0.0f32])?;
                     let _ = replace_dataset(&sample, "thickness", &default);
                 } else if name == "type" || name == "description" {
                     let _ = clean_str_dataset::<256>(&sample, &name);
