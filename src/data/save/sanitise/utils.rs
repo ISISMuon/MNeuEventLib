@@ -3,7 +3,6 @@ use crate::data::save::utils::*;
 use anyhow::Result;
 use ndarray::{Array, Dimension};
 
-use hdf5::Result as OtherResult;
 use hdf5::{
     types::{
         FixedAscii, FixedUnicode, FloatSize, IntSize, TypeDescriptor, VarLenAscii, VarLenUnicode,
