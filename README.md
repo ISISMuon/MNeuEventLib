@@ -1,4 +1,12 @@
 # MNeuEventLib
+MNeuEventLib is an event data filtering library for ISIS Neutron and Muon Source.
+
+## Install from PyPI
+MNeuEventLib can be installed as a pre-compiled binary [from PyPI](https://pypi.org/project/MNeuEventLib/) using
+```
+pip install MNeuEventLib
+```
+
 
 ## Build from source
 MNeuEventLib is built with [`maturin`](https://www.maturin.rs/). Compilation also requires the [`rustup` toolchain](https://rustup.rs/).
