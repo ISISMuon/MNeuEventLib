@@ -162,6 +162,7 @@ def test_mantid_workflow_Load_single():
     result = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI0032.nxs')
     data.save(hist_file, autofill=True)
+    del data  # release file handle before removal (Windows WinError 32)
 
     # mantid workflow
     result = Load(Filename=hist_file, deadtimeTable='deadtimes')
@@ -192,6 +193,7 @@ def test_mantid_workflow_LoadMuonNexusv2_single():
     result = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI042.nxs')
     data.save(hist_file, autofill=True)
+    del data  # release file handle before removal (Windows WinError 32)
 
     # mantid workflow
     result = LoadMuonNexusV2(Filename=hist_file, deadtimeTable='deadtimes')
