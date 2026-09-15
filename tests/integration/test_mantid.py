@@ -10,6 +10,7 @@ from mantid.simpleapi import (CreateWorkspace,
                               LoadMuonNexusV2)
 from MNeuEventLib import Data
 from MNeuEventLib.test_helpers import make_single_period_data
+from MNeuEventLib import BatchData
 
 
 def mantid_workflow(load_result, periods):
@@ -201,3 +202,46 @@ def test_mantid_workflow_LoadMuonNexusv2_single():
     mantid_workflow(result, periods)
     os.remove(hist_file)
     os.remove(event_file)
+
+def add_filters(data):
+    times = data.dataset.get_frame_times() * 1e-9
+    step = len(times) // 5
+    for k in range(4):
+        data.add_time_filter(
+            k,
+            name=f'filter_{k}',
+            start=times[k*step],
+            end=times[(k+1)*step]
+        )
+    return data
+
+
+def test_mantid_workflow_Load_batch_multi():
+    """
+    Test that Mantid can load the library's output histogram data
+    using the 'Load' method for a batch of multi-period data.
+    The 'Load' method checks the file against all of the different
+    load algoriths in Mantid and uses the one with the 'best' match.
+    It should identify the file as a Muon Nexus V2.
+    """
+    periods = ['1', '2']
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    file = os.path.join(dir_path,
+                        '..',
+                        'test_data',
+                        'HIFI00195790.nxs')
+   
+    # create histogram data from events
+    data = BatchData(file, n_spec=64, n_filters=5)
+    data = add_filters(data)
+
+    _ = data.calculate()
+    hist_file = os.path.join(dir_path, f'HIFI003.nxs')
+    data.save('All', hist_file, autofill=True)
+    for k in range(4):
+        hist_file_k = os.path.join(dir_path, f'HIFI003_{k+1}.nxs')
+        # mantid workflow
+        result = Load(Filename=hist_file_k, deadtimeTable='deadtimes')
+        mantid_workflow(result, periods)
+        os.remove(hist_file_k)
+    os.remove(hist_file)
