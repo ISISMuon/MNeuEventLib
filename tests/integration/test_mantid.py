@@ -244,4 +244,3 @@ def test_mantid_workflow_Load_batch_multi():
         result = Load(Filename=hist_file_k, deadtimeTable='deadtimes')
         mantid_workflow(result, periods)
         os.remove(hist_file_k)
-    os.remove(hist_file)
