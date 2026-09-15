@@ -214,8 +214,6 @@ def add_filters(data):
             start=times[k*step],
             end=times[(k+1)*step]
         )
-    return data
-
 
 def test_mantid_workflow_Load_batch_multi():
     """
@@ -234,7 +232,7 @@ def test_mantid_workflow_Load_batch_multi():
    
     # create histogram data from events
     data = BatchData(file, 64, 5)
-    data = add_filters(data)
+    add_filters(data)
 
     _ = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI103.nxs')
@@ -263,7 +261,7 @@ def test_mantid_workflow_LoadMuonNexusv2_batch_multi():
    
     # create histogram data from events
     data = BatchData(file, 64, 5)
-    data = add_filters(data)
+    add_filters(data)
 
     _ = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI203.nxs')
@@ -294,7 +292,7 @@ def test_mantid_workflow_Load_batch_single():
     make_single_period_data(file, event_file)
     # create histogram data from events
     data = BatchData(event_file, 64, 5)
-    data = add_filters(data)
+    add_filters(data)
 
     _ = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI303.nxs')
@@ -329,7 +327,7 @@ def test_mantid_workflow_LoadMuonNexusv2_batch_single():
     make_single_period_data(file, event_file)
     # create histogram data from events
     data = BatchData(event_file, 64, 5)
-    data = add_filters(data)
+    add_filters(data)
 
     _ = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI403.nxs')
