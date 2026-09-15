@@ -15,6 +15,7 @@ dependencies = [
   "numpy", 
   "matplotlib",
 ]
+license = "BSD-3-Clause"
 
 [project.optional-dependencies]
 # Dependencies required to build the documentation.
