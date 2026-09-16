@@ -191,7 +191,7 @@ impl Filters {
             match self.overwrite_type {
                 OverwriteType::Strict => {
                     return Err(Error::msg(
-                        "Name already exists! Use `Filters.report()` to see a list of all filters.",
+                        "Name already exists! Use `print(filters)` to see a list of all filters.",
                     ));
                 }
                 OverwriteType::Relaxed => {
@@ -1022,7 +1022,7 @@ mod tests {
         assert!(filters.is_err())
     }
 
-    /// Test `__repr__` says there are no filters when none are there.e
+    /// Test `__repr__` says there are no filters when none are there.
     #[test]
     fn test_repr_no_filters() {
         let filters = Filters::new();
