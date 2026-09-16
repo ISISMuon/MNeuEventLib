@@ -120,7 +120,7 @@ impl Data {
     /// lower: float
     ///     The lower bound for the log filter.
     /// upper: float
-///     The upper bound for the log filter.
+    ///     The upper bound for the log filter.
     pub fn add_log_filter(
         &mut self,
         name: String,
