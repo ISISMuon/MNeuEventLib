@@ -347,6 +347,20 @@ impl BatchData {
         Ok(())
     }
 
+    /// Clear all filters.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int | str
+    ///     Either 'all', or the index of the filter set to modify.
+    pub fn clear_filters(&mut self, index: FilterIndex) -> Result<()> {
+        for i in self.resolve_indices(&index)? {
+            self.filters[i] = Filters::new();
+            self.data_changed[i] = true;
+        }
+        Ok(())
+    }
+
     /// Save a filter set's result to a file.
     ///
     /// Parameters

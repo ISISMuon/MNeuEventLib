@@ -192,6 +192,11 @@ impl Data {
         self.inner.set_amps_baseline(FilterIndex::Index(0), amp)
     }
 
+    /// Clear all filters.
+    fn clear_filters(&mut self) -> Result<()> {
+        self.inner.clear_filters(FilterIndex::Index(0))
+    }
+
     /// Save to a file.
     ///
     /// Parameters
