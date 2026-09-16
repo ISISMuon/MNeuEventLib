@@ -36,7 +36,7 @@ pub struct NexusData {
 #[pymethods]
 impl NexusData {
     /// used for testing
-    fn get_frame_times<'py>(slf: &Bound<'py, NexusData>) -> Bound<'py, PyArray1<u32>> {
+    fn get_frame_times<'py>(slf: &Bound<'py, NexusData>) -> Bound<'py, PyArray1<u64>> {
         let py = slf.py();
         slf.borrow().frame_times.read_1d().unwrap().to_pyarray(py)
     }
