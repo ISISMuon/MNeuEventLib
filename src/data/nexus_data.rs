@@ -25,6 +25,7 @@ pub struct NexusData {
     pub frame_times: Dataset,
     pub periods: Dataset,
     pub sample_logs: Group,
+    #[pyo3(get)]
     pub sample_log_names: Vec<String>,
     pub n_events: usize, // the total number of events
     pub n_frames: usize,
