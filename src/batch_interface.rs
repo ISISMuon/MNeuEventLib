@@ -119,6 +119,11 @@ impl BatchData {
         self.data_changed = vec![true; self.n_batches()]
     }
 
+    /// Check if any data has changed since you last ran a calculation.
+    pub fn data_changed(&mut self) -> bool {
+        self.data_changed.contains(&true)
+    }
+
     /// Set histogram settings for one or all filter sets.
     ///
     /// Parameters

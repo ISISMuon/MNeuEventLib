@@ -49,6 +49,11 @@ impl Data {
         self.inner.invalidate_cache()
     }
 
+    /// Check if any data has changed since you last ran a calculation.
+    pub fn data_changed(&mut self) -> bool {
+        self.inner.data_changed()
+    }
+
     /// Set histogram settings.
     ///
     /// Parameters
@@ -115,7 +120,7 @@ impl Data {
     /// lower: float
     ///     The lower bound for the log filter.
     /// upper: float
-    ///     The upper bound for the log filter.
+///     The upper bound for the log filter.
     pub fn add_log_filter(
         &mut self,
         name: String,
