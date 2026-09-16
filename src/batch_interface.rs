@@ -425,6 +425,7 @@ impl BatchData {
     pub fn load_filters(&mut self, index: usize, filename: String) -> Result<()> {
         let filters = Filters::load(filename)?;
         self.filters[index] = filters;
+        self.data_changed[index] = true;
         Ok(())
     }
 
