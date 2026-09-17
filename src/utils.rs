@@ -45,7 +45,7 @@ pub fn _get_filter_times(index: usize, data: &BatchData) -> Result<(Vec<usize>, 
 
     let (mut time_starts, mut time_ends) = filters.get_time_filter_times();
     (time_starts, time_ends) = remove_overlaps(&time_starts, &time_ends);
-    if !filters.is_include() && time_starts.len() > 0 {
+    if !filters.is_include() && !time_starts.is_empty() {
         (time_starts, time_ends) = invert_intervals(&time_starts, &time_ends, min_time, max_time)
     }
 
