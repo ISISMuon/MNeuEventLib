@@ -118,6 +118,11 @@ impl BatchData {
         self.data_changed = vec![true; self.n_batches()]
     }
 
+    /// Check if any data has changed since you last ran a calculation.
+    pub fn data_changed(&mut self) -> bool {
+        self.data_changed.contains(&true)
+    }
+
     /// Set histogram settings for one or all filter sets.
     ///
     /// Parameters
@@ -342,6 +347,20 @@ impl BatchData {
         Ok(())
     }
 
+    /// Clear all filters.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int | str
+    ///     Either 'all', or the index of the filter set to modify.
+    pub fn clear_filters(&mut self, index: FilterIndex) -> Result<()> {
+        for i in self.resolve_indices(&index)? {
+            self.filters[i] = Filters::new();
+            self.data_changed[i] = true;
+        }
+        Ok(())
+    }
+
     /// Save a filter set's result to a file.
     ///
     /// Parameters
@@ -466,6 +485,22 @@ impl BatchData {
 }
 
 #[cfg(test)]
+impl BatchData {
+    /// Build a BatchData with `n_filter_sets` empty filter sets around an
+    /// already-loaded dataset, so tests don't need a real .nxs file.
+    pub fn from_dataset(dataset: NexusData, n_filter_sets: usize) -> BatchData {
+        BatchData {
+            dataset,
+            results: (0..n_filter_sets)
+                .map(|_| Histogram::new(0., 32.768, 2048))
+                .collect(),
+            filters: (0..n_filter_sets).map(|_| Filters::new()).collect(),
+            data_changed: vec![true; n_filter_sets],
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_utils::MockData;
@@ -476,14 +511,7 @@ mod tests {
     fn make_batch(n_filter_sets: usize) -> BatchData {
         let mock = MockData::new().unwrap();
         let dataset = mock.create(64, 1048576).unwrap();
-        BatchData {
-            dataset,
-            results: (0..n_filter_sets)
-                .map(|_| Histogram::new(0., 32.768, 2048))
-                .collect(),
-            filters: (0..n_filter_sets).map(|_| Filters::new()).collect(),
-            data_changed: vec![true; n_filter_sets],
-        }
+        BatchData::from_dataset(dataset, n_filter_sets)
     }
 
     /// resolve_indices(All) should return every index in range.

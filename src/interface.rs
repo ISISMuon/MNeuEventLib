@@ -47,6 +47,11 @@ impl Data {
         self.inner.invalidate_cache()
     }
 
+    /// Check if any data has changed since you last ran a calculation.
+    pub fn data_changed(&mut self) -> bool {
+        self.inner.data_changed()
+    }
+
     /// Set histogram settings.
     ///
     /// Parameters
@@ -185,6 +190,11 @@ impl Data {
     ///     The maximum amplitude that should be ignored.
     fn set_amps_baseline(&mut self, amp: f64) -> Result<()> {
         self.inner.set_amps_baseline(FilterIndex::Index(0), amp)
+    }
+
+    /// Clear all filters.
+    fn clear_filters(&mut self) -> Result<()> {
+        self.inner.clear_filters(FilterIndex::Index(0))
     }
 
     /// Save to a file.
