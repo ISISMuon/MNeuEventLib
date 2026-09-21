@@ -525,7 +525,6 @@ impl BatchData {
 
         Ok(())
     }
-
 }
 
 #[cfg(test)]
