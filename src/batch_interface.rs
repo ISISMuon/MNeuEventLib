@@ -89,7 +89,7 @@ impl BatchData {
         Ok(BatchData {
             dataset,
             results: (0..n_filter_sets)
-                .map(|_| Histogram::new(0., 32.768, 2048))
+                .map(|_| Histogram::new(0, 32768, 2048))
                 .collect(),
             filters: (0..n_filter_sets).map(|_| Filters::new()).collect(),
             data_changed: vec![true; n_filter_sets],
@@ -149,7 +149,8 @@ impl BatchData {
         }
         for i in self.resolve_indices(&index)? {
             self.data_changed[i] = true;
-            self.results[i] = Histogram::new(min_time, max_time, n_bins);
+            self.results[i] =
+                Histogram::new((min_time * 1e3) as u32, (max_time * 1e3) as u32, n_bins);
         }
         Ok(())
     }
@@ -541,7 +542,7 @@ mod tests {
         BatchData {
             dataset,
             results: (0..n_filter_sets)
-                .map(|_| Histogram::new(0., 32.768, 2048))
+                .map(|_| Histogram::new(0, 32768, 2048))
                 .collect(),
             filters: (0..n_filter_sets).map(|_| Filters::new()).collect(),
             data_changed: vec![true; n_filter_sets],
