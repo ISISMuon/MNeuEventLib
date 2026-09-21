@@ -66,9 +66,9 @@ struct CountsData {
     /// The histogram of counts, indexed [period index, spec index, bin]
     counts: Array3<i32>,
     /// The index of the first relevant bin.
-    first_good_bin: u32,
+    first_good_bin: i32,
     /// The index of the last relevant bin.
-    last_good_bin: u32,
+    last_good_bin: i32,
     /// The index of the bin corresponding to time_zero.
     t0_bin: u32,
 }
@@ -79,8 +79,8 @@ impl Detector1 {
 
         // these should be replaced when these attrs are added to event data
         let t0_bin: u32 = 0;
-        let first_good_bin: u32 = 0;
-        let last_good_bin = (hist.max_time / width).floor() as u32;
+        let first_good_bin: i32 = 0;
+        let last_good_bin = (hist.max_time / width).floor() as i32;
 
         let counts = CountsData {
             counts: hist.hist.clone(),
@@ -234,6 +234,7 @@ mod tests {
     /// `Save` implementation.
     #[test]
     fn test_instrument_save_round_trip() {
+        let _guard = crate::test_utils::lock_hdf5_test();
         use hdf5::File;
         use std::env::temp_dir;
 

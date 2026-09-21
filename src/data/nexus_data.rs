@@ -269,14 +269,16 @@ mod tests {
     use super::*;
     use crate::test_utils::MockData;
 
-    fn test_data() -> NexusData {
+    fn test_data() -> (NexusData, std::sync::MutexGuard<'static, ()>) {
+        let guard = crate::test_utils::lock_hdf5_test();
         let path = Path::new("./tests/test_data/HIFI00195790.nxs");
-        load_data(path, 64, 1048576).unwrap()
+        (load_data(path, 64, 1048576).unwrap(), guard)
     }
 
     /// Test the program creates data when you load an existing file.
     #[test]
     fn test_file_load() {
+        let _guard = crate::test_utils::lock_hdf5_test();
         let path = Path::new("./tests/test_data/HIFI00195790.nxs");
         let data = load_data(path, 64, 1048576);
 
@@ -294,7 +296,7 @@ mod tests {
     /// Test the sample log names are correctly loaded in.
     #[test]
     fn test_sample_log_names() {
-        let data = test_data();
+        let (data, _guard) = test_data();
 
         assert_eq!(data.sample_log_names, vec!("Temp".to_string()))
     }
@@ -302,7 +304,7 @@ mod tests {
     /// Test that an existing sample log can be read successfully.
     #[test]
     fn test_load_sample_log() {
-        let data = test_data();
+        let (data, _guard) = test_data();
 
         let log = data.get_sample_log(&"Temp".to_string());
         assert!(log.is_ok());
@@ -314,7 +316,7 @@ mod tests {
     /// Test that a non-real sample log throws an error.
     #[test]
     fn test_load_sample_log_not_found() {
-        let data = test_data();
+        let (data, _guard) = test_data();
 
         let log = data.get_sample_log(&"Lunch".to_string());
         assert!(log.is_err())
@@ -357,7 +359,7 @@ mod tests {
     /// Test that `__repr__` includes the filename.
     #[test]
     fn test_repr_includes_filename() {
-        let data = test_data();
+        let (data, _guard) = test_data();
         let repr = data.__repr__();
         assert_eq!(
             repr,

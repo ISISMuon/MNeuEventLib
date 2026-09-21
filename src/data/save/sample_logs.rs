@@ -150,6 +150,7 @@ mod tests {
     /// a `value_log` subgroup with `time` and `value` datasets.
     #[test]
     fn test_save_to_group_creates_expected_structure() {
+        let _guard = crate::test_utils::lock_hdf5_test();
         let log = sample_f32_log();
 
         let mut tmp_path = temp_dir();
@@ -192,6 +193,7 @@ mod tests {
     /// value array to the type's `NarrowTo32::Output` (e.g. f64 -> f32).
     #[test]
     fn test_save_with_narrowing_converts_values() {
+        let _guard = crate::test_utils::lock_hdf5_test();
         let log = sample_f64_log();
         let mut tmp_path = temp_dir();
         tmp_path.push("sample_log_save_narrowing.nxs");
@@ -235,6 +237,7 @@ mod tests {
     /// the calculated data has no time/log filters set by default).
     #[test]
     fn test_get_all_sample_logs_returns_all_logs_unfiltered() {
+        let _guard = crate::test_utils::lock_hdf5_test();
         let data = calculated_data();
         let logs = get_all_sample_logs(&data.dataset, &data.filters[0]).unwrap();
 
@@ -246,6 +249,7 @@ mod tests {
     /// or match `apply_filters` called directly, depending on log content).
     #[test]
     fn test_get_all_sample_logs_applies_time_filters() {
+        let _guard = crate::test_utils::lock_hdf5_test();
         let mut data = calculated_data();
         let unfiltered_logs = get_all_sample_logs(&data.dataset, &data.filters[0]).unwrap();
         // Add a time filter matching the pattern used in other tests in the repo.
