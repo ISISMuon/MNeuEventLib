@@ -59,7 +59,7 @@ fn create_default_dataset(
     };
     for att_name in default.attr_names()? {
         let data = dest.dataset(name.as_str())?;
-        println!("copy attribute {}", att_name);
+        // println!("copy attribute {}", att_name);
         copy_attr(default, &data, &att_name)?;
     }
     Ok(())
@@ -87,27 +87,27 @@ fn set_defaults(
     if name.contains("dataset_") && dest.dataset(name.replace("dataset_", "").as_str()).is_err() {
         /* we know this is a group that defines a period
         dependent dataset */
-        println!("create default {}", name);
+        // println!("create default {}", name);
         create_default_dataset(&source_parent.group(name)?, dest, name, shapes)?;
         Ok(())
     } else if source_parent.dataset(name).is_ok() && dest.dataset(name).is_ok() {
         // if dataset exists in both files
-        println!("{} dataset already exists", name);
+        // println!("{} dataset already exists", name);
         let src_ds = source_parent.dataset(name)?;
         let dst_ds = dest.dataset(name)?;
         for att_name in src_ds.attr_names()? {
-            println!("copy attribute {}", att_name);
+            // println!("copy attribute {}", att_name);
             copy_attr(&src_ds, &dst_ds, &att_name)?;
         }
         Ok(())
     } else if source_parent.dataset(name).is_ok() && dest.dataset(name).is_err() {
         // if dataset exists in source but not in destination
-        println!("copy dataset {}", name);
+        // println!("copy dataset {}", name);
         source_parent.dataset(name)?.copy_to(dest, name)?;
         Ok(())
     } else if source_parent.group(name).is_ok() && dest.group(name).is_ok() {
         // if group exists in both files
-        println!("group {} exists in both files, going deeper", name);
+        // println!("group {} exists in both files, going deeper", name);
         for member in source_parent.group(name)?.member_names()? {
             set_defaults(
                 &source_parent.group(name)?,
@@ -119,7 +119,7 @@ fn set_defaults(
         Ok(())
     } else if source_parent.group(name).is_ok() && dest.group(name).is_err() {
         // copy group
-        println!("make a copy of group {}", name);
+        // println!("make a copy of group {}", name);
         /* this works for muons as none of the datasets from the missing group have a
         length that depends on the number of periods. */
         source_parent.group(name)?.copy_to(dest, name)?;
@@ -250,7 +250,7 @@ pub fn save_default(
         let _dest_group_keys = dest_group.member_names()?;
         for tmp_name in src_group.member_names()? {
             if tmp_name == "selog" {
-                println!("skip");
+                println!("skip selog");
             } else if src_group.group(tmp_name.as_str()).is_ok()
                 || src_group.dataset(tmp_name.as_str()).is_ok()
             {

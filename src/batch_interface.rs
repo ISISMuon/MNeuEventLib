@@ -363,7 +363,6 @@ impl BatchData {
         // 2. Setup shapes map
         let mut shapes = std::collections::HashMap::new();
         let n = self.dataset.n_spec;
-        println!("checking {}", n);
         shapes.insert("N".to_string(), n);
         shapes.insert("P".to_string(), periods);
         shapes.insert("NP".to_string(), n * periods);
