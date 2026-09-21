@@ -279,7 +279,6 @@ def test_mantid_workflow_LoadMuonNexusv2_batch_multi():
         result_k = LoadMuonNexusV2(Filename=hist_file_k, deadtimeTable='deadtimes')
         mantid_workflow(result_k, periods)
         os.remove(hist_file_k)
-    os.remove(file)
 
 def test_mantid_workflow_Load_batch_single():
     """
@@ -351,4 +350,3 @@ def test_mantid_workflow_LoadMuonNexusv2_batch_single():
  
         mantid_workflow(result_k, periods)
         os.remove(hist_file_k)
-    os.remove(event_file)
