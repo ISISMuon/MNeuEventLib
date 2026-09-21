@@ -37,7 +37,7 @@ pub struct LogFilter {
 pub struct Filters {
     time_filter_type: FilterType,
     time_filters: Vec<Filter>,
-    sample_log_filters: Vec<LogFilter>,
+    pub sample_log_filters: Vec<LogFilter>,
     amplitudes: HashMap<usize, f64>,
 }
 
@@ -70,24 +70,28 @@ impl Filters {
         )
     }
 
-    /// Get the start and end times for each log filter.
+    /// Get the start and end points of each log filter, for each log
     pub fn get_log_filter_times(
         &self,
         logs: HashMap<String, SampleLog>,
-    ) -> (Vec<usize>, Vec<usize>) {
-        // get the value log for each required sample log
-        // the zip/unzip is to convert it from
-        // Vec<(usize, usize)> to (Vec<usize>, Vec<usize>)
-        self.sample_log_filters
-            .iter()
-            .flat_map(|f| {
-                let (s, e) = logs[&f.log].to_time_ranges(
-                    f.lower.unwrap_or(-f64::INFINITY),
-                    f.upper.unwrap_or(f64::INFINITY),
-                );
-                s.into_iter().zip(e)
-            })
-            .unzip()
+    ) -> HashMap<String, (Vec<usize>, Vec<usize>)> {
+        let mut results = HashMap::new();
+        for (log_name, log) in logs.iter() {
+            let (starts, ends) = self
+                .sample_log_filters
+                .iter()
+                .filter(|f| f.log == *log_name)
+                .flat_map(|f| {
+                    let (s, e) = log.to_time_ranges(
+                        f.lower.unwrap_or(-f64::INFINITY),
+                        f.upper.unwrap_or(f64::INFINITY),
+                    );
+                    s.into_iter().zip(e)
+                })
+                .unzip();
+            results.insert(log_name.to_string(), (starts, ends));
+        }
+        results
     }
 
     // Get the relevant log for each log filter.
@@ -410,11 +414,19 @@ mod tests {
         logs.insert("simple".to_string(), SampleLog::F64(simple_log));
         logs.insert("complex".to_string(), SampleLog::F64(complex_log));
 
-        let (starts, ends) = filters.get_log_filter_times(logs);
-        let expected_starts = vec![2e9 as usize, 0, 1e9 as usize, 4e9 as usize];
-        let expected_ends = vec![3e9 as usize, 1e9 as usize, 2e9 as usize, 5e9 as usize];
-        assert_eq!(starts, expected_starts);
-        assert_eq!(ends, expected_ends);
+        let log_times = filters.get_log_filter_times(logs);
+        let expected_simple_starts = vec![2e9 as usize, 0];
+        let expected_simple_ends = vec![3e9 as usize, 1e9 as usize];
+        let expected_complex_starts = vec![1e9 as usize, 4e9 as usize];
+        let expected_complex_ends = vec![2e9 as usize, 5e9 as usize];
+        assert_eq!(
+            log_times["simple"],
+            (expected_simple_starts, expected_simple_ends)
+        );
+        assert_eq!(
+            log_times["complex"],
+            (expected_complex_starts, expected_complex_ends)
+        );
     }
 
     /// Test log_filter_times correctly gets the times from the log filters for an unbounded
@@ -455,11 +467,11 @@ mod tests {
         let mut logs = HashMap::<String, SampleLog>::new();
         logs.insert("simple".to_string(), SampleLog::F64(simple_log));
 
-        let (starts, ends) = filters.get_log_filter_times(logs);
+        let (starts, ends) = &filters.get_log_filter_times(logs)["simple"];
         let expected_starts = vec![2e9 as usize, 0];
         let expected_ends = vec![4e9 as usize, 3e9 as usize];
-        assert_eq!(starts, expected_starts);
-        assert_eq!(ends, expected_ends);
+        assert_eq!(*starts, expected_starts);
+        assert_eq!(*ends, expected_ends);
     }
 
     /// Test time filter type can correctly be set.

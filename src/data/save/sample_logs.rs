@@ -81,10 +81,12 @@ pub fn get_all_sample_logs(event_data: &NexusData, filters: &Filters) -> Result<
         Ok(logs) => logs,
         Err(info) => return Err(Error::msg(format!("Failed to get logs: {info}"))),
     };
-    let (log_starts, log_ends) = filters.get_log_filter_times(value_logs);
+    let log_times = filters.get_log_filter_times(value_logs);
 
-    time_starts.extend(log_starts);
-    time_ends.extend(log_ends);
+    for (log_starts, log_ends) in log_times.values() {
+        time_starts.extend(log_starts);
+        time_ends.extend(log_ends);
+    }
 
     Ok(event_data
         .sample_log_names
