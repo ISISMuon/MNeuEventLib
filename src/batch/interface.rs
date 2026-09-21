@@ -467,7 +467,7 @@ impl BatchData {
         let m = other.n_batches();
         let result_size = n * m;
 
-        let results = vec![Histogram::new(0., 32.768, 2048); result_size];
+        let results = vec![Histogram::new(0, 32768, 2048); result_size];
 
         let data_changed = vec![true; result_size];
 
@@ -558,8 +558,7 @@ impl BatchData {
                 }
                 let dataset = self.dataset.as_ref().unwrap();
                 for i in 0..self.n_batches() {
-                    let wimda_file =
-                        WiMDAFile::new(dataset, &self.filters[i], &self.results[i])?;
+                    let wimda_file = WiMDAFile::new(dataset, &self.filters[i], &self.results[i])?;
                     wimda_file.save_file(format!("{filename_stem}_{i}.nxs"), &dataset.file)?;
                     if autofill {
                         self.save_nexus(format!("{filename_stem}_{i}.nxs"), ref_file_str.clone())?;
@@ -1132,11 +1131,11 @@ mod tests {
         for (i, filters) in combined.filters.iter().enumerate() {
             let (starts, ends) = filters.get_time_filter_times();
             if i < 2 {
-                assert_eq!(starts, vec![1e9 as usize]);
-                assert_eq!(ends, vec![2e9 as usize]);
+                assert_eq!(starts, vec![1e9 as u64]);
+                assert_eq!(ends, vec![2e9 as u64]);
             } else {
-                assert_eq!(starts, vec![3e9 as usize]);
-                assert_eq!(ends, vec![4e9 as usize]);
+                assert_eq!(starts, vec![3e9 as u64]);
+                assert_eq!(ends, vec![4e9 as u64]);
             }
         }
     }
@@ -1179,8 +1178,8 @@ mod tests {
         for (i, filters) in combined.filters.iter().enumerate() {
             // the time filter comes from this object's filter set i
             let (starts, ends) = filters.get_time_filter_times();
-            assert_eq!(starts, vec![(i as f64 * 1e9) as usize]);
-            assert_eq!(ends, vec![((i + 1) as f64 * 1e9) as usize]);
+            assert_eq!(starts, vec![(i as f64 * 1e9) as u64]);
+            assert_eq!(ends, vec![((i + 1) as f64 * 1e9) as u64]);
             // the log filter comes from the other object's filter set i
             assert_eq!(filters.get_required_log_names(), vec![format!("log{i}")]);
         }
@@ -1220,7 +1219,7 @@ mod tests {
                 combined.results[0].max_time,
                 combined.results[0].n_bins
             ),
-            (0., 1., 10)
+            (0, 1000, 10)
         );
         assert_eq!(
             (
@@ -1228,7 +1227,7 @@ mod tests {
                 combined.results[1].max_time,
                 combined.results[1].n_bins
             ),
-            (0., 2., 20)
+            (0, 2000, 20)
         );
     }
 
@@ -1269,8 +1268,8 @@ mod tests {
                 let filters = &combined.filters[k];
                 // the time filter comes from this object's filter set i
                 let (starts, ends) = filters.get_time_filter_times();
-                assert_eq!(starts, vec![((2 * i + 1) as f64 * 1e9) as usize]);
-                assert_eq!(ends, vec![((2 * i + 2) as f64 * 1e9) as usize]);
+                assert_eq!(starts, vec![((2 * i + 1) as f64 * 1e9) as u64]);
+                assert_eq!(ends, vec![((2 * i + 2) as f64 * 1e9) as u64]);
                 // the log filter comes from the other object's filter set j
                 assert_eq!(filters.get_required_log_names(), vec![format!("log{j}")]);
             }
@@ -1301,7 +1300,7 @@ mod tests {
         assert_eq!(combined.__len__(), 3);
         for filters in &combined.filters {
             let (starts, _) = filters.get_time_filter_times();
-            assert_eq!(starts, vec![1e9 as usize]);
+            assert_eq!(starts, vec![1e9 as u64]);
             assert_eq!(filters.get_required_log_names(), vec!["temp".to_string()]);
         }
     }
