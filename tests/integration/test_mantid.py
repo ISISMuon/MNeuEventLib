@@ -234,11 +234,11 @@ def test_mantid_workflow_Load_batch_multi():
     data = BatchData(file, 64, 5)
     add_filters(data)
 
-    result = data.calculate()
+    data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI103.nxs')
     data.save('All', hist_file, autofill=True)
     del data
-    del result
+    
     gc.collect()  # force Rust drop to release file handle (Windows WinError 32)
     for k in range(4):
         hist_file_k = os.path.join(dir_path, f'HIFI103_{k+1}.nxs')
@@ -267,12 +267,11 @@ def test_mantid_workflow_LoadMuonNexusv2_batch_multi():
     data = BatchData(file, 64, 5)
     add_filters(data)
 
-    result = data.calculate()
+    data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI203.nxs')
     data.save('All', hist_file, autofill=True)
 
     del data
-    del result
     gc.collect()  # force Rust drop to release file handle (Windows WinError 32)
     for k in range(4):
         hist_file_k = os.path.join(dir_path, f'HIFI203_{k+1}.nxs')
