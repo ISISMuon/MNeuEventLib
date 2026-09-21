@@ -246,7 +246,7 @@ def test_mantid_workflow_Load_batch_multi():
         result_k = Load(Filename=hist_file_k, deadtimeTable='deadtimes')
         mantid_workflow(result_k, periods)
         os.remove(hist_file_k)
-    
+    os.remove(event_file)
 
 def test_mantid_workflow_LoadMuonNexusv2_batch_multi():
     """
@@ -279,6 +279,7 @@ def test_mantid_workflow_LoadMuonNexusv2_batch_multi():
         result_k = LoadMuonNexusV2(Filename=hist_file_k, deadtimeTable='deadtimes')
         mantid_workflow(result_k, periods)
         os.remove(hist_file_k)
+    os.remove(event_file)
 
 def test_mantid_workflow_Load_batch_single():
     """
@@ -300,17 +301,18 @@ def test_mantid_workflow_Load_batch_single():
     data = BatchData(event_file, 64, 5)
     add_filters(data)
 
-    _ = data.calculate()
+    result= data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI303.nxs')
     data.save('All', hist_file, autofill=True)
     del data
+    del result
     gc.collect()  # force Rust drop to release file handle (Windows WinError 32)
 
     for k in range(4):
         hist_file_k = os.path.join(dir_path, f'HIFI303_{k+1}.nxs')
         # mantid workflow
-        result = Load(Filename=hist_file_k, deadtimeTable='deadtimes')
-        mantid_workflow(result, periods)
+        result_k = Load(Filename=hist_file_k, deadtimeTable='deadtimes')
+        mantid_workflow(result_k, periods)
         os.remove(hist_file_k)
     os.remove(event_file)
 
@@ -335,17 +337,18 @@ def test_mantid_workflow_LoadMuonNexusv2_batch_single():
     data = BatchData(event_file, 64, 5)
     add_filters(data)
 
-    _ = data.calculate()
+    result = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI403.nxs')
     data.save('All', hist_file, autofill=True)
     del data
+    del result
     gc.collect()  # force Rust drop to release file handle (Windows WinError 32)
 
     for k in range(4):
         hist_file_k = os.path.join(dir_path, f'HIFI403_{k+1}.nxs')
         # mantid workflow
-        result = LoadMuonNexusV2(Filename=hist_file_k, deadtimeTable='deadtimes')
+        result_k = LoadMuonNexusV2(Filename=hist_file_k, deadtimeTable='deadtimes')
  
-        mantid_workflow(result, periods)
+        mantid_workflow(result_k, periods)
         os.remove(hist_file_k)
     os.remove(event_file)
