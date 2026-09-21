@@ -120,7 +120,7 @@ fn set_defaults(
     } else if source_parent.group(name).is_ok() && dest.group(name).is_err() {
         // copy group
         println!("make a copy of group {}", name);
-        /* this works for muons as non of the datasets from the missing group have a
+        /* this works for muons as none of the datasets from the missing group have a
         length that depends on the number of periods. */
         source_parent.group(name)?.copy_to(dest, name)?;
         Ok(())
