@@ -343,38 +343,6 @@ impl BatchData {
         Ok(())
     }
 
-    /// Save to a Nexus version 2 file that is compatable with
-    /// Mantid using provided reference file for data.
-    /// This is needed because the event data files has mistakes/problems.
-    ///
-    /// Parameters
-    /// ----------
-    /// filename: str
-    ///     The filename for the saved file.
-    /// ref_file: str
-    ///     The reference file for the saved file. (must be a Nexus file)
-    ///     Contains "correct" data that should be copied to the output file.
-    ///     This is only need it the reference file needed is not the standard
-    ///     muon nexus v2 file. The ref_file is generated from tools/make_default.py.
-    pub fn save_nexus(&self, filename: String, ref_file: String) -> Result<()> {
-        // 1. Read p_info from input file
-        let (periods, dwell) = get_period_info(&self.dataset.filename)?;
-
-        // 2. Setup shapes map
-        let mut shapes = std::collections::HashMap::new();
-        let n = self.dataset.n_spec;
-        shapes.insert("N".to_string(), n);
-        shapes.insert("P".to_string(), periods);
-        shapes.insert("NP".to_string(), n * periods);
-        shapes.insert("PD".to_string(), periods + dwell);
-        shapes.insert("NPD".to_string(), n * (periods + dwell));
-
-        // 3. Run save_default to merge/copy from ref_file
-        save_default(&filename, &ref_file, &shapes)?;
-
-        Ok(())
-    }
-
     /// Save a filter set's result to a file.
     ///
     /// Parameters
@@ -525,6 +493,39 @@ impl BatchData {
     fn n_batches(&self) -> usize {
         self.filters.len()
     }
+
+    /// Save to a Nexus version 2 file that is compatable with
+    /// Mantid using provided reference file for data.
+    /// This is needed because the event data files has mistakes/problems.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename for the saved file.
+    /// ref_file: str
+    ///     The reference file for the saved file. (must be a Nexus file)
+    ///     Contains "correct" data that should be copied to the output file.
+    ///     This is only need it the reference file needed is not the standard
+    ///     muon nexus v2 file. The ref_file is generated from tools/make_default.py.
+    pub fn save_nexus(&self, filename: String, ref_file: String) -> Result<()> {
+        // 1. Read p_info from input file
+        let (periods, dwell) = get_period_info(&self.dataset.filename)?;
+
+        // 2. Setup shapes map
+        let mut shapes = std::collections::HashMap::new();
+        let n = self.dataset.n_spec;
+        shapes.insert("N".to_string(), n);
+        shapes.insert("P".to_string(), periods);
+        shapes.insert("NP".to_string(), n * periods);
+        shapes.insert("PD".to_string(), periods + dwell);
+        shapes.insert("NPD".to_string(), n * (periods + dwell));
+
+        // 3. Run save_default to merge/copy from ref_file
+        save_default(&filename, &ref_file, &shapes)?;
+
+        Ok(())
+    }
+
 }
 
 #[cfg(test)]

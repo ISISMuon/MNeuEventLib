@@ -250,7 +250,7 @@ pub fn save_default(
         let _dest_group_keys = dest_group.member_names()?;
         for tmp_name in src_group.member_names()? {
             if tmp_name == "selog" {
-                println!("skip selog");
+                // println!("skip selog");
             } else if src_group.group(tmp_name.as_str()).is_ok()
                 || src_group.dataset(tmp_name.as_str()).is_ok()
             {
