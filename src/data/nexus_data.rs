@@ -1,5 +1,5 @@
 use std::cmp::min;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{Error, Result};
@@ -120,7 +120,10 @@ impl NexusData {
     }
 
     /// Get the value logs associated with a list of sample log names.
-    pub fn get_sample_logs(&self, log_names: Vec<String>) -> Result<HashMap<String, SampleLog>> {
+    pub fn get_sample_logs(
+        &self,
+        log_names: HashSet<String>,
+    ) -> Result<HashMap<String, SampleLog>> {
         log_names
             .into_par_iter()
             .map(|name| self.get_sample_log(&name).map(|log| (name, log)))
