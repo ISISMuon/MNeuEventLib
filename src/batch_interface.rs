@@ -594,8 +594,8 @@ mod tests {
         let (starts2, ends2) = batch.filters[2].get_time_filter_times();
 
         assert!(starts0.is_empty() && ends0.is_empty());
-        assert_eq!(starts1, vec![1e9 as usize]);
-        assert_eq!(ends1, vec![2e9 as usize]);
+        assert_eq!(starts1, vec![1e9 as u64]);
+        assert_eq!(ends1, vec![2e9 as u64]);
         assert!(starts2.is_empty() && ends2.is_empty());
     }
 
@@ -610,8 +610,8 @@ mod tests {
 
         for filters in &batch.filters {
             let (starts, ends) = filters.get_time_filter_times();
-            assert_eq!(starts, vec![1e9 as usize]);
-            assert_eq!(ends, vec![2e9 as usize]);
+            assert_eq!(starts, vec![1e9 as u64]);
+            assert_eq!(ends, vec![2e9 as u64]);
         }
     }
 
@@ -630,8 +630,8 @@ mod tests {
             let (starts, ends) = filters.get_time_filter_times();
             if index == 1 {
                 // converted to ns
-                assert_eq!(starts, vec![0.5e9 as usize]);
-                assert_eq!(ends, vec![1.5e9 as usize]);
+                assert_eq!(starts, vec![0.5e9 as u64]);
+                assert_eq!(ends, vec![1.5e9 as u64]);
             } else {
                 assert!(starts.is_empty());
             }
@@ -658,8 +658,8 @@ mod tests {
         let (starts1, _) = batch.filters[1].get_time_filter_times();
 
         // converted to ns
-        assert_eq!(starts0, vec![2.5e9 as usize]);
-        assert_eq!(starts1, vec![1e9 as usize]);
+        assert_eq!(starts0, vec![2.5e9 as u64]);
+        assert_eq!(starts1, vec![1e9 as u64]);
     }
 
     /// Removing a time filter with index "All" should remove it from
@@ -681,7 +681,7 @@ mod tests {
         let (starts0, _) = batch.filters[0].get_time_filter_times();
         let (starts1, _) = batch.filters[1].get_time_filter_times();
 
-        assert_eq!(starts0, vec![2.5e9 as usize]);
+        assert_eq!(starts0, vec![2.5e9 as u64]);
         assert!(starts1.is_empty())
     }
 

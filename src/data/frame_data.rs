@@ -24,8 +24,8 @@ impl FrameData {
     /// Take a slice of frame data between lower and upper event numbers.
     pub fn slice(&self, lower: usize, upper: usize) -> FrameData {
         let n_frames = self.start_index.len();
-        let lower_index = binary_search(&self.start_index, 0, n_frames, lower);
-        let upper_index = binary_search(&self.start_index, 0, n_frames, upper);
+        let lower_index = binary_search::<usize>(&self.start_index, 0, n_frames, lower);
+        let upper_index = binary_search::<usize>(&self.start_index, 0, n_frames, upper);
 
         // shift the start indices to match the slice
         let new_starts: Array1<usize> = (lower_index..=upper_index)
