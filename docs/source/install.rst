@@ -6,7 +6,14 @@ Installation
 Install using ``pip``
 ---------------------
 
-TODO: not currently on PyPI...
+MNeuEventLib can be installed like most other python packages using the ``pip`` package manager.
+
+On a machine with ``pip`` installed, simply run
+
+.. code-block::
+
+   pip install MNeuEventLib
+
 
 Install from source
 -------------------
