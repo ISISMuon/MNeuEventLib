@@ -5,23 +5,25 @@ use ndarray::Array1;
 /// start and stop are the indices of the array to search between.
 #[inline]
 pub fn binary_search(array: &Array1<usize>, start: usize, stop: usize, target: usize) -> usize {
-    if stop - start == 1 {
-        start
-    } else if stop > start {
-        let midpoint = start + (stop - start) / 2;
+    let mut lo = start;
+    let mut hi = stop;
+
+    if hi <= lo {
+        return if target < array[lo] { lo } else { hi };
+    }
+
+    while hi - lo > 1 {
+        let midpoint = lo + (hi - lo) / 2;
         let midpoint_value = array[midpoint];
         if midpoint_value == target {
-            midpoint
+            return midpoint;
         } else if midpoint_value > target {
-            binary_search(array, start, midpoint, target)
+            hi = midpoint;
         } else {
-            binary_search(array, midpoint, stop, target)
+            lo = midpoint;
         }
-    } else if target < array[start] {
-        start
-    } else {
-        stop
     }
+    lo
 }
 
 /// Trait for a 64-bit type that can be converted to a 32-bit one.
