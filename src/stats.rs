@@ -167,46 +167,54 @@ pub fn calculate_histograms(
     frame_data: FrameData,
 ) -> Histogram {
     let width: f32 = (max_time - min_time) as f32 / n_bins as f32;
+    let inv_width: f32 = 1.0 / width;
 
-    // iterate over the data chunks, make histograms for each, then sum histograms at the end
+    // Each rayon worker folds its chunks into a single thread-local accumulator,
+    // so we allocate one histogram per thread rather than one per chunk.
     (0..dataset.n_events)
         .into_par_iter()
         .step_by(dataset.chunk_size)
-        .map(|start| {
-            let end = min(start + (dataset.chunk_size), dataset.n_events);
-            let array_slice = s![start..end];
-            let amps: Array1<f64> = dataset
-                .amps
-                .read_slice_1d(array_slice)
-                .expect("failed to read amplitudes.");
-            let times: Array1<u32> = dataset
-                .times
-                .read_slice_1d(array_slice)
-                .expect("Failed to read times.");
-            let specs: Array1<u32> = dataset
-                .specs
-                .read_slice_1d(array_slice)
-                .expect("Failed to read specs.");
-            make_histogram(
-                times,
-                specs,
-                amps,
-                dataset.n_spec,
-                &periods,
-                n_periods,
-                &min_amps,
-                weights,
-                frame_data.slice(start, end),
-                min_time,
-                max_time,
-                n_bins,
-                width,
-            )
-        })
-        // accumulate all chunk histograms together
+        .fold(
+            || {
+                let mut acc = Histogram::new(min_time, max_time, n_bins);
+                acc.hist = Array3::zeros((n_periods, dataset.n_spec, n_bins));
+                acc
+            },
+            |mut acc, start| {
+                let end = min(start + (dataset.chunk_size), dataset.n_events);
+                let array_slice = s![start..end];
+                let amps: Array1<f64> = dataset
+                    .amps
+                    .read_slice_1d(array_slice)
+                    .expect("failed to read amplitudes.");
+                let times: Array1<u32> = dataset
+                    .times
+                    .read_slice_1d(array_slice)
+                    .expect("Failed to read times.");
+                let specs: Array1<u32> = dataset
+                    .specs
+                    .read_slice_1d(array_slice)
+                    .expect("Failed to read specs.");
+                make_histogram(
+                    &mut acc,
+                    times,
+                    specs,
+                    amps,
+                    &periods,
+                    n_periods,
+                    &min_amps,
+                    weights,
+                    frame_data.slice(start, end),
+                    min_time,
+                    max_time,
+                    inv_width,
+                );
+                acc
+            },
+        )
+        // combine the per-thread accumulators
         .reduce(
             || {
-                // rayon's reduce requires to initialise an identity value...
                 let mut empty_hist = Histogram::new(min_time, max_time, n_bins);
                 empty_hist.hist = Array3::zeros((n_periods, dataset.n_spec, n_bins));
                 empty_hist
@@ -219,14 +227,14 @@ pub fn calculate_histograms(
         )
 }
 
-/// Make a histogram for a set of data.
+/// Bin a set of data directly into the given accumulating histogram.
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 fn make_histogram(
+    result: &mut Histogram,
     times: Array1<u32>,
     specs: Array1<u32>,
     amps: Array1<f64>,
-    n_spec: usize,
     periods: &Array1<u32>,
     n_periods: usize,
     min_amps: &Array1<f64>,
@@ -234,11 +242,11 @@ fn make_histogram(
     frame_data: FrameData,
     min_time: u32,
     max_time: u32,
-    n_bins: usize,
-    width: f32,
-) -> Histogram {
-    let mut result = Histogram::new(min_time, max_time, n_bins);
-    result.hist = Array3::zeros((n_periods, n_spec, n_bins));
+    inv_width: f32,
+) {
+    // `n_periods` is unused now that `result.hist` is pre-allocated, but kept
+    // for a stable call signature; silence the warning.
+    let _ = n_periods;
 
     let last_frame = frame_data.frame_number.last().unwrap();
 
@@ -265,18 +273,54 @@ fn make_histogram(
             let spec = specs[k] as usize;
 
             if (t >= min_time) && (t < max_time) && amp > min_amps[spec] {
-                let bin = ((t - min_time) as f32 / width).floor() as usize;
+                // `as usize` truncates toward zero, which equals floor for t >= min_time
+                let bin = ((t - min_time) as f32 * inv_width) as usize;
                 result.hist[[period, spec, bin]] += 1;
                 result.n += 1
             }
         }
     }
-    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Test helper: allocate a histogram, bin the data into it, and return it.
+    #[allow(clippy::too_many_arguments)]
+    fn build_histogram(
+        times: Array1<u32>,
+        specs: Array1<u32>,
+        amps: Array1<f64>,
+        n_spec: usize,
+        periods: &Array1<u32>,
+        n_periods: usize,
+        min_amps: &Array1<f64>,
+        weights: &Weights,
+        frame_data: FrameData,
+        min_time: u32,
+        max_time: u32,
+        n_bins: usize,
+        inv_width: f32,
+    ) -> Histogram {
+        let mut result = Histogram::new(min_time, max_time, n_bins);
+        result.hist = Array3::zeros((n_periods, n_spec, n_bins));
+        make_histogram(
+            &mut result,
+            times,
+            specs,
+            amps,
+            periods,
+            n_periods,
+            min_amps,
+            weights,
+            frame_data,
+            min_time,
+            max_time,
+            inv_width,
+        );
+        result
+    }
 
     /// Test Histogram::new creates correct empty histogram.
     #[test]
@@ -299,7 +343,7 @@ mod tests {
         let min_amps = Array1::zeros(6);
         let weights = Weights::ones(6);
 
-        let result = make_histogram(
+        let result = build_histogram(
             times,
             specs,
             amps,
@@ -312,7 +356,7 @@ mod tests {
             0,
             3000,
             3,
-            1000.,
+            0.001,
         );
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![1, 1, 2, 1, 0, 1]).unwrap();
@@ -332,7 +376,7 @@ mod tests {
         // weight bytes are filtering out values 0, 3, 4
         let weights = Weights::from_raw(vec![0b100110]);
 
-        let result = make_histogram(
+        let result = build_histogram(
             times,
             specs,
             amps,
@@ -345,7 +389,7 @@ mod tests {
             0,
             3000,
             3,
-            1000.,
+            0.001,
         );
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![0, 1, 0, 1, 0, 1]).unwrap();
@@ -364,7 +408,7 @@ mod tests {
         let min_amps = Array1::zeros(6);
         let weights = Weights::ones(6);
 
-        let result = make_histogram(
+        let result = build_histogram(
             times,
             specs,
             amps,
@@ -377,7 +421,7 @@ mod tests {
             0,
             3000,
             3,
-            1000.,
+            0.001,
         );
 
         // bins are 0-1000, 1000-2000, 2000-3000
@@ -408,7 +452,7 @@ mod tests {
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
-        let result = make_histogram(
+        let result = build_histogram(
             times,
             specs,
             amps,
@@ -421,7 +465,7 @@ mod tests {
             1000,
             3000,
             2,
-            1000.,
+            0.001,
         );
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 2), vec![1, 0, 1, 1]).unwrap();
@@ -440,7 +484,7 @@ mod tests {
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
-        let result = make_histogram(
+        let result = build_histogram(
             times,
             specs,
             amps,
@@ -453,7 +497,7 @@ mod tests {
             0,
             2000,
             2,
-            1000.,
+            0.001,
         );
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 2), vec![1, 1, 0, 1]).unwrap();
@@ -472,7 +516,7 @@ mod tests {
         let min_amps = Array1::from_vec(vec![0.5, 1.5]);
         let weights = Weights::ones(6);
 
-        let result = make_histogram(
+        let result = build_histogram(
             times,
             specs,
             amps,
@@ -485,7 +529,7 @@ mod tests {
             0,
             3000,
             3,
-            1000.,
+            0.001,
         );
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![1, 1, 1, 0, 0, 1]).unwrap();
