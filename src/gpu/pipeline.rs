@@ -59,12 +59,11 @@ impl GpuContext {
     /// Result<Self>
     ///     The initialized GpuContext instance, or an error if initialization failed.
     fn init() -> Result<Self> {
-        // Use PRIMARY backends (Vulkan, DX12, Metal) and exclude GL/GLX to avoid fatal
-        // X11 GLX protocol errors on Linux / remote / headless X11 environments.
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let descriptor = wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
             ..Default::default()
-        });
+        };
+        let instance = wgpu::Instance::new(&descriptor.with_env());
 
         // If a discrete GPU (e.g. NVIDIA RTX) is present, prioritize it over integrated GPUs
         let mut discrete_adapter = None;
