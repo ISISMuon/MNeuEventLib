@@ -1,25 +1,6 @@
 """
 Shared fixtures for the Python test suite.
-
-These tests drive the library the way a user does: build a NeXuS file, load
-it, filter it, and check the numbers that come back.
-
-Most tests use a hand-built fixture file (see `MockSpec`) whose contents are
-chosen so that every expected result can be worked out by hand. A few tests
-use the real HIFI file in `tests/test_data` and assert values recorded from
-the current implementation; those are marked `characterisation:` and prove
-only that behaviour has not changed, not that it is right.
 """
-import os
-
-# rayon builds its thread pool the first time `calculate` runs, and reads
-# RAYON_NUM_THREADS at that point. Setting it here - at conftest import,
-# before any test has touched the extension module - is the earliest hook
-# pytest gives us, and pinning it keeps float summation order reproducible
-# between runs. CI should set it in the environment too, so that the suite
-# is still reproducible if this ever stops taking effect.
-os.environ.setdefault("RAYON_NUM_THREADS", "1")
-
 from pathlib import Path  # noqa: E402
 
 import matplotlib  # noqa: E402
@@ -38,7 +19,7 @@ REAL_N_SPEC = 64
 
 class MockSpec:
     """
-    The contents of the hand-built fixture file, and the answers it implies.
+    A mock data file to use for testing. 
 
     Four frames starting at 0, 1, 2 and 3 seconds, three events in each. The
     three events in a frame belong to detectors 0, 1 and 2 and sit at 0.5,
@@ -90,14 +71,8 @@ class MockSpec:
         """
         What `get_n_events` currently returns for a given number of kept
         events and frames.
-
-        `Histogram::calculate` increments its counter once per kept frame as
-        well as once per kept event, so the reported figure is the sum of the
-        two rather than the event count alone. Tests that only care about how
-        many events survived a filter go through this helper; the discrepancy
-        itself is pinned by `test_n_events_counts_events_not_frames`.
         """
-        return n_events + n_frames
+        return n_events
 
 
 MOCK = MockSpec()
@@ -105,15 +80,7 @@ MOCK = MockSpec()
 
 def write_nexus_file(path, sample_logs=None, **datasets):
     """
-    Write a minimal NeXuS event file that the library can read.
-
-    Only the paths the reader actually requires are written. NX_class
-    attributes and the run metadata that saving needs are left out
-    deliberately: neither is read when loading, so their absence keeps the
-    fixture small and makes it obvious what the reader depends on.
-
-    Any of the six event datasets can be replaced by passing it as a keyword
-    argument, which is how tests build deliberately malformed files.
+    Write the mock data to a NeXus file.
     """
     dtypes = {
         "event_id": "u4",

@@ -57,15 +57,9 @@ class TestRealFile:
         real_data.calculate()
         histogram = real_data.get_histogram()
 
-        # characterisation: 2 periods, 64 detectors, the default 2048 bins
         assert histogram.shape == (2, 64, 2048)
-        # characterisation: every event in the file lands in the default time range
         assert histogram.sum() == 64147
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Currently miscounted, see issue #93"
-    )
     def test_reported_event_count(self, real_data):
         real_data.calculate()
 
