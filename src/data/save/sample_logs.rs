@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use anyhow::{Error, Result};
+use anyhow::Result;
 use hdf5::types::{H5Type, VarLenUnicode};
 use hdf5::Group;
 use ndarray::Array1;
@@ -9,7 +9,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use crate::data::save::utils::*;
 use crate::data::{NexusData, SampleLog, ValueLog};
 use crate::filters::Filters;
-use crate::utils::NarrowTo32;
+use crate::utils::{get_filter_times, NarrowTo32};
 
 /// Save the log to a HDF5 Group
 impl Save for SampleLog {
@@ -73,20 +73,7 @@ where
 }
 
 pub fn get_all_sample_logs(event_data: &NexusData, filters: &Filters) -> Result<Vec<SampleLog>> {
-    let (mut time_starts, mut time_ends) = filters.get_time_filter_times();
-
-    let log_names = filters.get_required_log_names();
-
-    let value_logs = match event_data.get_sample_logs(log_names) {
-        Ok(logs) => logs,
-        Err(info) => return Err(Error::msg(format!("Failed to get logs: {info}"))),
-    };
-    let log_times = filters.get_log_filter_times(value_logs);
-
-    for (log_starts, log_ends) in log_times.values() {
-        time_starts.extend(log_starts);
-        time_ends.extend(log_ends);
-    }
+    let (filter_starts, filter_ends) = get_filter_times(event_data, filters)?;
 
     Ok(event_data
         .sample_log_names
@@ -94,9 +81,9 @@ pub fn get_all_sample_logs(event_data: &NexusData, filters: &Filters) -> Result<
         // we use filter_map to skip unloadable sample logs
         .filter_map(|name| {
             match event_data.get_sample_log(name) {
-                Ok(sample_log) => match time_starts.is_empty() {
+                Ok(sample_log) => match filter_starts.is_empty() {
                     true => Some(sample_log),
-                    false => Some(sample_log.apply_filters(&time_starts, &time_ends)),
+                    false => Some(sample_log.apply_filters(&filter_starts, &filter_ends)),
                 }
                 Err(error) => {
                     // if sample log is unsupported, ignore in output
