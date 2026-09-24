@@ -85,14 +85,26 @@ impl NexusData {
     }
 
     /// Get a histogram of the amplitudes and the maximum height.
-    #[pyo3(name = "get_amp_histogram", signature = (max_height=None, n_bins=10))]
+    ///
+    /// Parameters
+    /// ----------
+    /// max_height: float, optional
+    ///     The maximum height to use. If not provided, the maximum
+    ///     amplitude in the data is used.
+    /// n_bins: int, default 10
+    ///     The number of equal-width bins to use.
+    /// detector: int, optional
+    ///     The detector to create an amplitude histogram for.
+    ///     If not provided, all detectors are used.
+    #[pyo3(name = "get_amp_histogram", signature = (max_height=None, n_bins=10, detector=None))]
     fn get_amp_histogram_py<'py>(
         &self,
         py: Python<'py>,
         max_height: Option<f64>,
         n_bins: usize,
+        detector: Option<usize>,
     ) -> Result<(Bound<'py, PyArray1<usize>>, f64)> {
-        let (results, max) = self.get_amp_histogram(max_height, n_bins)?;
+        let (results, max) = self.get_amp_histogram(max_height, n_bins, detector)?;
         Ok((results.to_pyarray(py), max))
     }
 
@@ -128,12 +140,23 @@ impl NexusData {
     }
 
     /// Get the histogram of amplitudes and the max height.
+    ///
+    /// If `detector` is given, only events recorded by that detector are counted.
     #[inline(always)]
     fn get_amp_histogram(
         &self,
         max_height: Option<f64>,
         n_bins: usize,
+        detector: Option<usize>,
     ) -> Result<(Array1<usize>, f64)> {
+        if let Some(detector) = detector {
+            if detector >= self.n_spec {
+                return Err(Error::msg(format!(
+                    "Attempted to get amplitude histogram for detector {detector}, but instrument only has {} detectors.",
+                    self.n_spec
+                )));
+            }
+        }
         let max = match max_height {
             Some(height) if height.is_finite() => height,
             Some(_) => return Err(Error::msg("max_height must be finite.")),
@@ -150,18 +173,32 @@ impl NexusData {
             (0..n_amps)
                 .into_par_iter()
                 .step_by(self.chunk_size)
-                // get the amps for each chunk
-                .map(|start| -> Array1<f64> {
+                // get the amps for each chunk, and the spectrum numbers
+                // if we need them to pick out a single detector
+                .map(|start| -> (Array1<f64>, Option<Array1<u32>>) {
                     let end = min(start + self.chunk_size, n_amps);
                     let array_slice = s![start..end];
-                    self.amps
+                    let amps = self
+                        .amps
                         .read_slice_1d(array_slice)
-                        .expect("Failed to read amplitude data.")
+                        .expect("Failed to read amplitude data.");
+                    let specs = detector.map(|_| {
+                        self.specs
+                            .read_slice_1d(array_slice)
+                            .expect("Failed to read spectrum data.")
+                    });
+                    (amps, specs)
                 })
                 // bin amps for each chunk
-                .map(|amps| {
+                .map(|(amps, specs)| {
                     let mut array = Array1::zeros(n_bins);
-                    for amp in amps {
+                    for (i, amp) in amps.into_iter().enumerate() {
+                        // skip events recorded by any other detector
+                        if let (Some(specs), Some(detector)) = (&specs, detector) {
+                            if specs[i] as usize != detector {
+                                continue;
+                            }
+                        }
                         // anything over the max is put in the last bin
                         if amp >= max {
                             array[n_bins - 1] += 1
@@ -331,7 +368,7 @@ mod tests {
         data.add_dataset("pulse_height", amps).unwrap();
         let nexus_data = data.create(64, 5).unwrap();
 
-        let result = nexus_data.get_amp_histogram(Some(10.), 10);
+        let result = nexus_data.get_amp_histogram(Some(10.), 10, None);
         assert!(result.is_ok());
         let (hist, max) = result.unwrap();
         assert_eq!(max, 10.);
@@ -347,13 +384,55 @@ mod tests {
         data.add_dataset("pulse_height", amps).unwrap();
         let nexus_data = data.create(64, 5).unwrap();
 
-        let result = nexus_data.get_amp_histogram(None, 10);
+        let result = nexus_data.get_amp_histogram(None, 10, None);
         assert!(result.is_ok());
         let (hist, max) = result.unwrap();
         assert_eq!(max, 6.1);
         // 10 bins from 0 to 6.1, which means the left bin edges are
         // [0, 0.61, 1.22, 1.83, 2.44, 3.05, 3.66, 4.27, 4.88, 5.49]
         assert_eq!(hist, Array1::from_vec(vec![0, 2, 1, 1, 0, 1, 1, 0, 0, 1]))
+    }
+
+    /// Test that an amplitude histogram can be made for a single detector,
+    /// counting only the events recorded by that detector.
+    #[test]
+    fn test_make_amp_histogram_single_detector() {
+        let data = MockData::new().unwrap();
+        let amps = Array1::from_vec(vec![0.8, 1.5, 1.2, 3.3, 2., 3.8, 6.1]);
+        let specs: Array1<u32> = Array1::from_vec(vec![0, 1, 0, 1, 0, 1, 0]);
+        data.add_dataset("pulse_height", amps).unwrap();
+        data.add_dataset("event_id", specs).unwrap();
+        let nexus_data = data.create(64, 5).unwrap();
+
+        // detector 1 recorded the amplitudes 1.5, 3.3 and 3.8
+        let (hist, max) = nexus_data
+            .get_amp_histogram(Some(10.), 10, Some(1))
+            .unwrap();
+        assert_eq!(max, 10.);
+        assert_eq!(hist, Array1::from_vec(vec![0, 1, 0, 2, 0, 0, 0, 0, 0, 0]));
+
+        // detector 0 recorded the amplitudes 0.8, 1.2, 2. and 6.1
+        let (hist, _) = nexus_data
+            .get_amp_histogram(Some(10.), 10, Some(0))
+            .unwrap();
+        assert_eq!(hist, Array1::from_vec(vec![1, 1, 1, 0, 0, 0, 1, 0, 0, 0]))
+    }
+
+    /// Test a detector that recorded no events gives an empty histogram
+    /// rather than an error.
+    #[test]
+    fn test_make_amp_histogram_detector_no_events() {
+        let data = MockData::new().unwrap();
+        let amps = Array1::from_vec(vec![0.8, 1.5, 1.2]);
+        let specs: Array1<u32> = Array1::from_vec(vec![0, 1, 0]);
+        data.add_dataset("pulse_height", amps).unwrap();
+        data.add_dataset("event_id", specs).unwrap();
+        let nexus_data = data.create(64, 5).unwrap();
+
+        let (hist, _) = nexus_data
+            .get_amp_histogram(Some(10.), 10, Some(2))
+            .unwrap();
+        assert_eq!(hist, Array1::<usize>::zeros(10))
     }
 
     /// Test that `__repr__` includes the filename.
