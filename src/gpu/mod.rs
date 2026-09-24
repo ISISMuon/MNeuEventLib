@@ -2,10 +2,10 @@ pub mod pipeline;
 
 pub use pipeline::{GpuContext, GpuHistogrammer, ShaderParams};
 
-use std::collections::HashMap;
 use anyhow::{bail, Result};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use std::collections::HashMap;
 
 /// Hardware execution target for histogram calculations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -17,6 +17,19 @@ pub enum DevicePreference {
     Cpu,
     /// GPU execution using wgpu compute shaders.
     Gpu,
+}
+
+impl std::str::FromStr for DevicePreference {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_lowercase().trim() {
+            "auto" => Ok(DevicePreference::Auto),
+            "cpu" => Ok(DevicePreference::Cpu),
+            "gpu" => Ok(DevicePreference::Gpu),
+            other => bail!("Unknown device '{other}'. Expected 'auto', 'cpu', or 'gpu'."),
+        }
+    }
 }
 
 impl DevicePreference {
@@ -31,13 +44,9 @@ impl DevicePreference {
     /// -------
     /// Result<Self>
     ///     The parsed DevicePreference enum variant, or an error if unrecognized.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Result<Self> {
-        match s.to_lowercase().trim() {
-            "auto" => Ok(DevicePreference::Auto),
-            "cpu" => Ok(DevicePreference::Cpu),
-            "gpu" => Ok(DevicePreference::Gpu),
-            other => bail!("Unknown device '{other}'. Expected 'auto', 'cpu', or 'gpu'."),
-        }
+        <Self as std::str::FromStr>::from_str(s)
     }
 
     /// Return the canonical string representation of the device preference.
@@ -142,9 +151,18 @@ mod tests {
 
     #[test]
     fn test_device_preference_roundtrip() {
-        assert_eq!(DevicePreference::from_str("auto").unwrap(), DevicePreference::Auto);
-        assert_eq!(DevicePreference::from_str("CPU").unwrap(), DevicePreference::Cpu);
-        assert_eq!(DevicePreference::from_str("  gpu  ").unwrap(), DevicePreference::Gpu);
+        assert_eq!(
+            DevicePreference::from_str("auto").unwrap(),
+            DevicePreference::Auto
+        );
+        assert_eq!(
+            DevicePreference::from_str("CPU").unwrap(),
+            DevicePreference::Cpu
+        );
+        assert_eq!(
+            DevicePreference::from_str("  gpu  ").unwrap(),
+            DevicePreference::Gpu
+        );
 
         assert_eq!(DevicePreference::Auto.as_str(), "auto");
         assert_eq!(DevicePreference::Cpu.as_str(), "cpu");
@@ -177,4 +195,3 @@ mod tests {
         }
     }
 }
-

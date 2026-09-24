@@ -120,7 +120,8 @@ impl BatchData {
         };
         for i in 0..self.n_batches() {
             if self.data_changed[i] {
-                let result = self.results[i].calculate_with_device(&self.dataset, &self.filters[i], dev)?;
+                let result =
+                    self.results[i].calculate_with_device(&self.dataset, &self.filters[i], dev)?;
                 self.data_changed[i] = false;
                 self.results[i] = result;
             }

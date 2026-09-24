@@ -194,24 +194,57 @@ pub fn calculate_histograms(
 
     match effective_device {
         DevicePreference::Cpu => calculate_histograms_cpu(
-            dataset, min_time, max_time, n_bins, n_periods, &periods, &min_amps, weights, &frame_data,
+            dataset,
+            min_time,
+            max_time,
+            n_bins,
+            n_periods,
+            &periods,
+            &min_amps,
+            weights,
+            &frame_data,
         ),
         DevicePreference::Gpu => {
             if let Some(ctx) = GpuContext::get() {
                 match calculate_histograms_gpu(
-                    dataset, min_time, max_time, n_bins, n_periods, &periods, &min_amps, weights, &frame_data, ctx,
+                    dataset,
+                    min_time,
+                    max_time,
+                    n_bins,
+                    n_periods,
+                    &periods,
+                    &min_amps,
+                    weights,
+                    &frame_data,
+                    ctx,
                 ) {
                     Ok(hist) => hist,
                     Err(err) => {
                         eprintln!("GPU calculation failed ({err:?}), falling back to CPU");
                         calculate_histograms_cpu(
-                            dataset, min_time, max_time, n_bins, n_periods, &periods, &min_amps, weights, &frame_data,
+                            dataset,
+                            min_time,
+                            max_time,
+                            n_bins,
+                            n_periods,
+                            &periods,
+                            &min_amps,
+                            weights,
+                            &frame_data,
                         )
                     }
                 }
             } else {
                 calculate_histograms_cpu(
-                    dataset, min_time, max_time, n_bins, n_periods, &periods, &min_amps, weights, &frame_data,
+                    dataset,
+                    min_time,
+                    max_time,
+                    n_bins,
+                    n_periods,
+                    &periods,
+                    &min_amps,
+                    weights,
+                    &frame_data,
                 )
             }
         }
@@ -387,7 +420,6 @@ fn calculate_histograms_gpu(
         producer.join().unwrap()
     })?;
 
-
     let (hist, n) = gpu_hist.readback(n_periods)?;
     let mut result = Histogram::new(min_time, max_time, n_bins);
     result.hist = hist;
@@ -397,6 +429,7 @@ fn calculate_histograms_gpu(
 
 /// Accumulate events from contiguous slices of chunk arrays into a histogram on CPU.
 #[inline(always)]
+#[allow(clippy::too_many_arguments)]
 fn bin_events_slice<T: Copy + PartialOrd>(
     result: &mut Histogram,
     times: &[u32],
@@ -847,9 +880,18 @@ mod tests {
 
     #[test]
     fn test_device_preference_parse() {
-        assert_eq!(DevicePreference::from_str("auto").unwrap(), DevicePreference::Auto);
-        assert_eq!(DevicePreference::from_str("CPU").unwrap(), DevicePreference::Cpu);
-        assert_eq!(DevicePreference::from_str("gpu").unwrap(), DevicePreference::Gpu);
+        assert_eq!(
+            DevicePreference::from_str("auto").unwrap(),
+            DevicePreference::Auto
+        );
+        assert_eq!(
+            DevicePreference::from_str("CPU").unwrap(),
+            DevicePreference::Cpu
+        );
+        assert_eq!(
+            DevicePreference::from_str("gpu").unwrap(),
+            DevicePreference::Gpu
+        );
         assert!(DevicePreference::from_str("Hybrid").is_err());
         assert!(DevicePreference::from_str("invalid").is_err());
     }
@@ -871,8 +913,14 @@ mod tests {
             let gpu_hist = base_hist
                 .calculate_with_device(&dataset, &filters, DevicePreference::Gpu)
                 .unwrap();
-            assert_eq!(cpu_hist.n, gpu_hist.n, "Event counts must match between CPU and GPU");
-            assert_eq!(cpu_hist.hist, gpu_hist.hist, "Histogram arrays must match between CPU and GPU");
+            assert_eq!(
+                cpu_hist.n, gpu_hist.n,
+                "Event counts must match between CPU and GPU"
+            );
+            assert_eq!(
+                cpu_hist.hist, gpu_hist.hist,
+                "Histogram arrays must match between CPU and GPU"
+            );
         }
     }
 }

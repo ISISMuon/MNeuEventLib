@@ -21,8 +21,8 @@ use interface::Data;
 mod batch_interface;
 use batch_interface::BatchData;
 mod consts;
-mod utils;
 pub mod gpu;
+mod utils;
 
 #[cfg(test)]
 mod test_utils;

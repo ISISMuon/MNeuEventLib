@@ -1,7 +1,7 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
 use anyhow::{Context, Result};
 use ndarray::Array3;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 use wgpu::util::DeviceExt;
 
 static GPU_CONTEXT: OnceLock<Option<GpuContext>> = OnceLock::new();
@@ -50,9 +50,7 @@ impl GpuContext {
     ///     Reference to the initialized GpuContext, or None if no compatible GPU is available
     ///     or if the GPU context has been shut down.
     pub fn get() -> Option<&'static GpuContext> {
-        let ctx = GPU_CONTEXT
-            .get_or_init(|| Self::init().ok())
-            .as_ref()?;
+        let ctx = GPU_CONTEXT.get_or_init(|| Self::init().ok()).as_ref()?;
         if ctx.is_destroyed.load(Ordering::SeqCst) {
             None
         } else {
@@ -100,7 +98,8 @@ impl GpuContext {
                 h.reset(min_amps);
             }
         } else {
-            let new_hist = GpuHistogrammer::new(self, n_periods, n_spec, n_bins, min_amps, max_chunk_size)?;
+            let new_hist =
+                GpuHistogrammer::new(self, n_periods, n_spec, n_bins, min_amps, max_chunk_size)?;
             *lock = Some(new_hist);
         }
 
@@ -376,26 +375,36 @@ impl GpuHistogrammer {
             mapped_at_creation: false,
         });
 
-        let min_amps_buffer = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Min Amps Buffer"),
-            contents: bytemuck::cast_slice(min_amps),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
+        let min_amps_buffer = ctx
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Min Amps Buffer"),
+                contents: bytemuck::cast_slice(min_amps),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            });
 
         // Initialize hist and count buffers with 0
         let zero_hist = vec![0u8; hist_byte_size as usize];
-        let hist_buffer = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Hist Buffer"),
-            contents: &zero_hist,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
-        });
+        let hist_buffer = ctx
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Hist Buffer"),
+                contents: &zero_hist,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
+            });
 
         let zero_count = [0u8; 4];
-        let count_buffer = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Count Buffer"),
-            contents: &zero_count,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
-        });
+        let count_buffer = ctx
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Count Buffer"),
+                contents: &zero_count,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
+            });
 
         let staging_hist_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Staging Hist Buffer"),
@@ -525,6 +534,7 @@ impl GpuHistogrammer {
     /// -------
     /// Result<()>
     ///     Ok on successful dispatch, or an error if data exceeds buffer capacity.
+    #[allow(clippy::too_many_arguments)]
     pub fn dispatch_chunk(
         &self,
         min_time: u32,
@@ -589,7 +599,7 @@ impl GpuHistogrammer {
             });
             cpass.set_pipeline(&self.ctx.pipeline);
             cpass.set_bind_group(0, &self.bind_group, &[]);
-            let workgroups = ((n_events as u32) + 255) / 256;
+            let workgroups = (n_events as u32).div_ceil(256);
             cpass.dispatch_workgroups(workgroups, 1, 1);
         }
 
@@ -623,13 +633,7 @@ impl GpuHistogrammer {
             0,
             self.hist_byte_size,
         );
-        encoder.copy_buffer_to_buffer(
-            &self.count_buffer,
-            0,
-            &self.staging_count_buffer,
-            0,
-            4,
-        );
+        encoder.copy_buffer_to_buffer(&self.count_buffer, 0, &self.staging_count_buffer, 0, 4);
 
         self.ctx.queue.submit(Some(encoder.finish()));
 
