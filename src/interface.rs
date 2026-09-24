@@ -4,6 +4,7 @@ use pyo3::prelude::{pyclass, pymethods, Bound};
 
 use crate::batch::{BatchData, FilterIndex, PyHist};
 use crate::data::NexusData;
+use crate::filters::Filters;
 
 /// The main MNeuEventLib interface.
 #[pyclass(from_py_object)]
@@ -29,6 +30,11 @@ impl Data {
     fn dataset(&self) -> NexusData {
         // non-batch data can't exist without dataset set
         self.inner.dataset.clone().unwrap()
+    }
+
+    #[getter]
+    fn filters(&self) -> Filters {
+        self.inner.filters[0].clone()
     }
 
     /// Calculate the histogram for the current data and filters.
