@@ -21,7 +21,7 @@ def plot_sample_log(data: Data, log_name: str):
     fig, ax = plt.subplots()
     ax.set_title(sample_log['name'])
     ax.set_xlabel("Time (seconds)")
-    if units := sample_log['unit'] == "":
+    if (units := sample_log['unit']) == "":
         unit_string = ""
     else:
         unit_string = f"({units})"
