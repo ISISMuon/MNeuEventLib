@@ -111,3 +111,7 @@ for file in files:
 
 if hasattr(mel, "cleanup_gpu"):
     mel.cleanup_gpu()
+
+import os
+os._exit(0)
+
