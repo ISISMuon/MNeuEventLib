@@ -139,6 +139,11 @@ impl Weights {
         self.raw_weights[lo..hi].iter_mut().for_each(|b| *b = value);
     }
 
+    /// Get the total number of weights.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
     /// Count the number of 1s in this array.
     pub fn count(&self) -> u32 {
         let mut count = self

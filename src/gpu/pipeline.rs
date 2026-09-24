@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use ndarray::Array3;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 use wgpu::util::DeviceExt;
 
@@ -22,10 +22,10 @@ pub struct ShaderParams {
     pub inv_width: f32,
     /// Number of events in the current chunk.
     pub n_events: u32,
-    /// Alignment padding.
-    pub _pad0: u32,
-    /// Alignment padding.
-    pub _pad1: u32,
+    /// Baseline minimum amplitude threshold.
+    pub baseline_min_amp: f32,
+    /// Flags bitmask: bit 0 = uniform min_amp, bit 1 = uniform period 0.
+    pub flags: u32,
 }
 
 /// Global GPU execution context containing the device, command queue, and compiled compute pipeline.
@@ -120,7 +120,7 @@ impl GpuContext {
         };
         let instance = wgpu::Instance::new(&descriptor.with_env());
 
-        // If a discrete GPU (e.g. NVIDIA RTX) is present, prioritize it over integrated GPUs
+        // If a discrete GPU (e.g. NVIDIA RTX / AMD Radeon) is present, prioritize it over integrated GPUs
         let mut discrete_adapter = None;
         for a in instance.enumerate_adapters(wgpu::Backends::PRIMARY) {
             if a.get_info().device_type == wgpu::DeviceType::DiscreteGpu {
@@ -242,17 +242,6 @@ impl GpuContext {
                     },
                     count: None,
                 },
-                // 7: total_count storage read_write
-                wgpu::BindGroupLayoutEntry {
-                    binding: 7,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
             ],
         });
 
@@ -285,20 +274,113 @@ impl GpuContext {
     }
 }
 
-/// GPU histogram accumulator managing buffers, bind groups, and shader dispatch.
-pub struct GpuHistogrammer {
-    ctx: &'static GpuContext,
+/// A double-buffered input slot for overlapping PCIe data transfers and GPU compute passes.
+struct GpuChunkSlot {
     params_buffer: wgpu::Buffer,
     times_buffer: wgpu::Buffer,
     specs_buffer: wgpu::Buffer,
     amps_buffer: wgpu::Buffer,
     periods_buffer: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+}
+
+impl GpuChunkSlot {
+    fn new(
+        ctx: &GpuContext,
+        chunk_capacity: usize,
+        min_amps_buffer: &wgpu::Buffer,
+        hist_buffer: &wgpu::Buffer,
+        label: &str,
+    ) -> Self {
+        let params_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&format!("Params Buffer ({})", label)),
+            size: std::mem::size_of::<ShaderParams>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let times_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&format!("Times Buffer ({})", label)),
+            size: (chunk_capacity * std::mem::size_of::<u32>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let specs_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&format!("Specs Buffer ({})", label)),
+            size: (chunk_capacity * std::mem::size_of::<u32>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let amps_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&format!("Amps Buffer ({})", label)),
+            size: (chunk_capacity * std::mem::size_of::<f32>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let periods_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&format!("Periods Buffer ({})", label)),
+            size: (chunk_capacity * std::mem::size_of::<u32>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(&format!("Histogram Bind Group ({})", label)),
+            layout: &ctx.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: times_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: specs_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: amps_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: periods_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: min_amps_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: hist_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        GpuChunkSlot {
+            params_buffer,
+            times_buffer,
+            specs_buffer,
+            amps_buffer,
+            periods_buffer,
+            bind_group,
+        }
+    }
+}
+
+/// GPU histogram accumulator managing double-buffered chunk slots, bind groups, and shader dispatch.
+pub struct GpuHistogrammer {
+    ctx: &'static GpuContext,
+    slots: [GpuChunkSlot; 2],
+    current_slot: AtomicUsize,
     min_amps_buffer: wgpu::Buffer,
     hist_buffer: wgpu::Buffer,
-    count_buffer: wgpu::Buffer,
     staging_hist_buffer: wgpu::Buffer,
-    staging_count_buffer: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
     hist_byte_size: u64,
     allocated_chunk_size: usize,
     n_periods: usize,
@@ -340,41 +422,6 @@ impl GpuHistogrammer {
         let hist_len = n_periods * n_spec * n_bins;
         let hist_byte_size = (hist_len * std::mem::size_of::<u32>()) as u64;
 
-        let params_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Params Buffer"),
-            size: std::mem::size_of::<ShaderParams>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let times_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Times Buffer"),
-            size: (chunk_capacity * std::mem::size_of::<u32>()) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let specs_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Specs Buffer"),
-            size: (chunk_capacity * std::mem::size_of::<u32>()) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let amps_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Amps Buffer"),
-            size: (chunk_capacity * std::mem::size_of::<f32>()) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let periods_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Periods Buffer"),
-            size: (chunk_capacity * std::mem::size_of::<u32>()) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         let min_amps_buffer = ctx
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -383,24 +430,13 @@ impl GpuHistogrammer {
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             });
 
-        // Initialize hist and count buffers with 0
+        // Initialize hist buffer with zeros
         let zero_hist = vec![0u8; hist_byte_size as usize];
         let hist_buffer = ctx
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Hist Buffer"),
                 contents: &zero_hist,
-                usage: wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_SRC
-                    | wgpu::BufferUsages::COPY_DST,
-            });
-
-        let zero_count = [0u8; 4];
-        let count_buffer = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Count Buffer"),
-                contents: &zero_count,
                 usage: wgpu::BufferUsages::STORAGE
                     | wgpu::BufferUsages::COPY_SRC
                     | wgpu::BufferUsages::COPY_DST,
@@ -413,65 +449,18 @@ impl GpuHistogrammer {
             mapped_at_creation: false,
         });
 
-        let staging_count_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Staging Count Buffer"),
-            size: 4,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Histogram Bind Group"),
-            layout: &ctx.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: times_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: specs_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: amps_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: periods_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: min_amps_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: hist_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: count_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        let slot0 =
+            GpuChunkSlot::new(ctx, chunk_capacity, &min_amps_buffer, &hist_buffer, "Slot 0");
+        let slot1 =
+            GpuChunkSlot::new(ctx, chunk_capacity, &min_amps_buffer, &hist_buffer, "Slot 1");
 
         Ok(GpuHistogrammer {
             ctx,
-            params_buffer,
-            times_buffer,
-            specs_buffer,
-            amps_buffer,
-            periods_buffer,
+            slots: [slot0, slot1],
+            current_slot: AtomicUsize::new(0),
             min_amps_buffer,
             hist_buffer,
-            count_buffer,
             staging_hist_buffer,
-            staging_count_buffer,
-            bind_group,
             hist_byte_size,
             allocated_chunk_size: chunk_capacity,
             n_periods,
@@ -494,7 +483,7 @@ impl GpuHistogrammer {
             && self.allocated_chunk_size >= max_chunk_size
     }
 
-    /// Reset histogram and count buffers to zero and update discrimination thresholds without reallocation.
+    /// Reset histogram buffer to zero and update discrimination thresholds without reallocation.
     pub fn reset(&self, min_amps: &[f32]) {
         let mut encoder = self
             .ctx
@@ -503,7 +492,6 @@ impl GpuHistogrammer {
                 label: Some("Histogram Reset Encoder"),
             });
         encoder.clear_buffer(&self.hist_buffer, 0, None);
-        encoder.clear_buffer(&self.count_buffer, 0, None);
         self.ctx.queue.submit(Some(encoder.finish()));
 
         self.ctx
@@ -529,6 +517,12 @@ impl GpuHistogrammer {
     ///     Pulse height amplitudes for events in this chunk.
     /// periods: &[u32]
     ///     Period numbers for events in this chunk.
+    /// baseline_min_amp: f32
+    ///     Baseline minimum amplitude value.
+    /// has_uniform_min_amp: bool
+    ///     True if all detectors share the identical baseline minimum amplitude.
+    /// has_uniform_period: bool
+    ///     True if all events in the dataset share period 0 with all weights valid.
     ///
     /// Returns
     /// -------
@@ -544,6 +538,9 @@ impl GpuHistogrammer {
         specs: &[u32],
         amps: &[f32],
         periods: &[u32],
+        baseline_min_amp: f32,
+        has_uniform_min_amp: bool,
+        has_uniform_period: bool,
     ) -> Result<()> {
         let n_events = times.len();
         if n_events == 0 {
@@ -558,6 +555,17 @@ impl GpuHistogrammer {
             );
         }
 
+        let slot_idx = self.current_slot.fetch_add(1, Ordering::Relaxed) % 2;
+        let slot = &self.slots[slot_idx];
+
+        let mut flags = 0u32;
+        if has_uniform_min_amp {
+            flags |= 1;
+        }
+        if has_uniform_period {
+            flags |= 2;
+        }
+
         let params = ShaderParams {
             min_time,
             max_time,
@@ -565,25 +573,28 @@ impl GpuHistogrammer {
             n_spec: self.n_spec as u32,
             inv_width,
             n_events: n_events as u32,
-            _pad0: 0,
-            _pad1: 0,
+            baseline_min_amp,
+            flags,
         };
 
         self.ctx
             .queue
-            .write_buffer(&self.params_buffer, 0, bytemuck::bytes_of(&params));
+            .write_buffer(&slot.params_buffer, 0, bytemuck::bytes_of(&params));
         self.ctx
             .queue
-            .write_buffer(&self.times_buffer, 0, bytemuck::cast_slice(times));
+            .write_buffer(&slot.times_buffer, 0, bytemuck::cast_slice(times));
         self.ctx
             .queue
-            .write_buffer(&self.specs_buffer, 0, bytemuck::cast_slice(specs));
+            .write_buffer(&slot.specs_buffer, 0, bytemuck::cast_slice(specs));
         self.ctx
             .queue
-            .write_buffer(&self.amps_buffer, 0, bytemuck::cast_slice(amps));
-        self.ctx
-            .queue
-            .write_buffer(&self.periods_buffer, 0, bytemuck::cast_slice(periods));
+            .write_buffer(&slot.amps_buffer, 0, bytemuck::cast_slice(amps));
+
+        if !has_uniform_period {
+            self.ctx
+                .queue
+                .write_buffer(&slot.periods_buffer, 0, bytemuck::cast_slice(periods));
+        }
 
         let mut encoder = self
             .ctx
@@ -598,16 +609,19 @@ impl GpuHistogrammer {
                 timestamp_writes: None,
             });
             cpass.set_pipeline(&self.ctx.pipeline);
-            cpass.set_bind_group(0, &self.bind_group, &[]);
+            cpass.set_bind_group(0, &slot.bind_group, &[]);
             let workgroups = (n_events as u32).div_ceil(256);
             cpass.dispatch_workgroups(workgroups, 1, 1);
         }
 
         self.ctx.queue.submit(Some(encoder.finish()));
+        if slot_idx == 1 {
+            self.ctx.device.poll(wgpu::Maintain::Wait);
+        }
         Ok(())
     }
 
-    /// Copy the GPU histogram and count buffers to CPU staging memory and return the results.
+    /// Copy the GPU histogram buffer to CPU staging memory and return the result.
     ///
     /// Parameters
     /// ----------
@@ -633,21 +647,14 @@ impl GpuHistogrammer {
             0,
             self.hist_byte_size,
         );
-        encoder.copy_buffer_to_buffer(&self.count_buffer, 0, &self.staging_count_buffer, 0, 4);
 
         self.ctx.queue.submit(Some(encoder.finish()));
 
         let hist_slice = self.staging_hist_buffer.slice(..);
-        let count_slice = self.staging_count_buffer.slice(..);
-
         let (sender, receiver) = std::sync::mpsc::channel();
-        let sender_count = sender.clone();
 
         hist_slice.map_async(wgpu::MapMode::Read, move |res| {
             let _ = sender.send(res);
-        });
-        count_slice.map_async(wgpu::MapMode::Read, move |res| {
-            let _ = sender_count.send(res);
         });
 
         self.ctx.device.poll(wgpu::Maintain::Wait);
@@ -655,24 +662,21 @@ impl GpuHistogrammer {
         receiver
             .recv()?
             .map_err(|e| anyhow::anyhow!("Failed to map staging hist buffer: {:?}", e))?;
-        receiver
-            .recv()?
-            .map_err(|e| anyhow::anyhow!("Failed to map staging count buffer: {:?}", e))?;
 
         let hist_data = hist_slice.get_mapped_range();
-        let count_data = count_slice.get_mapped_range();
-
         let u32_slice: &[u32] = bytemuck::cast_slice(&hist_data);
-        let i32_vec: Vec<i32> = u32_slice.iter().map(|&x| x as i32).collect();
+
+        let mut total_count = 0usize;
+        let mut i32_vec = Vec::with_capacity(u32_slice.len());
+        for &val in u32_slice {
+            total_count += val as usize;
+            i32_vec.push(val as i32);
+        }
         let hist = Array3::from_shape_vec((n_periods, self.n_spec, self.n_bins), i32_vec)?;
 
-        let total_count: u32 = *bytemuck::from_bytes(&count_data);
-
         drop(hist_data);
-        drop(count_data);
         self.staging_hist_buffer.unmap();
-        self.staging_count_buffer.unmap();
 
-        Ok((hist, total_count as usize))
+        Ok((hist, total_count))
     }
 }

@@ -351,6 +351,9 @@ fn calculate_histograms_gpu(
     )?;
     let gpu_hist = gpu_guard.as_ref().unwrap();
 
+    let baseline_amp = if !min_amps.is_empty() { min_amps[0] as f32 } else { 0.0 };
+    let has_uniform_min_amp = min_amps.iter().all(|&a| a as f32 == baseline_amp);
+
     struct PreparedGpuChunk {
         times: Array1<u32>,
         specs: Array1<u32>,
@@ -358,7 +361,9 @@ fn calculate_histograms_gpu(
         periods: Vec<u32>,
     }
 
-    let (tx, rx) = std::sync::mpsc::sync_channel::<Result<PreparedGpuChunk>>(2);
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Result<PreparedGpuChunk>>(8);
+    let all_weights_true = weights.count() as usize == weights.len();
+    let is_simple_single_period = n_periods == 1 && all_weights_true;
 
     std::thread::scope(|s| -> Result<()> {
         let producer = s.spawn(move || -> Result<()> {
@@ -371,23 +376,27 @@ fn calculate_histograms_gpu(
 
                 let chunk_frame_data = frame_data.slice(start, end);
                 let chunk_len = chunk_frame_data.array_len;
-                let mut event_periods = vec![u32::MAX; chunk_len];
-
-                if let Some(&last_frame) = chunk_frame_data.frame_number.last() {
-                    for (i, &frame) in chunk_frame_data.frame_number.iter().enumerate() {
-                        if !weights[frame] {
-                            continue;
+                let event_periods = if is_simple_single_period {
+                    vec![0u32; chunk_len]
+                } else {
+                    let mut ep = vec![u32::MAX; chunk_len];
+                    if let Some(&last_frame) = chunk_frame_data.frame_number.last() {
+                        for (i, &frame) in chunk_frame_data.frame_number.iter().enumerate() {
+                            if !weights[frame] {
+                                continue;
+                            }
+                            let frame_start = chunk_frame_data.start_index[i];
+                            let frame_end = if frame == last_frame {
+                                chunk_frame_data.array_len
+                            } else {
+                                chunk_frame_data.start_index[i + 1]
+                            };
+                            let p = periods[frame];
+                            ep[frame_start..frame_end].fill(p);
                         }
-                        let frame_start = chunk_frame_data.start_index[i];
-                        let frame_end = if frame == last_frame {
-                            chunk_frame_data.array_len
-                        } else {
-                            chunk_frame_data.start_index[i + 1]
-                        };
-                        let p = periods[frame];
-                        event_periods[frame_start..frame_end].fill(p);
                     }
-                }
+                    ep
+                };
 
                 if tx
                     .send(Ok(PreparedGpuChunk {
@@ -414,6 +423,9 @@ fn calculate_histograms_gpu(
                 chunk.specs.as_slice().unwrap(),
                 chunk.amps.as_slice().unwrap(),
                 &chunk.periods,
+                baseline_amp,
+                has_uniform_min_amp,
+                is_simple_single_period,
             )?;
         }
 
@@ -441,7 +453,7 @@ fn bin_events_slice<T: Copy + PartialOrd>(
     frame_data: &FrameData,
     min_time: u32,
     max_time: u32,
-    inv_width: f32,
+    _inv_width: f32,
 ) {
     if frame_data.frame_number.is_empty() {
         return;
@@ -457,6 +469,15 @@ fn bin_events_slice<T: Copy + PartialOrd>(
         Some(s) => s,
         None => return,
     };
+
+    let time_range = max_time.saturating_sub(min_time);
+    let scale_u64: u64 = if time_range > 0 {
+        (((n_bins as u128) << 32) / (time_range as u128)) as u64
+    } else {
+        0
+    };
+    let baseline_amp = if !min_amps.is_empty() { min_amps[0] } else { min_amps[0] };
+    let all_baseline = min_amps.iter().all(|&a| a == baseline_amp);
 
     let mut total_n = 0usize;
 
@@ -475,16 +496,43 @@ fn bin_events_slice<T: Copy + PartialOrd>(
         let period = periods[frame] as usize;
         let frame_base = period * period_stride;
 
-        for k in frame_start_event..frame_end_event {
-            let t = times[k];
-            let amp = amps[k];
-            let spec = specs[k] as usize;
-
-            if (t >= min_time) && (t < max_time) && amp > min_amps[spec] {
-                let bin = ((t - min_time) as f32 * inv_width) as usize;
-                let idx = frame_base + spec * spec_stride + bin;
-                hist_slice[idx] += 1;
-                total_n += 1;
+        if all_baseline {
+            for k in frame_start_event..frame_end_event {
+                let t = times[k];
+                let dt = t.wrapping_sub(min_time);
+                if dt < time_range {
+                    let amp = amps[k];
+                    if amp > baseline_amp {
+                        let spec = specs[k] as usize;
+                        if spec < n_spec {
+                            let bin = ((dt as u64 * scale_u64) >> 32) as usize;
+                            if bin < n_bins {
+                                let idx = frame_base + spec * spec_stride + bin;
+                                hist_slice[idx] += 1;
+                                total_n += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            for k in frame_start_event..frame_end_event {
+                let t = times[k];
+                let dt = t.wrapping_sub(min_time);
+                if dt < time_range {
+                    let spec = specs[k] as usize;
+                    if spec < n_spec {
+                        let amp = amps[k];
+                        if amp > min_amps[spec] {
+                            let bin = ((dt as u64 * scale_u64) >> 32) as usize;
+                            if bin < n_bins {
+                                let idx = frame_base + spec * spec_stride + bin;
+                                hist_slice[idx] += 1;
+                                total_n += 1;
+                            }
+                        }
+                    }
+                }
             }
         }
     }

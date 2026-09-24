@@ -3,9 +3,9 @@ import numpy as np
 import MNeuEventLib as mel
 from MNeuEventLib import Data
 
-files = ["tools/HIFI00207745_events.nxs"]
+files = ["SIM00000007.nxs"]
 
-stats = 10
+stats = 2
 n_filters = 2
 n_spec = 960
 

@@ -246,6 +246,12 @@ fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<NexusD
     let n_events = specs.size();
     let n_frames = frames.size();
 
+    let effective_chunk_size = if chunk_size == 1048576 && n_events >= 500_000_000 {
+        4 * 1048576
+    } else {
+        chunk_size
+    };
+
     Ok(NexusData {
         file,
         filename: filename.to_str().unwrap().to_string(),
@@ -260,7 +266,7 @@ fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<NexusD
         n_events,
         n_frames,
         n_spec,
-        chunk_size,
+        chunk_size: effective_chunk_size,
     })
 }
 
