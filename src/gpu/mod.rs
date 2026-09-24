@@ -125,6 +125,21 @@ pub fn get_device_info_py<'py>(py: Python<'py>) -> PyResult<Option<Bound<'py, Py
     }
 }
 
+/// Explicitly shutdown the active GPU device and release all GPU driver resources.
+/// This destroys the wgpu::Device and drains GPU command queues before process exit,
+/// preventing driver shutdown crashes and unhandled C++ exceptions.
+pub fn cleanup_gpu() {
+    pipeline::GpuContext::shutdown();
+}
+
+/// Explicitly shutdown the active GPU device and release all GPU driver resources.
+/// This destroys the wgpu::Device and drains GPU command queues before process exit,
+/// preventing driver shutdown crashes and unhandled C++ exceptions.
+#[pyfunction(name = "cleanup_gpu")]
+pub fn cleanup_gpu_py() {
+    cleanup_gpu();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

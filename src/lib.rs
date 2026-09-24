@@ -35,5 +35,6 @@ fn core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<BatchData>()?;
     m.add_function(wrap_pyfunction!(gpu::is_gpu_available_py, m)?)?;
     m.add_function(wrap_pyfunction!(gpu::get_device_info_py, m)?)?;
+    m.add_function(wrap_pyfunction!(gpu::cleanup_gpu_py, m)?)?;
     Ok(())
 }

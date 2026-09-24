@@ -108,3 +108,6 @@ for file in files:
     for mode, (ms, m_ev) in results.items():
         speedup = cpu_ms / ms
         print(f"  {mode:>6}: {speedup:5.2f}x ({ms:.2f} ms)")
+
+if hasattr(mel, "cleanup_gpu"):
+    mel.cleanup_gpu()

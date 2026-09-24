@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use anyhow::{Context, Result};
 use ndarray::Array3;
@@ -36,6 +37,7 @@ pub struct GpuContext {
     pub device_name: String,
     pub backend_name: String,
     pub device_type: String,
+    pub is_destroyed: AtomicBool,
 }
 
 impl GpuContext {
@@ -44,11 +46,29 @@ impl GpuContext {
     /// Returns
     /// -------
     /// Option<&'static GpuContext>
-    ///     Reference to the initialized GpuContext, or None if no compatible GPU is available.
+    ///     Reference to the initialized GpuContext, or None if no compatible GPU is available
+    ///     or if the GPU context has been shut down.
     pub fn get() -> Option<&'static GpuContext> {
-        GPU_CONTEXT
+        let ctx = GPU_CONTEXT
             .get_or_init(|| Self::init().ok())
-            .as_ref()
+            .as_ref()?;
+        if ctx.is_destroyed.load(Ordering::SeqCst) {
+            None
+        } else {
+            Some(ctx)
+        }
+    }
+
+    /// Explicitly destroy the active GPU device and release all GPU resources.
+    /// This drains any pending work and destroys the underlying `wgpu::Device`,
+    /// preventing driver shutdown crashes and unhandled C++ exceptions at process exit.
+    pub fn shutdown() {
+        if let Some(Some(ctx)) = GPU_CONTEXT.get() {
+            if !ctx.is_destroyed.swap(true, Ordering::SeqCst) {
+                let _ = ctx.device.poll(wgpu::Maintain::Wait);
+                ctx.device.destroy();
+            }
+        }
     }
 
     /// Initialize the GPU context by discovering an adapter, requesting a device and queue,
@@ -224,6 +244,7 @@ impl GpuContext {
             device_name,
             backend_name,
             device_type,
+            is_destroyed: AtomicBool::new(false),
         })
     }
 }
