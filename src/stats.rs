@@ -8,7 +8,7 @@ use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIter
 use crate::consts::ToMicroseconds;
 use crate::data::{FrameData, NexusData};
 use crate::filters::{get_weights, Filters, Weights};
-use crate::gpu::{DevicePreference, GpuContext, GpuHistogrammer};
+use crate::gpu::{DevicePreference, GpuContext};
 
 #[derive(Clone)]
 pub struct Histogram {
@@ -327,14 +327,14 @@ fn calculate_histograms_gpu(
     let inv_width: f32 = 1.0 / width;
     let min_amps_f32: Vec<f32> = min_amps.iter().map(|&a| a as f32).collect();
 
-    let gpu_hist = GpuHistogrammer::new(
-        ctx,
+    let gpu_guard = ctx.acquire_histogrammer(
         n_periods,
         dataset.n_spec,
         n_bins,
         &min_amps_f32,
         dataset.chunk_size,
     )?;
+    let gpu_hist = gpu_guard.as_ref().unwrap();
 
     struct PreparedGpuChunk {
         times: Array1<u32>,
@@ -431,14 +431,14 @@ fn calculate_histograms_hybrid(
     let inv_width: f32 = 1.0 / width;
     let min_amps_f32: Vec<f32> = min_amps.iter().map(|&a| a as f32).collect();
 
-    let gpu_hist = GpuHistogrammer::new(
-        ctx,
+    let gpu_guard = ctx.acquire_histogrammer(
         n_periods,
         dataset.n_spec,
         n_bins,
         &min_amps_f32,
         dataset.chunk_size,
     )?;
+    let gpu_hist = gpu_guard.as_ref().unwrap();
 
     let mut cpu_acc = Histogram::new(min_time, max_time, n_bins);
     cpu_acc.hist = Array3::zeros((n_periods, dataset.n_spec, n_bins));

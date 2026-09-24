@@ -38,6 +38,7 @@ pub struct GpuContext {
     pub backend_name: String,
     pub device_type: String,
     pub is_destroyed: AtomicBool,
+    pub cached_histogrammer: std::sync::Mutex<Option<GpuHistogrammer>>,
 }
 
 impl GpuContext {
@@ -65,10 +66,45 @@ impl GpuContext {
     pub fn shutdown() {
         if let Some(Some(ctx)) = GPU_CONTEXT.get() {
             if !ctx.is_destroyed.swap(true, Ordering::SeqCst) {
+                if let Ok(mut lock) = ctx.cached_histogrammer.lock() {
+                    *lock = None;
+                }
                 let _ = ctx.device.poll(wgpu::Maintain::Wait);
                 ctx.device.destroy();
             }
         }
+    }
+
+    /// Acquire a cached GpuHistogrammer instance, or initialize a new one if dimensions have changed.
+    pub fn acquire_histogrammer(
+        &'static self,
+        n_periods: usize,
+        n_spec: usize,
+        n_bins: usize,
+        min_amps: &[f32],
+        max_chunk_size: usize,
+    ) -> Result<std::sync::MutexGuard<'static, Option<GpuHistogrammer>>> {
+        let mut lock = self
+            .cached_histogrammer
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Failed to lock GPU buffer cache: {}", e))?;
+
+        let reuse = if let Some(ref h) = *lock {
+            h.matches(n_periods, n_spec, n_bins, max_chunk_size)
+        } else {
+            false
+        };
+
+        if reuse {
+            if let Some(ref h) = *lock {
+                h.reset(min_amps);
+            }
+        } else {
+            let new_hist = GpuHistogrammer::new(self, n_periods, n_spec, n_bins, min_amps, max_chunk_size)?;
+            *lock = Some(new_hist);
+        }
+
+        Ok(lock)
     }
 
     /// Initialize the GPU context by discovering an adapter, requesting a device and queue,
@@ -245,6 +281,7 @@ impl GpuContext {
             backend_name,
             device_type,
             is_destroyed: AtomicBool::new(false),
+            cached_histogrammer: std::sync::Mutex::new(None),
         })
     }
 }
@@ -257,7 +294,7 @@ pub struct GpuHistogrammer {
     specs_buffer: wgpu::Buffer,
     amps_buffer: wgpu::Buffer,
     periods_buffer: wgpu::Buffer,
-    _min_amps_buffer: wgpu::Buffer,
+    min_amps_buffer: wgpu::Buffer,
     hist_buffer: wgpu::Buffer,
     count_buffer: wgpu::Buffer,
     staging_hist_buffer: wgpu::Buffer,
@@ -265,6 +302,7 @@ pub struct GpuHistogrammer {
     bind_group: wgpu::BindGroup,
     hist_byte_size: u64,
     allocated_chunk_size: usize,
+    n_periods: usize,
     n_spec: usize,
     n_bins: usize,
 }
@@ -341,7 +379,7 @@ impl GpuHistogrammer {
         let min_amps_buffer = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Min Amps Buffer"),
             contents: bytemuck::cast_slice(min_amps),
-            usage: wgpu::BufferUsages::STORAGE,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
         // Initialize hist and count buffers with 0
@@ -349,14 +387,14 @@ impl GpuHistogrammer {
         let hist_buffer = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Hist Buffer"),
             contents: &zero_hist,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
         });
 
         let zero_count = [0u8; 4];
         let count_buffer = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Count Buffer"),
             contents: &zero_count,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
         });
 
         let staging_hist_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
@@ -419,7 +457,7 @@ impl GpuHistogrammer {
             specs_buffer,
             amps_buffer,
             periods_buffer,
-            _min_amps_buffer: min_amps_buffer,
+            min_amps_buffer,
             hist_buffer,
             count_buffer,
             staging_hist_buffer,
@@ -427,9 +465,41 @@ impl GpuHistogrammer {
             bind_group,
             hist_byte_size,
             allocated_chunk_size: chunk_capacity,
+            n_periods,
             n_spec,
             n_bins,
         })
+    }
+
+    /// Check if the cached GPU buffers match the requested histogram shape and capacity.
+    pub fn matches(
+        &self,
+        n_periods: usize,
+        n_spec: usize,
+        n_bins: usize,
+        max_chunk_size: usize,
+    ) -> bool {
+        self.n_periods == n_periods
+            && self.n_spec == n_spec
+            && self.n_bins == n_bins
+            && self.allocated_chunk_size >= max_chunk_size
+    }
+
+    /// Reset histogram and count buffers to zero and update discrimination thresholds without reallocation.
+    pub fn reset(&self, min_amps: &[f32]) {
+        let mut encoder = self
+            .ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Histogram Reset Encoder"),
+            });
+        encoder.clear_buffer(&self.hist_buffer, 0, None);
+        encoder.clear_buffer(&self.count_buffer, 0, None);
+        self.ctx.queue.submit(Some(encoder.finish()));
+
+        self.ctx
+            .queue
+            .write_buffer(&self.min_amps_buffer, 0, bytemuck::cast_slice(min_amps));
     }
 
     /// Upload event chunk data to GPU buffers and dispatch the compute shader workgroups asynchronously.
@@ -538,7 +608,7 @@ impl GpuHistogrammer {
     /// -------
     /// Result<(Array3<i32>, usize)>
     ///     A tuple containing the 3D histogram array and the total number of valid binned events.
-    pub fn readback(self, n_periods: usize) -> Result<(Array3<i32>, usize)> {
+    pub fn readback(&self, n_periods: usize) -> Result<(Array3<i32>, usize)> {
         let mut encoder = self
             .ctx
             .device
