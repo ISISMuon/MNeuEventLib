@@ -4,6 +4,7 @@ use std::fs::File;
 
 use anyhow::{Error, Result};
 use ndarray::Array1;
+use pyo3::{pyclass, pymethods};
 use serde::{Deserialize, Serialize};
 use tabled::{builder::Builder, Table, Tabled};
 
@@ -33,12 +34,23 @@ pub struct LogFilter {
     upper: Option<f64>,
 }
 
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Filters {
     time_filter_type: FilterType,
     time_filters: Vec<Filter>,
     sample_log_filters: Vec<LogFilter>,
     amplitudes: HashMap<usize, f64>,
+}
+
+#[pymethods]
+impl Filters {
+    /// Report the filters as JSON.
+    ///
+    /// Not designed or maintained for API use. Function to be used by MNeuEventGUI.
+    pub fn _report(&self) -> Result<String> {
+        Ok(serde_json::to_string(self)?)
+    }
 }
 
 impl Filters {
