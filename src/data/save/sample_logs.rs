@@ -122,7 +122,7 @@ mod tests {
 
     fn calculated_data() -> BatchData {
         let mut data = BatchData::new(TEST_FILE.to_string(), N_SPEC, 1, 1048576).unwrap();
-        data.calculate().unwrap();
+        data.calculate(None).unwrap();
         data
     }
 
@@ -255,7 +255,7 @@ mod tests {
         // Add a time filter matching the pattern used in other tests in the repo.
         data.add_time_filter(FilterIndex::Index(0), "test_filter".to_string(), 0.0, 1.0)
             .unwrap();
-        data.calculate().unwrap();
+        data.calculate(None).unwrap();
 
         let logs = get_all_sample_logs(&data.dataset, &data.filters[0]);
         assert!(logs.is_ok());

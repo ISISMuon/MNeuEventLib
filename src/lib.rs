@@ -21,6 +21,7 @@ use interface::Data;
 mod batch_interface;
 use batch_interface::BatchData;
 mod consts;
+pub mod gpu;
 mod utils;
 
 #[cfg(test)]
@@ -32,5 +33,8 @@ fn core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NexusData>()?;
     m.add_class::<Data>()?;
     m.add_class::<BatchData>()?;
+    m.add_function(wrap_pyfunction!(gpu::is_gpu_available_py, m)?)?;
+    m.add_function(wrap_pyfunction!(gpu::get_device_info_py, m)?)?;
+    m.add_function(wrap_pyfunction!(gpu::cleanup_gpu_py, m)?)?;
     Ok(())
 }

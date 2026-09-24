@@ -1,6 +1,7 @@
 use crate::data::save::sanitise::nexus_data::{get_period_info, save_default};
 use crate::data::{NexusData, SaveFile, WiMDAFile};
 use crate::filters::Filters;
+use crate::gpu::DevicePreference;
 use crate::stats::Histogram;
 use anyhow::{Error, Result};
 use numpy::{PyArray3, ToPyArray};
@@ -58,6 +59,7 @@ pub struct BatchData {
     pub results: Vec<Histogram>,
     pub filters: Vec<Filters>,
     data_changed: Vec<bool>, // whether data has changed since last calculation, per filter set
+    pub device: DevicePreference,
 }
 
 #[pymethods]
@@ -93,25 +95,59 @@ impl BatchData {
                 .collect(),
             filters: (0..n_filter_sets).map(|_| Filters::new()).collect(),
             data_changed: vec![true; n_filter_sets],
+            device: DevicePreference::Auto,
         })
     }
 
     /// Calculate the histograms for the current data and each filter set.
+    ///
+    /// Parameters
+    /// ----------
+    /// device: str | None
+    ///     Device to run on: 'auto' (default), 'cpu', or 'gpu'.
+    ///     If None, uses the device set on the BatchData instance (defaults to 'auto').
     ///
     /// Returns
     /// -------
     /// BatchData
     ///     This object, with `results[i]` holding the histogram calculated
     ///     from `dataset` and `filters[i]`, for each `i`.
-    pub fn calculate(&mut self) -> Result<BatchData> {
+    #[pyo3(signature = (device=None))]
+    pub fn calculate(&mut self, device: Option<&str>) -> Result<BatchData> {
+        let dev = match device {
+            Some(d) => DevicePreference::from_str(d)?,
+            None => self.device,
+        };
         for i in 0..self.n_batches() {
             if self.data_changed[i] {
-                let result = self.results[i].calculate(&self.dataset, &self.filters[i])?;
+                let result =
+                    self.results[i].calculate_with_device(&self.dataset, &self.filters[i], dev)?;
                 self.data_changed[i] = false;
                 self.results[i] = result;
             }
         }
         Ok(self.clone())
+    }
+
+    /// Set the device preference for histogram calculations.
+    ///
+    /// Parameters
+    /// ----------
+    /// device: str
+    ///     The device to use: 'auto', 'cpu', or 'gpu'.
+    pub fn set_device(&mut self, device: &str) -> Result<()> {
+        self.device = DevicePreference::from_str(device)?;
+        Ok(())
+    }
+
+    /// Get the current device preference.
+    ///
+    /// Returns
+    /// -------
+    /// str
+    ///     The currently configured device preference ('auto', 'cpu', or 'gpu').
+    pub fn get_device(&self) -> String {
+        self.device.as_str().to_string()
     }
 
     /// Force histograms to be recalculated even if the data hasn't changed.
@@ -546,6 +582,7 @@ mod tests {
                 .collect(),
             filters: (0..n_filter_sets).map(|_| Filters::new()).collect(),
             data_changed: vec![true; n_filter_sets],
+            device: DevicePreference::Auto,
         }
     }
 
@@ -835,6 +872,36 @@ mod tests {
 
         for filters in &batch.filters {
             assert!(!filters.is_include());
+        }
+    }
+
+    #[test]
+    fn test_batch_device_settings() {
+        let mut batch = make_batch(2);
+        assert_eq!(batch.get_device(), "auto");
+
+        batch.set_device("cpu").unwrap();
+        assert_eq!(batch.get_device(), "cpu");
+
+        batch.set_device("gpu").unwrap();
+        assert_eq!(batch.get_device(), "gpu");
+
+        assert!(batch.set_device("hybrid").is_err());
+        assert!(batch.set_device("invalid").is_err());
+    }
+
+    #[test]
+    fn test_batch_calculate_with_device() {
+        let _guard = crate::test_utils::lock_hdf5_test();
+        const TEST_FILE: &str = "./tests/test_data/HIFI00195790.nxs";
+        let mut batch = BatchData::new(TEST_FILE.to_string(), 64, 1, 1048576).unwrap();
+        batch.calculate(Some("cpu")).unwrap();
+        assert_eq!(batch.results[0].n, 64147);
+
+        if crate::gpu::GpuContext::get().is_some() {
+            batch.invalidate_cache();
+            batch.calculate(Some("gpu")).unwrap();
+            assert_eq!(batch.results[0].n, 64147);
         }
     }
 }

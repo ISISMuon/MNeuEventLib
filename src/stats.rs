@@ -8,6 +8,7 @@ use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIter
 use crate::consts::ToMicroseconds;
 use crate::data::{FrameData, NexusData};
 use crate::filters::{get_weights, Filters, Weights};
+use crate::gpu::{DevicePreference, GpuContext};
 
 #[derive(Clone)]
 pub struct Histogram {
@@ -38,7 +39,19 @@ impl Histogram {
         }
     }
 
+    /// Calculate histograms using the default device preference (`DevicePreference::Auto`).
     pub fn calculate(&self, data: &NexusData, filters: &Filters) -> Result<Histogram> {
+        self.calculate_with_device(data, filters, DevicePreference::Auto)
+    }
+
+    /// Calculate histograms using a specific device preference (`Auto`, `Cpu`, `Gpu`, or `Hybrid`).
+    /// Calculate histograms using a specific device preference (`Auto`, `Cpu`, or `Gpu`).
+    pub fn calculate_with_device(
+        &self,
+        data: &NexusData,
+        filters: &Filters,
+        device: DevicePreference,
+    ) -> Result<Histogram> {
         // get period data
         let periods: Array1<u32> = data.periods.read_1d()?;
         let n_periods = (periods.iter().max().unwrap() + 1) as usize;
@@ -103,6 +116,7 @@ impl Histogram {
             min_amps,
             &weights,
             frame_data,
+            device,
         );
         histogram.n_frames = n_frames.clone();
         histogram.n_good_frames = n_frames;
@@ -152,7 +166,7 @@ pub fn get_experiment_times(weights: Weights, frame_start_times: Array1<usize>) 
     )
 }
 
-/// Calculate histograms and output the result.
+/// Calculate histograms from event datasets according to the requested device preference.
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 pub fn calculate_histograms(
@@ -165,91 +179,292 @@ pub fn calculate_histograms(
     min_amps: Array1<f64>,
     weights: &Weights,
     frame_data: FrameData,
+    device: DevicePreference,
+) -> Histogram {
+    let effective_device = match device {
+        DevicePreference::Auto => {
+            if GpuContext::get().is_some() {
+                DevicePreference::Gpu
+            } else {
+                DevicePreference::Cpu
+            }
+        }
+        other => other,
+    };
+
+    match effective_device {
+        DevicePreference::Cpu => calculate_histograms_cpu(
+            dataset,
+            min_time,
+            max_time,
+            n_bins,
+            n_periods,
+            &periods,
+            &min_amps,
+            weights,
+            &frame_data,
+        ),
+        DevicePreference::Gpu => {
+            if let Some(ctx) = GpuContext::get() {
+                match calculate_histograms_gpu(
+                    dataset,
+                    min_time,
+                    max_time,
+                    n_bins,
+                    n_periods,
+                    &periods,
+                    &min_amps,
+                    weights,
+                    &frame_data,
+                    ctx,
+                ) {
+                    Ok(hist) => hist,
+                    Err(err) => {
+                        eprintln!("GPU calculation failed ({err:?}), falling back to CPU");
+                        calculate_histograms_cpu(
+                            dataset,
+                            min_time,
+                            max_time,
+                            n_bins,
+                            n_periods,
+                            &periods,
+                            &min_amps,
+                            weights,
+                            &frame_data,
+                        )
+                    }
+                }
+            } else {
+                calculate_histograms_cpu(
+                    dataset,
+                    min_time,
+                    max_time,
+                    n_bins,
+                    n_periods,
+                    &periods,
+                    &min_amps,
+                    weights,
+                    &frame_data,
+                )
+            }
+        }
+        DevicePreference::Auto => unreachable!(),
+    }
+}
+
+/// Calculate histograms on CPU using Rayon multi-threading.
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+fn calculate_histograms_cpu(
+    dataset: &NexusData,
+    min_time: u32,
+    max_time: u32,
+    n_bins: usize,
+    n_periods: usize,
+    periods: &Array1<u32>,
+    min_amps: &Array1<f64>,
+    weights: &Weights,
+    frame_data: &FrameData,
 ) -> Histogram {
     let width: f32 = (max_time - min_time) as f32 / n_bins as f32;
+    let inv_width: f32 = 1.0 / width;
 
-    // iterate over the data chunks, make histograms for each, then sum histograms at the end
     (0..dataset.n_events)
         .into_par_iter()
         .step_by(dataset.chunk_size)
-        .map(|start| {
-            let end = min(start + (dataset.chunk_size), dataset.n_events);
-            let array_slice = s![start..end];
-            let amps: Array1<f64> = dataset
-                .amps
-                .read_slice_1d(array_slice)
-                .expect("failed to read amplitudes.");
-            let times: Array1<u32> = dataset
-                .times
-                .read_slice_1d(array_slice)
-                .expect("Failed to read times.");
-            let specs: Array1<u32> = dataset
-                .specs
-                .read_slice_1d(array_slice)
-                .expect("Failed to read specs.");
-            make_histogram(
-                times,
-                specs,
-                amps,
-                dataset.n_spec,
-                &periods,
-                n_periods,
-                &min_amps,
-                weights,
-                frame_data.slice(start, end),
-                min_time,
-                max_time,
-                n_bins,
-                width,
-            )
-        })
-        // accumulate all chunk histograms together
+        .fold(
+            || {
+                let mut acc = Histogram::new(min_time, max_time, n_bins);
+                acc.hist = Array3::zeros((n_periods, dataset.n_spec, n_bins));
+                acc
+            },
+            |mut acc, start| {
+                let end = min(start + dataset.chunk_size, dataset.n_events);
+                let array_slice = s![start..end];
+                let amps: Array1<f64> = dataset
+                    .amps
+                    .read_slice_1d(array_slice)
+                    .expect("failed to read amplitudes.");
+                let times: Array1<u32> = dataset
+                    .times
+                    .read_slice_1d(array_slice)
+                    .expect("Failed to read times.");
+                let specs: Array1<u32> = dataset
+                    .specs
+                    .read_slice_1d(array_slice)
+                    .expect("Failed to read specs.");
+                make_histogram(
+                    &mut acc,
+                    times,
+                    specs,
+                    amps,
+                    periods,
+                    n_periods,
+                    min_amps,
+                    weights,
+                    frame_data.slice(start, end),
+                    min_time,
+                    max_time,
+                    inv_width,
+                );
+                acc
+            },
+        )
         .reduce(
             || {
-                // rayon's reduce requires to initialise an identity value...
                 let mut empty_hist = Histogram::new(min_time, max_time, n_bins);
                 empty_hist.hist = Array3::zeros((n_periods, dataset.n_spec, n_bins));
                 empty_hist
             },
             |mut acc, r| {
                 acc.hist += &r.hist;
-                acc.n += &r.n;
+                acc.n += r.n;
                 acc
             },
         )
 }
 
-/// Make a histogram for a set of data.
-#[inline(always)]
+/// Calculate histograms on GPU with pipelined HDF5 chunk reads.
 #[allow(clippy::too_many_arguments)]
-fn make_histogram(
-    times: Array1<u32>,
-    specs: Array1<u32>,
-    amps: Array1<f64>,
-    n_spec: usize,
-    periods: &Array1<u32>,
-    n_periods: usize,
-    min_amps: &Array1<f64>,
-    weights: &Weights,
-    frame_data: FrameData,
+fn calculate_histograms_gpu(
+    dataset: &NexusData,
     min_time: u32,
     max_time: u32,
     n_bins: usize,
-    width: f32,
-) -> Histogram {
+    n_periods: usize,
+    periods: &Array1<u32>,
+    min_amps: &Array1<f64>,
+    weights: &Weights,
+    frame_data: &FrameData,
+    ctx: &'static GpuContext,
+) -> Result<Histogram> {
+    let width: f32 = (max_time - min_time) as f32 / n_bins as f32;
+    let inv_width: f32 = 1.0 / width;
+    let min_amps_f32: Vec<f32> = min_amps.iter().map(|&a| a as f32).collect();
+
+    let gpu_guard = ctx.acquire_histogrammer(
+        n_periods,
+        dataset.n_spec,
+        n_bins,
+        &min_amps_f32,
+        dataset.chunk_size,
+    )?;
+    let gpu_hist = gpu_guard.as_ref().unwrap();
+
+    struct PreparedGpuChunk {
+        times: Array1<u32>,
+        specs: Array1<u32>,
+        amps: Array1<f32>,
+        periods: Vec<u32>,
+    }
+
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Result<PreparedGpuChunk>>(2);
+
+    std::thread::scope(|s| -> Result<()> {
+        let producer = s.spawn(move || -> Result<()> {
+            for start in (0..dataset.n_events).step_by(dataset.chunk_size) {
+                let end = min(start + dataset.chunk_size, dataset.n_events);
+                let array_slice = s![start..end];
+                let amps: Array1<f32> = dataset.amps.read_slice_1d(array_slice)?;
+                let times: Array1<u32> = dataset.times.read_slice_1d(array_slice)?;
+                let specs: Array1<u32> = dataset.specs.read_slice_1d(array_slice)?;
+
+                let chunk_frame_data = frame_data.slice(start, end);
+                let chunk_len = chunk_frame_data.array_len;
+                let mut event_periods = vec![u32::MAX; chunk_len];
+
+                if let Some(&last_frame) = chunk_frame_data.frame_number.last() {
+                    for (i, &frame) in chunk_frame_data.frame_number.iter().enumerate() {
+                        if !weights[frame] {
+                            continue;
+                        }
+                        let frame_start = chunk_frame_data.start_index[i];
+                        let frame_end = if frame == last_frame {
+                            chunk_frame_data.array_len
+                        } else {
+                            chunk_frame_data.start_index[i + 1]
+                        };
+                        let p = periods[frame];
+                        event_periods[frame_start..frame_end].fill(p);
+                    }
+                }
+
+                if tx
+                    .send(Ok(PreparedGpuChunk {
+                        times,
+                        specs,
+                        amps,
+                        periods: event_periods,
+                    }))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            Ok(())
+        });
+
+        for chunk_res in rx {
+            let chunk = chunk_res?;
+            gpu_hist.dispatch_chunk(
+                min_time,
+                max_time,
+                inv_width,
+                chunk.times.as_slice().unwrap(),
+                chunk.specs.as_slice().unwrap(),
+                chunk.amps.as_slice().unwrap(),
+                &chunk.periods,
+            )?;
+        }
+
+        producer.join().unwrap()
+    })?;
+
+    let (hist, n) = gpu_hist.readback(n_periods)?;
     let mut result = Histogram::new(min_time, max_time, n_bins);
-    result.hist = Array3::zeros((n_periods, n_spec, n_bins));
+    result.hist = hist;
+    result.n = n;
+    Ok(result)
+}
 
-    let last_frame = frame_data.frame_number.last().unwrap();
+/// Accumulate events from contiguous slices of chunk arrays into a histogram on CPU.
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+fn bin_events_slice<T: Copy + PartialOrd>(
+    result: &mut Histogram,
+    times: &[u32],
+    specs: &[u32],
+    amps: &[T],
+    periods: &Array1<u32>,
+    min_amps: &[T],
+    weights: &Weights,
+    frame_data: &FrameData,
+    min_time: u32,
+    max_time: u32,
+    inv_width: f32,
+) {
+    if frame_data.frame_number.is_empty() {
+        return;
+    }
+    let last_frame = *frame_data.frame_number.last().unwrap();
+    let shape = result.hist.shape();
+    let n_spec = shape[1];
+    let n_bins = shape[2];
+    let period_stride = n_spec * n_bins;
+    let spec_stride = n_bins;
 
-    // iterate over the frames in the slice
-    for (i, frame) in frame_data.frame_number.iter().enumerate() {
-        // if the weight for this frame is 0, skip the frame
-        if !weights[*frame] {
+    let hist_slice = match result.hist.as_slice_mut() {
+        Some(s) => s,
+        None => return,
+    };
+
+    let mut total_n = 0usize;
+
+    for (i, &frame) in frame_data.frame_number.iter().enumerate() {
+        if !weights[frame] {
             continue;
         }
 
-        // get event indices of this frame in the slice
         let frame_start_event = frame_data.start_index[i];
         let frame_end_event = if frame == last_frame {
             frame_data.array_len
@@ -257,7 +472,8 @@ fn make_histogram(
             frame_data.start_index[i + 1]
         };
 
-        let period = periods[*frame] as usize;
+        let period = periods[frame] as usize;
+        let frame_base = period * period_stride;
 
         for k in frame_start_event..frame_end_event {
             let t = times[k];
@@ -265,18 +481,89 @@ fn make_histogram(
             let spec = specs[k] as usize;
 
             if (t >= min_time) && (t < max_time) && amp > min_amps[spec] {
-                let bin = ((t - min_time) as f32 / width).floor() as usize;
-                result.hist[[period, spec, bin]] += 1;
-                result.n += 1
+                let bin = ((t - min_time) as f32 * inv_width) as usize;
+                let idx = frame_base + spec * spec_stride + bin;
+                hist_slice[idx] += 1;
+                total_n += 1;
             }
         }
     }
-    result
+
+    result.n += total_n;
+}
+
+/// Bin a set of data directly into the given accumulating histogram.
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+fn make_histogram(
+    result: &mut Histogram,
+    times: Array1<u32>,
+    specs: Array1<u32>,
+    amps: Array1<f64>,
+    periods: &Array1<u32>,
+    n_periods: usize,
+    min_amps: &Array1<f64>,
+    weights: &Weights,
+    frame_data: FrameData,
+    min_time: u32,
+    max_time: u32,
+    inv_width: f32,
+) {
+    let _ = n_periods;
+    bin_events_slice(
+        result,
+        times.as_slice().unwrap(),
+        specs.as_slice().unwrap(),
+        amps.as_slice().unwrap(),
+        periods,
+        min_amps.as_slice().unwrap(),
+        weights,
+        &frame_data,
+        min_time,
+        max_time,
+        inv_width,
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Test helper: allocate a histogram, bin the data into it, and return it.
+    #[allow(clippy::too_many_arguments)]
+    fn build_histogram(
+        times: Array1<u32>,
+        specs: Array1<u32>,
+        amps: Array1<f64>,
+        n_spec: usize,
+        periods: &Array1<u32>,
+        n_periods: usize,
+        min_amps: &Array1<f64>,
+        weights: &Weights,
+        frame_data: FrameData,
+        min_time: u32,
+        max_time: u32,
+        n_bins: usize,
+        inv_width: f32,
+    ) -> Histogram {
+        let mut result = Histogram::new(min_time, max_time, n_bins);
+        result.hist = Array3::zeros((n_periods, n_spec, n_bins));
+        make_histogram(
+            &mut result,
+            times,
+            specs,
+            amps,
+            periods,
+            n_periods,
+            min_amps,
+            weights,
+            frame_data,
+            min_time,
+            max_time,
+            inv_width,
+        );
+        result
+    }
 
     /// Test Histogram::new creates correct empty histogram.
     #[test]
@@ -299,7 +586,7 @@ mod tests {
         let min_amps = Array1::zeros(6);
         let weights = Weights::ones(6);
 
-        let result = make_histogram(
+        let result = build_histogram(
             times,
             specs,
             amps,
@@ -312,7 +599,7 @@ mod tests {
             0,
             3000,
             3,
-            1000.,
+            0.001,
         );
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![1, 1, 2, 1, 0, 1]).unwrap();
@@ -332,7 +619,7 @@ mod tests {
         // weight bytes are filtering out values 0, 3, 4
         let weights = Weights::from_raw(vec![0b100110]);
 
-        let result = make_histogram(
+        let result = build_histogram(
             times,
             specs,
             amps,
@@ -345,7 +632,7 @@ mod tests {
             0,
             3000,
             3,
-            1000.,
+            0.001,
         );
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![0, 1, 0, 1, 0, 1]).unwrap();
@@ -364,7 +651,7 @@ mod tests {
         let min_amps = Array1::zeros(6);
         let weights = Weights::ones(6);
 
-        let result = make_histogram(
+        let result = build_histogram(
             times,
             specs,
             amps,
@@ -377,7 +664,7 @@ mod tests {
             0,
             3000,
             3,
-            1000.,
+            0.001,
         );
 
         // bins are 0-1000, 1000-2000, 2000-3000
@@ -408,7 +695,7 @@ mod tests {
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
-        let result = make_histogram(
+        let result = build_histogram(
             times,
             specs,
             amps,
@@ -421,7 +708,7 @@ mod tests {
             1000,
             3000,
             2,
-            1000.,
+            0.001,
         );
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 2), vec![1, 0, 1, 1]).unwrap();
@@ -440,7 +727,7 @@ mod tests {
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
-        let result = make_histogram(
+        let result = build_histogram(
             times,
             specs,
             amps,
@@ -453,7 +740,7 @@ mod tests {
             0,
             2000,
             2,
-            1000.,
+            0.001,
         );
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 2), vec![1, 1, 0, 1]).unwrap();
@@ -472,7 +759,7 @@ mod tests {
         let min_amps = Array1::from_vec(vec![0.5, 1.5]);
         let weights = Weights::ones(6);
 
-        let result = make_histogram(
+        let result = build_histogram(
             times,
             specs,
             amps,
@@ -485,7 +772,7 @@ mod tests {
             0,
             3000,
             3,
-            1000.,
+            0.001,
         );
 
         let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![1, 1, 1, 0, 0, 1]).unwrap();
@@ -589,5 +876,51 @@ mod tests {
         let repr = hist.__repr__();
 
         assert!(repr.contains("2 periods"));
+    }
+
+    #[test]
+    fn test_device_preference_parse() {
+        assert_eq!(
+            DevicePreference::from_str("auto").unwrap(),
+            DevicePreference::Auto
+        );
+        assert_eq!(
+            DevicePreference::from_str("CPU").unwrap(),
+            DevicePreference::Cpu
+        );
+        assert_eq!(
+            DevicePreference::from_str("gpu").unwrap(),
+            DevicePreference::Gpu
+        );
+        assert!(DevicePreference::from_str("Hybrid").is_err());
+        assert!(DevicePreference::from_str("invalid").is_err());
+    }
+
+    #[test]
+    fn test_calculate_device_parity() {
+        let _guard = crate::test_utils::lock_hdf5_test();
+        const TEST_FILE: &str = "./tests/test_data/HIFI00195790.nxs";
+        let dataset = NexusData::new(TEST_FILE.to_string(), 64, 1048576).unwrap();
+        let filters = Filters::new();
+        let base_hist = Histogram::new(0, 32768, 2048);
+
+        let cpu_hist = base_hist
+            .calculate_with_device(&dataset, &filters, DevicePreference::Cpu)
+            .unwrap();
+        assert!(cpu_hist.n > 0);
+
+        if GpuContext::get().is_some() {
+            let gpu_hist = base_hist
+                .calculate_with_device(&dataset, &filters, DevicePreference::Gpu)
+                .unwrap();
+            assert_eq!(
+                cpu_hist.n, gpu_hist.n,
+                "Event counts must match between CPU and GPU"
+            );
+            assert_eq!(
+                cpu_hist.hist, gpu_hist.hist,
+                "Histogram arrays must match between CPU and GPU"
+            );
+        }
     }
 }

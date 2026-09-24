@@ -251,7 +251,7 @@ mod tests {
 
     fn calculated_data() -> BatchData {
         let mut data = BatchData::new(TEST_FILE.to_string(), 64, 1, 1048576).unwrap();
-        data.calculate().unwrap();
+        data.calculate(None).unwrap();
         data
     }
 

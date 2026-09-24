@@ -18,7 +18,16 @@ pub struct Data {
 
 #[pymethods]
 impl Data {
-    /// Create a new Data object.
+    /// Create a new Data object to load and process muon event data.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename of the muon nexus v2 file to open.
+    /// n_spec: int
+    ///     The number of detector spectra in the experiment.
+    /// chunk_size: int
+    ///     The chunk size to use when reading the dataset (defaults to 1,048,576).
     #[new]
     #[pyo3(signature = (filename, n_spec, chunk_size=1048576))]
     pub fn new(filename: String, n_spec: usize, chunk_size: usize) -> Result<Self> {
@@ -33,15 +42,45 @@ impl Data {
     }
 
     /// Calculate the histogram for the current data and filters.
+    /// This processes the event dataset using the requested compute device,
+    /// updating the cached histogram results.
+    ///
+    /// Parameters
+    /// ----------
+    /// device: str | None
+    ///     Device to run on: 'auto' (default), 'cpu', or 'gpu'.
+    ///     If None, uses the device set on the Data instance (defaults to 'auto').
     ///
     /// Returns
     /// -------
-    /// Histogram
-    ///     A Histogram object containing the resulting histogram
+    /// Data
+    ///     A Data object containing the resulting histogram
     ///     and number of events.
-    pub fn calculate(&mut self) -> Result<Data> {
-        self.inner.calculate()?;
+    #[pyo3(signature = (device=None))]
+    pub fn calculate(&mut self, device: Option<&str>) -> Result<Data> {
+        self.inner.calculate(device)?;
         Ok(self.clone())
+    }
+
+    /// Set the device preference for histogram calculations.
+    /// This controls whether calculations run on the CPU or GPU.
+    ///
+    /// Parameters
+    /// ----------
+    /// device: str
+    ///     The device to use. Must be one of 'auto', 'cpu', or 'gpu'.
+    pub fn set_device(&mut self, device: &str) -> Result<()> {
+        self.inner.set_device(device)
+    }
+
+    /// Get the current device preference.
+    ///
+    /// Returns
+    /// -------
+    /// str
+    ///     The currently configured device preference ('auto', 'cpu', or 'gpu').
+    pub fn get_device(&self) -> String {
+        self.inner.get_device()
     }
 
     /// Force histograms to be recalculated even if the data hasn't changed.
@@ -230,5 +269,43 @@ impl Data {
             self.inner.filters[0].__repr__(),
             self.inner.results[0].__repr__()
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_data_device_settings() {
+        let _guard = crate::test_utils::lock_hdf5_test();
+        const TEST_FILE: &str = "./tests/test_data/HIFI00195790.nxs";
+        let mut data = Data::new(TEST_FILE.to_string(), 64, 1048576).unwrap();
+        assert_eq!(data.get_device(), "auto");
+
+        data.set_device("cpu").unwrap();
+        assert_eq!(data.get_device(), "cpu");
+
+        data.set_device("gpu").unwrap();
+        assert_eq!(data.get_device(), "gpu");
+
+        assert!(data.set_device("hybrid").is_err());
+        assert!(data.set_device("invalid").is_err());
+    }
+
+    #[test]
+    fn test_data_calculate_with_device() {
+        let _guard = crate::test_utils::lock_hdf5_test();
+        const TEST_FILE: &str = "./tests/test_data/HIFI00195790.nxs";
+        let mut data = Data::new(TEST_FILE.to_string(), 64, 1048576).unwrap();
+
+        data.calculate(Some("cpu")).unwrap();
+        assert_eq!(data.get_n_events(), 64147);
+
+        if crate::gpu::GpuContext::get().is_some() {
+            data.invalidate_cache();
+            data.calculate(Some("gpu")).unwrap();
+            assert_eq!(data.get_n_events(), 64147);
+        }
     }
 }

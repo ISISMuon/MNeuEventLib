@@ -1,10 +1,11 @@
 import time
-
+import numpy as np
+import MNeuEventLib as mel
 from MNeuEventLib import Data
 
-files = [f"SIM0000000{n}.nxs" for n in range(1,4)]
+files = ["tools/HIFI00207745_events.nxs"]
 
-stats = 1
+stats = 10
 n_filters = 2
 n_spec = 960
 
@@ -36,24 +37,74 @@ def add_N_filters(data, N):
         else:
             skip = False
 
+print("=== MNeuEventLib Performance Benchmark ===")
+gpu_avail = mel.is_gpu_available()
+print(f"GPU Available: {gpu_avail}")
+if gpu_avail:
+    dev_info = mel.get_device_info()
+    print(f"GPU Device Info: {dev_info}")
 
 for file in files:
-    print("\nFile: ", file)
+    print(f"\nBenchmark File: {file}")
 
-    data = Data(file, 960)
+    data = Data(file, n_spec)
     data.set_time_type("exclude")
     add_N_filters(data, n_filters)
 
-    avg_run_time = 0
-    for _ in range(0, stats):
+    # 1. Parity Check
+    print("\n--- Verifying Numerical Parity ---")
+    data.invalidate_cache()
+    res_cpu = data.calculate("cpu")
+    hist_cpu = res_cpu.get_histogram()
+    n_cpu = res_cpu.get_n_events()
+
+    if gpu_avail:
         data.invalidate_cache()
-        start_time = time.time()
-        result = data.calculate()
-        n = result.get_n_events()
-        duration = time.time() - start_time
-        avg_run_time += duration
-    avg_run_time /= stats
-    print("  Average run time: ", avg_run_time * 1e3, " ms",
-          "\n  Number of events:", n,
-          "\n  Millions of events per second:", (n / avg_run_time) * 1e-6)
+        res_gpu = data.calculate("gpu")
+        hist_gpu = res_gpu.get_histogram()
+        n_gpu = res_gpu.get_n_events()
+
+        assert n_cpu == n_gpu, f"GPU event count mismatch: {n_cpu} vs {n_gpu}"
+        np.testing.assert_array_equal(hist_cpu, hist_gpu, err_msg="GPU histogram mismatch with CPU!")
+        print("PASS: CPU and GPU produced IDENTICAL histograms and event counts!")
+    else:
+        print("GPU not available on this system; skipping GPU parity check.")
+
+    # 2. Benchmark modes
+    modes = ["cpu"]
+    if gpu_avail:
+        modes.extend(["gpu", "auto"])
+
+    print(f"\n--- Running Benchmarks ({stats} iterations each) ---")
+    results = {}
+    for mode in modes:
+        # Warmup
+        data.invalidate_cache()
+        data.calculate(mode)
+
+        total_time = 0.0
+        for _ in range(stats):
+            data.invalidate_cache()
+            t0 = time.perf_counter()
+            res = data.calculate(mode)
+            total_time += time.perf_counter() - t0
+
+        avg_ms = (total_time / stats) * 1000.0
+        n_ev = res.get_n_events()
+        m_ev_per_sec = (n_ev / (total_time / stats)) * 1e-6
+        results[mode] = (avg_ms, m_ev_per_sec)
+
+        print(f"  [{mode:>6}]: {avg_ms:7.2f} ms | {m_ev_per_sec:6.2f} M events/s ({n_ev:,} events)")
+
+    cpu_ms = results["cpu"][0]
+    print("\n--- Summary & Relative Speedup vs CPU ---")
+    for mode, (ms, m_ev) in results.items():
+        speedup = cpu_ms / ms
+        print(f"  {mode:>6}: {speedup:5.2f}x ({ms:.2f} ms)")
+
+if hasattr(mel, "cleanup_gpu"):
+    mel.cleanup_gpu()
+
+import os
+os._exit(0)
 
