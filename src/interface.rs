@@ -48,7 +48,7 @@ impl Data {
     /// Parameters
     /// ----------
     /// device: str | None
-    ///     Device to run on: 'auto' (default), 'cpu', 'gpu', or 'hybrid'.
+    ///     Device to run on: 'auto' (default), 'cpu', or 'gpu'.
     ///     If None, uses the device set on the Data instance (defaults to 'auto').
     ///
     /// Returns
@@ -63,13 +63,12 @@ impl Data {
     }
 
     /// Set the device preference for histogram calculations.
-    /// This controls whether calculations run on the CPU, GPU, or concurrently
-    /// across both using hybrid co-processing.
+    /// This controls whether calculations run on the CPU or GPU.
     ///
     /// Parameters
     /// ----------
     /// device: str
-    ///     The device to use. Must be one of 'auto', 'cpu', 'gpu', or 'hybrid'.
+    ///     The device to use. Must be one of 'auto', 'cpu', or 'gpu'.
     pub fn set_device(&mut self, device: &str) -> Result<()> {
         self.inner.set_device(device)
     }
@@ -79,7 +78,7 @@ impl Data {
     /// Returns
     /// -------
     /// str
-    ///     The currently configured device preference ('auto', 'cpu', 'gpu', or 'hybrid').
+    ///     The currently configured device preference ('auto', 'cpu', or 'gpu').
     pub fn get_device(&self) -> String {
         self.inner.get_device()
     }
@@ -290,9 +289,7 @@ mod tests {
         data.set_device("gpu").unwrap();
         assert_eq!(data.get_device(), "gpu");
 
-        data.set_device("hybrid").unwrap();
-        assert_eq!(data.get_device(), "hybrid");
-
+        assert!(data.set_device("hybrid").is_err());
         assert!(data.set_device("invalid").is_err());
     }
 
@@ -308,10 +305,6 @@ mod tests {
         if crate::gpu::GpuContext::get().is_some() {
             data.invalidate_cache();
             data.calculate(Some("gpu")).unwrap();
-            assert_eq!(data.get_n_events(), 64147);
-
-            data.invalidate_cache();
-            data.calculate(Some("hybrid")).unwrap();
             assert_eq!(data.get_n_events(), 64147);
         }
     }

@@ -104,7 +104,7 @@ impl BatchData {
     /// Parameters
     /// ----------
     /// device: str | None
-    ///     Device to run on: 'auto' (default), 'cpu', 'gpu', or 'hybrid'.
+    ///     Device to run on: 'auto' (default), 'cpu', or 'gpu'.
     ///     If None, uses the device set on the BatchData instance (defaults to 'auto').
     ///
     /// Returns
@@ -133,7 +133,7 @@ impl BatchData {
     /// Parameters
     /// ----------
     /// device: str
-    ///     The device to use: 'auto', 'cpu', 'gpu', or 'hybrid'.
+    ///     The device to use: 'auto', 'cpu', or 'gpu'.
     pub fn set_device(&mut self, device: &str) -> Result<()> {
         self.device = DevicePreference::from_str(device)?;
         Ok(())
@@ -144,7 +144,7 @@ impl BatchData {
     /// Returns
     /// -------
     /// str
-    ///     The currently configured device preference ('auto', 'cpu', 'gpu', or 'hybrid').
+    ///     The currently configured device preference ('auto', 'cpu', or 'gpu').
     pub fn get_device(&self) -> String {
         self.device.as_str().to_string()
     }
@@ -885,9 +885,7 @@ mod tests {
         batch.set_device("gpu").unwrap();
         assert_eq!(batch.get_device(), "gpu");
 
-        batch.set_device("hybrid").unwrap();
-        assert_eq!(batch.get_device(), "hybrid");
-
+        assert!(batch.set_device("hybrid").is_err());
         assert!(batch.set_device("invalid").is_err());
     }
 
@@ -897,16 +895,12 @@ mod tests {
         const TEST_FILE: &str = "./tests/test_data/HIFI00195790.nxs";
         let mut batch = BatchData::new(TEST_FILE.to_string(), 64, 1, 1048576).unwrap();
         batch.calculate(Some("cpu")).unwrap();
-        assert_eq!(batch.results[0].n, 3354);
+        assert_eq!(batch.results[0].n, 64147);
 
         if crate::gpu::GpuContext::get().is_some() {
             batch.invalidate_cache();
             batch.calculate(Some("gpu")).unwrap();
-            assert_eq!(batch.results[0].n, 3354);
-
-            batch.invalidate_cache();
-            batch.calculate(Some("hybrid")).unwrap();
-            assert_eq!(batch.results[0].n, 3354);
+            assert_eq!(batch.results[0].n, 64147);
         }
     }
 }

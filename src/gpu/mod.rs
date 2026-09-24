@@ -17,8 +17,6 @@ pub enum DevicePreference {
     Cpu,
     /// GPU execution using wgpu compute shaders.
     Gpu,
-    /// Concurrent hybrid execution splitting chunks across CPU and GPU.
-    Hybrid,
 }
 
 impl DevicePreference {
@@ -27,7 +25,7 @@ impl DevicePreference {
     /// Parameters
     /// ----------
     /// s: &str
-    ///     The string representation of the target device ('auto', 'cpu', 'gpu', or 'hybrid').
+    ///     The string representation of the target device ('auto', 'cpu', or 'gpu').
     ///
     /// Returns
     /// -------
@@ -38,8 +36,7 @@ impl DevicePreference {
             "auto" => Ok(DevicePreference::Auto),
             "cpu" => Ok(DevicePreference::Cpu),
             "gpu" => Ok(DevicePreference::Gpu),
-            "hybrid" => Ok(DevicePreference::Hybrid),
-            other => bail!("Unknown device '{other}'. Expected 'auto', 'cpu', 'gpu', or 'hybrid'."),
+            other => bail!("Unknown device '{other}'. Expected 'auto', 'cpu', or 'gpu'."),
         }
     }
 
@@ -48,13 +45,12 @@ impl DevicePreference {
     /// Returns
     /// -------
     /// &'static str
-    ///     The string representation ('auto', 'cpu', 'gpu', or 'hybrid').
+    ///     The string representation ('auto', 'cpu', or 'gpu').
     pub fn as_str(&self) -> &'static str {
         match self {
             DevicePreference::Auto => "auto",
             DevicePreference::Cpu => "cpu",
             DevicePreference::Gpu => "gpu",
-            DevicePreference::Hybrid => "hybrid",
         }
     }
 }
@@ -149,12 +145,10 @@ mod tests {
         assert_eq!(DevicePreference::from_str("auto").unwrap(), DevicePreference::Auto);
         assert_eq!(DevicePreference::from_str("CPU").unwrap(), DevicePreference::Cpu);
         assert_eq!(DevicePreference::from_str("  gpu  ").unwrap(), DevicePreference::Gpu);
-        assert_eq!(DevicePreference::from_str("Hybrid").unwrap(), DevicePreference::Hybrid);
 
         assert_eq!(DevicePreference::Auto.as_str(), "auto");
         assert_eq!(DevicePreference::Cpu.as_str(), "cpu");
         assert_eq!(DevicePreference::Gpu.as_str(), "gpu");
-        assert_eq!(DevicePreference::Hybrid.as_str(), "hybrid");
     }
 
     #[test]

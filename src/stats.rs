@@ -45,6 +45,7 @@ impl Histogram {
     }
 
     /// Calculate histograms using a specific device preference (`Auto`, `Cpu`, `Gpu`, or `Hybrid`).
+    /// Calculate histograms using a specific device preference (`Auto`, `Cpu`, or `Gpu`).
     pub fn calculate_with_device(
         &self,
         data: &NexusData,
@@ -203,25 +204,6 @@ pub fn calculate_histograms(
                     Ok(hist) => hist,
                     Err(err) => {
                         eprintln!("GPU calculation failed ({err:?}), falling back to CPU");
-                        calculate_histograms_cpu(
-                            dataset, min_time, max_time, n_bins, n_periods, &periods, &min_amps, weights, &frame_data,
-                        )
-                    }
-                }
-            } else {
-                calculate_histograms_cpu(
-                    dataset, min_time, max_time, n_bins, n_periods, &periods, &min_amps, weights, &frame_data,
-                )
-            }
-        }
-        DevicePreference::Hybrid => {
-            if let Some(ctx) = GpuContext::get() {
-                match calculate_histograms_hybrid(
-                    dataset, min_time, max_time, n_bins, n_periods, &periods, &min_amps, weights, &frame_data, ctx,
-                ) {
-                    Ok(hist) => hist,
-                    Err(err) => {
-                        eprintln!("Hybrid calculation failed ({err:?}), falling back to CPU");
                         calculate_histograms_cpu(
                             dataset, min_time, max_time, n_bins, n_periods, &periods, &min_amps, weights, &frame_data,
                         )
@@ -413,120 +395,6 @@ fn calculate_histograms_gpu(
     Ok(result)
 }
 
-/// Calculate histograms using hybrid CPU + GPU co-processing.
-#[allow(clippy::too_many_arguments)]
-fn calculate_histograms_hybrid(
-    dataset: &NexusData,
-    min_time: u32,
-    max_time: u32,
-    n_bins: usize,
-    n_periods: usize,
-    periods: &Array1<u32>,
-    min_amps: &Array1<f64>,
-    weights: &Weights,
-    frame_data: &FrameData,
-    ctx: &'static GpuContext,
-) -> Result<Histogram> {
-    let width: f32 = (max_time - min_time) as f32 / n_bins as f32;
-    let inv_width: f32 = 1.0 / width;
-    let min_amps_f32: Vec<f32> = min_amps.iter().map(|&a| a as f32).collect();
-
-    let gpu_guard = ctx.acquire_histogrammer(
-        n_periods,
-        dataset.n_spec,
-        n_bins,
-        &min_amps_f32,
-        dataset.chunk_size,
-    )?;
-    let gpu_hist = gpu_guard.as_ref().unwrap();
-
-    let mut cpu_acc = Histogram::new(min_time, max_time, n_bins);
-    cpu_acc.hist = Array3::zeros((n_periods, dataset.n_spec, n_bins));
-
-    let mut gpu_event_periods = vec![u32::MAX; dataset.chunk_size];
-
-    for start in (0..dataset.n_events).step_by(dataset.chunk_size) {
-        let end = min(start + dataset.chunk_size, dataset.n_events);
-        let chunk_len = end - start;
-        let array_slice = s![start..end];
-
-        let amps: Array1<f32> = dataset.amps.read_slice_1d(array_slice)?;
-        let times: Array1<u32> = dataset.times.read_slice_1d(array_slice)?;
-        let specs: Array1<u32> = dataset.specs.read_slice_1d(array_slice)?;
-
-        let split = chunk_len / 2;
-
-        // GPU processes second half [split..chunk_len]
-        let gpu_start = start + split;
-        let gpu_end = end;
-        let gpu_len = gpu_end - gpu_start;
-
-        if gpu_len > 0 {
-            let gpu_frame_data = frame_data.slice(gpu_start, gpu_end);
-            gpu_event_periods.clear();
-            gpu_event_periods.resize(gpu_len, u32::MAX);
-
-            if let Some(&last_frame) = gpu_frame_data.frame_number.last() {
-                for (i, &frame) in gpu_frame_data.frame_number.iter().enumerate() {
-                    if !weights[frame] {
-                        continue;
-                    }
-                    let frame_start = gpu_frame_data.start_index[i];
-                    let frame_end = if frame == last_frame {
-                        gpu_frame_data.array_len
-                    } else {
-                        gpu_frame_data.start_index[i + 1]
-                    };
-                    let p = periods[frame];
-                    gpu_event_periods[frame_start..frame_end].fill(p);
-                }
-            }
-
-            let amps_slice = amps.as_slice().unwrap();
-            let times_slice = times.as_slice().unwrap();
-            let specs_slice = specs.as_slice().unwrap();
-
-            gpu_hist.dispatch_chunk(
-                min_time,
-                max_time,
-                inv_width,
-                &times_slice[split..chunk_len],
-                &specs_slice[split..chunk_len],
-                &amps_slice[split..chunk_len],
-                &gpu_event_periods,
-            )?;
-        }
-
-        // CPU processes first half [0..split] concurrently while GPU is executing
-        if split > 0 {
-            let cpu_frame_data = frame_data.slice(start, start + split);
-            let times_slice = times.as_slice().unwrap();
-            let specs_slice = specs.as_slice().unwrap();
-            let amps_slice = amps.as_slice().unwrap();
-
-            bin_events_slice(
-                &mut cpu_acc,
-                &times_slice[0..split],
-                &specs_slice[0..split],
-                &amps_slice[0..split],
-                periods,
-                &min_amps_f32,
-                weights,
-                &cpu_frame_data,
-                min_time,
-                max_time,
-                inv_width,
-            );
-        }
-    }
-
-    let (gpu_hist_arr, gpu_n) = gpu_hist.readback(n_periods)?;
-    cpu_acc.hist += &gpu_hist_arr;
-    cpu_acc.n += gpu_n;
-
-    Ok(cpu_acc)
-}
-
 /// Accumulate events from contiguous slices of chunk arrays into a histogram on CPU.
 #[inline(always)]
 fn bin_events_slice<T: Copy + PartialOrd>(
@@ -546,6 +414,18 @@ fn bin_events_slice<T: Copy + PartialOrd>(
         return;
     }
     let last_frame = *frame_data.frame_number.last().unwrap();
+    let shape = result.hist.shape();
+    let n_spec = shape[1];
+    let n_bins = shape[2];
+    let period_stride = n_spec * n_bins;
+    let spec_stride = n_bins;
+
+    let hist_slice = match result.hist.as_slice_mut() {
+        Some(s) => s,
+        None => return,
+    };
+
+    let mut total_n = 0usize;
 
     for (i, &frame) in frame_data.frame_number.iter().enumerate() {
         if !weights[frame] {
@@ -560,6 +440,7 @@ fn bin_events_slice<T: Copy + PartialOrd>(
         };
 
         let period = periods[frame] as usize;
+        let frame_base = period * period_stride;
 
         for k in frame_start_event..frame_end_event {
             let t = times[k];
@@ -568,11 +449,14 @@ fn bin_events_slice<T: Copy + PartialOrd>(
 
             if (t >= min_time) && (t < max_time) && amp > min_amps[spec] {
                 let bin = ((t - min_time) as f32 * inv_width) as usize;
-                result.hist[[period, spec, bin]] += 1;
-                result.n += 1;
+                let idx = frame_base + spec * spec_stride + bin;
+                hist_slice[idx] += 1;
+                total_n += 1;
             }
         }
     }
+
+    result.n += total_n;
 }
 
 /// Bin a set of data directly into the given accumulating histogram.
@@ -966,7 +850,7 @@ mod tests {
         assert_eq!(DevicePreference::from_str("auto").unwrap(), DevicePreference::Auto);
         assert_eq!(DevicePreference::from_str("CPU").unwrap(), DevicePreference::Cpu);
         assert_eq!(DevicePreference::from_str("gpu").unwrap(), DevicePreference::Gpu);
-        assert_eq!(DevicePreference::from_str("Hybrid ").unwrap(), DevicePreference::Hybrid);
+        assert!(DevicePreference::from_str("Hybrid").is_err());
         assert!(DevicePreference::from_str("invalid").is_err());
     }
 
@@ -989,12 +873,6 @@ mod tests {
                 .unwrap();
             assert_eq!(cpu_hist.n, gpu_hist.n, "Event counts must match between CPU and GPU");
             assert_eq!(cpu_hist.hist, gpu_hist.hist, "Histogram arrays must match between CPU and GPU");
-
-            let hybrid_hist = base_hist
-                .calculate_with_device(&dataset, &filters, DevicePreference::Hybrid)
-                .unwrap();
-            assert_eq!(cpu_hist.n, hybrid_hist.n, "Event counts must match between CPU and Hybrid");
-            assert_eq!(cpu_hist.hist, hybrid_hist.hist, "Histogram arrays must match between CPU and Hybrid");
         }
     }
 }

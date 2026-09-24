@@ -64,23 +64,16 @@ for file in files:
         hist_gpu = res_gpu.get_histogram()
         n_gpu = res_gpu.get_n_events()
 
-        data.invalidate_cache()
-        res_hyb = data.calculate("hybrid")
-        hist_hyb = res_hyb.get_histogram()
-        n_hyb = res_hyb.get_n_events()
-
         assert n_cpu == n_gpu, f"GPU event count mismatch: {n_cpu} vs {n_gpu}"
-        assert n_cpu == n_hyb, f"Hybrid event count mismatch: {n_cpu} vs {n_hyb}"
         np.testing.assert_array_equal(hist_cpu, hist_gpu, err_msg="GPU histogram mismatch with CPU!")
-        np.testing.assert_array_equal(hist_cpu, hist_hyb, err_msg="Hybrid histogram mismatch with CPU!")
-        print("PASS: CPU, GPU, and Hybrid produced IDENTICAL histograms and event counts!")
+        print("PASS: CPU and GPU produced IDENTICAL histograms and event counts!")
     else:
         print("GPU not available on this system; skipping GPU parity check.")
 
     # 2. Benchmark modes
     modes = ["cpu"]
     if gpu_avail:
-        modes.extend(["gpu", "hybrid", "auto"])
+        modes.extend(["gpu", "auto"])
 
     print(f"\n--- Running Benchmarks ({stats} iterations each) ---")
     results = {}
