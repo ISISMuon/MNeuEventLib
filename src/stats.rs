@@ -336,50 +336,75 @@ fn calculate_histograms_gpu(
         dataset.chunk_size,
     )?;
 
-    let mut amps_f32 = Vec::with_capacity(dataset.chunk_size);
-    let mut event_periods = vec![u32::MAX; dataset.chunk_size];
+    struct PreparedGpuChunk {
+        times: Array1<u32>,
+        specs: Array1<u32>,
+        amps: Array1<f32>,
+        periods: Vec<u32>,
+    }
 
-    for start in (0..dataset.n_events).step_by(dataset.chunk_size) {
-        let end = min(start + dataset.chunk_size, dataset.n_events);
-        let array_slice = s![start..end];
-        let amps: Array1<f64> = dataset.amps.read_slice_1d(array_slice)?;
-        let times: Array1<u32> = dataset.times.read_slice_1d(array_slice)?;
-        let specs: Array1<u32> = dataset.specs.read_slice_1d(array_slice)?;
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Result<PreparedGpuChunk>>(2);
 
-        let chunk_frame_data = frame_data.slice(start, end);
-        let chunk_len = chunk_frame_data.array_len;
-        event_periods.clear();
-        event_periods.resize(chunk_len, u32::MAX);
+    std::thread::scope(|s| -> Result<()> {
+        let producer = s.spawn(move || -> Result<()> {
+            for start in (0..dataset.n_events).step_by(dataset.chunk_size) {
+                let end = min(start + dataset.chunk_size, dataset.n_events);
+                let array_slice = s![start..end];
+                let amps: Array1<f32> = dataset.amps.read_slice_1d(array_slice)?;
+                let times: Array1<u32> = dataset.times.read_slice_1d(array_slice)?;
+                let specs: Array1<u32> = dataset.specs.read_slice_1d(array_slice)?;
 
-        if let Some(&last_frame) = chunk_frame_data.frame_number.last() {
-            for (i, &frame) in chunk_frame_data.frame_number.iter().enumerate() {
-                if !weights[frame] {
-                    continue;
+                let chunk_frame_data = frame_data.slice(start, end);
+                let chunk_len = chunk_frame_data.array_len;
+                let mut event_periods = vec![u32::MAX; chunk_len];
+
+                if let Some(&last_frame) = chunk_frame_data.frame_number.last() {
+                    for (i, &frame) in chunk_frame_data.frame_number.iter().enumerate() {
+                        if !weights[frame] {
+                            continue;
+                        }
+                        let frame_start = chunk_frame_data.start_index[i];
+                        let frame_end = if frame == last_frame {
+                            chunk_frame_data.array_len
+                        } else {
+                            chunk_frame_data.start_index[i + 1]
+                        };
+                        let p = periods[frame];
+                        event_periods[frame_start..frame_end].fill(p);
+                    }
                 }
-                let frame_start = chunk_frame_data.start_index[i];
-                let frame_end = if frame == last_frame {
-                    chunk_frame_data.array_len
-                } else {
-                    chunk_frame_data.start_index[i + 1]
-                };
-                let p = periods[frame];
-                event_periods[frame_start..frame_end].fill(p);
+
+                if tx
+                    .send(Ok(PreparedGpuChunk {
+                        times,
+                        specs,
+                        amps,
+                        periods: event_periods,
+                    }))
+                    .is_err()
+                {
+                    break;
+                }
             }
+            Ok(())
+        });
+
+        for chunk_res in rx {
+            let chunk = chunk_res?;
+            gpu_hist.dispatch_chunk(
+                min_time,
+                max_time,
+                inv_width,
+                chunk.times.as_slice().unwrap(),
+                chunk.specs.as_slice().unwrap(),
+                chunk.amps.as_slice().unwrap(),
+                &chunk.periods,
+            )?;
         }
 
-        amps_f32.clear();
-        amps_f32.extend(amps.iter().map(|&a| a as f32));
+        producer.join().unwrap()
+    })?;
 
-        gpu_hist.dispatch_chunk(
-            min_time,
-            max_time,
-            inv_width,
-            times.as_slice().unwrap(),
-            specs.as_slice().unwrap(),
-            &amps_f32,
-            &event_periods,
-        )?;
-    }
 
     let (hist, n) = gpu_hist.readback(n_periods)?;
     let mut result = Histogram::new(min_time, max_time, n_bins);
@@ -418,7 +443,6 @@ fn calculate_histograms_hybrid(
     let mut cpu_acc = Histogram::new(min_time, max_time, n_bins);
     cpu_acc.hist = Array3::zeros((n_periods, dataset.n_spec, n_bins));
 
-    let mut gpu_amps_f32 = Vec::with_capacity(dataset.chunk_size);
     let mut gpu_event_periods = vec![u32::MAX; dataset.chunk_size];
 
     for start in (0..dataset.n_events).step_by(dataset.chunk_size) {
@@ -426,7 +450,7 @@ fn calculate_histograms_hybrid(
         let chunk_len = end - start;
         let array_slice = s![start..end];
 
-        let amps: Array1<f64> = dataset.amps.read_slice_1d(array_slice)?;
+        let amps: Array1<f32> = dataset.amps.read_slice_1d(array_slice)?;
         let times: Array1<u32> = dataset.times.read_slice_1d(array_slice)?;
         let specs: Array1<u32> = dataset.specs.read_slice_1d(array_slice)?;
 
@@ -459,9 +483,6 @@ fn calculate_histograms_hybrid(
             }
 
             let amps_slice = amps.as_slice().unwrap();
-            gpu_amps_f32.clear();
-            gpu_amps_f32.extend(amps_slice[split..chunk_len].iter().map(|&a| a as f32));
-
             let times_slice = times.as_slice().unwrap();
             let specs_slice = specs.as_slice().unwrap();
 
@@ -471,7 +492,7 @@ fn calculate_histograms_hybrid(
                 inv_width,
                 &times_slice[split..chunk_len],
                 &specs_slice[split..chunk_len],
-                &gpu_amps_f32,
+                &amps_slice[split..chunk_len],
                 &gpu_event_periods,
             )?;
         }
@@ -489,7 +510,7 @@ fn calculate_histograms_hybrid(
                 &specs_slice[0..split],
                 &amps_slice[0..split],
                 periods,
-                min_amps,
+                &min_amps_f32,
                 weights,
                 &cpu_frame_data,
                 min_time,
@@ -508,13 +529,13 @@ fn calculate_histograms_hybrid(
 
 /// Accumulate events from contiguous slices of chunk arrays into a histogram on CPU.
 #[inline(always)]
-fn bin_events_slice(
+fn bin_events_slice<T: Copy + PartialOrd>(
     result: &mut Histogram,
     times: &[u32],
     specs: &[u32],
-    amps: &[f64],
+    amps: &[T],
     periods: &Array1<u32>,
-    min_amps: &Array1<f64>,
+    min_amps: &[T],
     weights: &Weights,
     frame_data: &FrameData,
     min_time: u32,
@@ -578,7 +599,7 @@ fn make_histogram(
         specs.as_slice().unwrap(),
         amps.as_slice().unwrap(),
         periods,
-        min_amps,
+        min_amps.as_slice().unwrap(),
         weights,
         &frame_data,
         min_time,

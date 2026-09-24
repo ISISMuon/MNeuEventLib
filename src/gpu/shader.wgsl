@@ -33,31 +33,47 @@ var<storage, read_write> hist: array<atomic<u32>>;
 @group(0) @binding(7)
 var<storage, read_write> total_count: array<atomic<u32>>;
 
+var<workgroup> wg_count: atomic<u32>;
+
 @compute @workgroup_size(256)
-fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+fn main(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(local_invocation_id) local_id: vec3<u32>,
+) {
+    if (local_id.x == 0u) {
+        atomicStore(&wg_count, 0u);
+    }
+    workgroupBarrier();
+
     let idx = global_id.x;
-    if (idx >= params.n_events) {
-        return;
-    }
+    if (idx < params.n_events) {
+        let period = periods[idx];
+        if (period != 0xFFFFFFFFu) {
+            let t = times[idx];
+            let spec = specs[idx];
+            let amp = amps[idx];
 
-    let period = periods[idx];
-    if (period == 0xFFFFFFFFu) {
-        return;
-    }
-
-    let t = times[idx];
-    let spec = specs[idx];
-    let amp = amps[idx];
-
-    if (t >= params.min_time && t < params.max_time && spec < params.n_spec) {
-        if (amp > min_amps[spec]) {
-            let bin = u32(f32(t - params.min_time) * params.inv_width);
-            if (bin < params.n_bins) {
-                let hist_idx = (period * params.n_spec + spec) * params.n_bins + bin;
-                atomicAdd(&hist[hist_idx], 1u);
-                atomicAdd(&total_count[0], 1u);
+            if (t >= params.min_time && t < params.max_time && spec < params.n_spec) {
+                if (amp > min_amps[spec]) {
+                    let bin = u32(f32(t - params.min_time) * params.inv_width);
+                    if (bin < params.n_bins) {
+                        let hist_idx = (period * params.n_spec + spec) * params.n_bins + bin;
+                        atomicAdd(&hist[hist_idx], 1u);
+                        atomicAdd(&wg_count, 1u);
+                    }
+                }
             }
         }
     }
+
+    workgroupBarrier();
+
+    if (local_id.x == 0u) {
+        let count = atomicLoad(&wg_count);
+        if (count > 0u) {
+            atomicAdd(&total_count[0], count);
+        }
+    }
 }
+
 
