@@ -58,6 +58,7 @@ pub struct BatchData {
     #[pyo3(get)]
     pub dataset: Option<NexusData>,
     pub results: Vec<Histogram>,
+    #[pyo3(get)]
     pub filters: Vec<Filters>,
     data_changed: Vec<bool>, // whether data has changed since last calculation, per filter set
 }
