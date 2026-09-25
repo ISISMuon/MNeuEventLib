@@ -4,8 +4,8 @@ use crate::filters::Filters;
 use crate::stats::Histogram;
 use anyhow::{Error, Result};
 use numpy::{PyArray3, ToPyArray};
-use pyo3::prelude::{pyclass, pymethods, Borrowed, Bound, FromPyObject, PyAny};
-use pyo3::types::{PyInt, PyString};
+use pyo3::prelude::{pyclass, pymethods, Borrowed, Bound, FromPyObject, PyAny, PyErr, Python};
+use pyo3::types::{PyAnyMethods, PyDict, PyInt, PyModule, PyString};
 use std::path::PathBuf;
 
 pub type PyHist<'py> = Bound<'py, PyArray3<i32>>;
@@ -56,7 +56,6 @@ pub struct BatchData {
     #[pyo3(get)]
     pub dataset: NexusData,
     pub results: Vec<Histogram>,
-    #[pyo3(get)]
     pub filters: Vec<Filters>,
     data_changed: Vec<bool>, // whether data has changed since last calculation, per filter set
 }
@@ -466,6 +465,35 @@ impl BatchData {
             .into_iter()
             .map(|i| self.results[i].n)
             .collect())
+    }
+
+    /// Get the filter and histogram settings data as a dictionary.
+    ///
+    /// Note this function is intended for the GUI frontend and is not stable.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int
+    ///     The index of the data to get.
+    pub fn _dict<'py>(&mut self, index: usize, py: Python<'py>) -> Result<Bound<'py, PyDict>> {
+        // Import Python's json module
+        let json_module = PyModule::import(py, "json")?;
+        // Get the Filters object as a JSON and use Python JSON to make the dict out of it
+        let filters_json = serde_json::to_string(&self.filters[index])?;
+        // Call json.loads(json_str)
+        let result = json_module.call_method1("loads", (filters_json,))?;
+
+        // Downcast the returned PyAny into a PyDict
+        let dict = Bound::cast_into::<PyDict>(result).map_err(PyErr::from)?;
+
+        // add histogram settings to the JSON
+        let hist_settings = PyDict::new(py);
+        hist_settings.set_item("min_time", self.results[index].min_time)?;
+        hist_settings.set_item("max_time", self.results[index].max_time)?;
+        hist_settings.set_item("n_bins", self.results[index].n_bins)?;
+        dict.set_item("hist_settings", hist_settings)?;
+
+        Ok(dict)
     }
 
     fn __repr__(&self) -> String {

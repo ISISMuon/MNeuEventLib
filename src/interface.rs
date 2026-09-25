@@ -3,7 +3,6 @@ use numpy::ToPyArray;
 use pyo3::prelude::{pyclass, pymethods, Bound};
 
 use crate::batch_interface::{FilterIndex, PyHist};
-use crate::filters::Filters;
 use crate::{BatchData, NexusData};
 
 use std::path::PathBuf;
@@ -31,11 +30,6 @@ impl Data {
     #[getter]
     fn dataset(&self) -> NexusData {
         self.inner.dataset.clone()
-    }
-
-    #[getter]
-    fn filters(&self) -> Filters {
-        self.inner.filters[0].clone()
     }
 
     /// Calculate the histogram for the current data and filters.
