@@ -7,7 +7,7 @@ use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIter
 
 use crate::consts::ToMicroseconds;
 use crate::data::{FrameData, NexusData};
-use crate::filters::{get_weights, Filters, Weights};
+use crate::filters::{get_log_weights, get_weights, Filters, Weights};
 
 #[derive(Clone)]
 pub struct Histogram {
@@ -50,15 +50,7 @@ impl Histogram {
         // get data for time filters
         let (time_starts, time_ends) = filters.get_time_filter_times();
 
-        // get data for all log filters that have been filtered
-        let log_names = filters.get_required_log_names();
-        let value_logs = match data.get_sample_logs(log_names) {
-            Ok(logs) => logs,
-            Err(info) => return Err(Error::msg(format!("Failed to get logs: {info}"))),
-        };
-        let (log_starts, log_ends) = filters.get_log_filter_times(value_logs);
-
-        let filters_exist = !time_starts.is_empty() || !log_starts.is_empty();
+        let filters_exist = !time_starts.is_empty() || !filters.sample_log_filters.is_empty();
 
         let frame_start_times: Array1<usize> = data.frame_times.read_1d()?;
 
@@ -74,10 +66,17 @@ impl Histogram {
                 )
             };
             // log weights are always include filters
-            let log_weights = if log_starts.is_empty() {
+            let log_weights = if filters.sample_log_filters.is_empty() {
                 Weights::ones(data.n_frames)
             } else {
-                get_weights(log_starts, log_ends, &frame_start_times, true)
+                // get data for all log filters that have been filtered
+                let log_names = filters.get_required_log_names();
+                let value_logs = match data.get_sample_logs(log_names) {
+                    Ok(logs) => logs,
+                    Err(info) => return Err(Error::msg(format!("Failed to get logs: {info}"))),
+                };
+                let log_filter_times = filters.get_log_filter_times(value_logs);
+                get_log_weights(log_filter_times, &frame_start_times)
             };
             time_weights & log_weights
         } else {

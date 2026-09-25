@@ -3,6 +3,8 @@ use hdf5::types::H5Type;
 use ndarray::Array1;
 use pyo3::pyfunction;
 
+use crate::data::NexusData;
+use crate::filters::Filters;
 use crate::BatchData;
 
 /// Binary search to find the left bounding index of a target value.
@@ -37,8 +39,11 @@ pub fn binary_search(array: &Array1<usize>, start: usize, stop: usize, target: u
 /// Not designed or maintained for API use. Function to be used by MNeuEventGUI.
 #[pyfunction]
 pub fn _get_filter_times(index: usize, data: &BatchData) -> Result<(Vec<usize>, Vec<usize>)> {
-    let filters = &data.filters[index];
-    let data = &data.dataset;
+    get_filter_times(&data.dataset, &data.filters[index])
+}
+
+/// Get the time ranges covered by all filters, non-overlapping.
+pub fn get_filter_times(data: &NexusData, filters: &Filters) -> Result<(Vec<usize>, Vec<usize>)> {
     let frame_times = data.frame_times.read_1d()?;
     let min_time = frame_times[0];
     let max_time = *frame_times.iter().last().unwrap(); // frame times is always finite
@@ -55,8 +60,14 @@ pub fn _get_filter_times(index: usize, data: &BatchData) -> Result<(Vec<usize>, 
         Ok(logs) => logs,
         Err(info) => return Err(Error::msg(format!("Failed to get logs: {info}"))),
     };
-    let (mut log_starts, mut log_ends) = filters.get_log_filter_times(value_logs);
-    (log_starts, log_ends) = remove_overlaps(&log_starts, &log_ends);
+    let log_times = filters.get_log_filter_times(value_logs);
+    let (log_starts, log_ends) = log_times
+        .into_values()
+        .reduce(|(acc_starts, acc_ends), (x_starts, x_ends)| {
+            let (starts, ends) = remove_overlaps(&x_starts, &x_ends);
+            intersect_intervals(&acc_starts, &acc_ends, &starts, &ends)
+        })
+        .unwrap_or((Vec::new(), Vec::new()));
 
     // a kind of filter with no ranges at all isn't constraining anything,
     // so intersecting with it would wrongly wipe out the other kind's ranges
@@ -464,6 +475,36 @@ mod tests {
 
         assert_eq!(starts, vec![1_000_000_000]);
         assert_eq!(ends, vec![1_500_000_000]);
+    }
+
+    /// Test that two log filters are intersected.
+    #[test]
+    fn test_get_filter_times_intersect_log_filters() {
+        let mock = make_mock(vec![0, 5_000_000_000, 10_000_000_000]);
+        add_sample_log(
+            &mock,
+            "temp",
+            vec![0., 1., 2., 3., 4.],
+            vec![0., 5., 5., 0., 0.],
+        );
+        add_sample_log(
+            &mock,
+            "field",
+            vec![0., 1., 2., 3., 4.],
+            vec![0., 2., 2., 2., 0.],
+        );
+        let mut batch = make_batch(&mock);
+        batch.filters[0]
+            .add_log_filter("a".to_string(), "temp".to_string(), Some(4.), Some(6.))
+            .unwrap();
+        batch.filters[0]
+            .add_log_filter("b".to_string(), "field".to_string(), Some(1.), Some(3.))
+            .unwrap();
+
+        let (starts, ends) = _get_filter_times(0, &batch).unwrap();
+
+        assert_eq!(starts, vec![1_000_000_000]);
+        assert_eq!(ends, vec![2_000_000_000]);
     }
 
     /// Test intersecting two sets of intervals which partially overlap.

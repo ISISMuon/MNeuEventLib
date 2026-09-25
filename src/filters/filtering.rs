@@ -1,9 +1,12 @@
+use std::collections::HashMap;
+
 use ndarray::Array1;
 
-use crate::filters::weights::Weights;
+use crate::filters::Weights;
 use crate::utils::binary_search;
 
 // Given a list of filter start and end times, get the weights array.
+#[inline(always)]
 pub fn get_weights(
     filter_starts: Vec<usize>,
     filter_ends: Vec<usize>,
@@ -13,6 +16,21 @@ pub fn get_weights(
     let n_frames = frame_start_times.len();
     let (start_frames, end_frames) = get_indices(frame_start_times, filter_starts, filter_ends);
     get_good_values(start_frames, end_frames, n_frames, include)
+}
+
+/// Given a set of log filters and sample logs, get the weights for the log filters.
+#[inline(always)]
+pub fn get_log_weights(
+    filter_times: HashMap<String, (Vec<usize>, Vec<usize>)>,
+    frame_start_times: &Array1<usize>,
+) -> Weights {
+    let n_frames = frame_start_times.len();
+    let mut weights = Weights::ones(n_frames);
+    for (starts, ends) in filter_times.into_values() {
+        let log_weights = get_weights(starts, ends, frame_start_times, true);
+        weights = weights & log_weights
+    }
+    weights
 }
 
 /// Assuming the data is sorted, get which frames the filters belong to.
@@ -262,5 +280,110 @@ mod tests {
             start_times,
             Weights::from_raw(vec![0b1000000]),
         )
+    }
+
+    /// Helper function for get_log_weights tests.
+    fn log_filter_times(
+        filters: Vec<(&str, Vec<usize>, Vec<usize>)>,
+    ) -> HashMap<String, (Vec<usize>, Vec<usize>)> {
+        filters
+            .into_iter()
+            .map(|(name, starts, ends)| (name.to_string(), (starts, ends)))
+            .collect()
+    }
+
+    /// Test that a single log filter gives the same weights as get_weights.
+    #[test]
+    fn test_get_log_weights_one_log() {
+        let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+        //                                            ^--------^ log A
+        let filter_times = log_filter_times(vec![("A", vec![15], vec![31])]);
+
+        let weights = get_log_weights(filter_times, &start_times);
+
+        assert_eq!(weights, Weights::from_raw(vec![0b0001110]))
+    }
+
+    /// Test that the ranges within a single log are combined as a union.
+    #[test]
+    fn test_get_log_weights_one_log_two_ranges() {
+        let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+        //                                       ^--^       ^--^ log A
+        let filter_times = log_filter_times(vec![("A", vec![5, 45], vec![15, 55])]);
+
+        let weights = get_log_weights(filter_times, &start_times);
+
+        assert_eq!(weights, Weights::from_raw(vec![0b0110011]))
+    }
+
+    /// Test that two logs are combined as an intersection.
+    #[test]
+    fn test_get_log_weights_two_logs() {
+        let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+        //                                            ^--------^ log A
+        //                                                ^--------^ log B
+        let filter_times =
+            log_filter_times(vec![("A", vec![15], vec![31]), ("B", vec![25], vec![51])]);
+
+        let weights = get_log_weights(filter_times, &start_times);
+
+        assert_eq!(weights, Weights::from_raw(vec![0b0001100]))
+    }
+
+    /// Test that logs with multiple ranges are combined as an intersection of unions.
+    #[test]
+    fn test_get_log_weights_two_logs_multiple_ranges() {
+        let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+        //                                       ^--^       ^--^ log A
+        //                                          ^-----------^ log B
+        let filter_times = log_filter_times(vec![
+            ("A", vec![5, 45], vec![15, 55]),
+            ("B", vec![11], vec![51]),
+        ]);
+
+        let weights = get_log_weights(filter_times, &start_times);
+
+        assert_eq!(weights, Weights::from_raw(vec![0b0110010]))
+    }
+
+    /// Test that logs whose filters don't overlap give no good frames.
+    #[test]
+    fn test_get_log_weights_disjoint_logs() {
+        let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+        //                                       ^--^ log A    ^--^ log B
+        let filter_times =
+            log_filter_times(vec![("A", vec![5], vec![15]), ("B", vec![45], vec![55])]);
+
+        let weights = get_log_weights(filter_times, &start_times);
+
+        assert_eq!(weights, Weights::zeros(7))
+    }
+
+    /// Test that a log with no filter ranges gives no good frames.
+    #[test]
+    fn test_get_log_weights_empty_log() {
+        let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
+        let filter_times = log_filter_times(vec![("A", vec![], vec![])]);
+
+        let weights = get_log_weights(filter_times, &start_times);
+
+        assert_eq!(weights, Weights::zeros(7))
+    }
+
+    /// Test that get_log_weights works when there are more frames than fit in one block.
+    #[test]
+    fn test_get_log_weights_multiple_blocks() {
+        let start_times = Array1::from_vec((0..100).map(|k| k * 10).collect::<Vec<usize>>());
+        let filter_times = log_filter_times(vec![
+            ("A", vec![105], vec![805]),
+            ("B", vec![605], vec![905]),
+        ]);
+
+        let weights = get_log_weights(filter_times, &start_times);
+
+        // frames 60 to 80 inclusive are in both logs
+        let mut expected = Weights::zeros(100);
+        expected.set_range(60, 81, true);
+        assert_eq!(weights, expected)
     }
 }
