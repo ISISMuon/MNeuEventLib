@@ -4,8 +4,8 @@ use crate::filters::Filters;
 use crate::stats::Histogram;
 use anyhow::{Error, Result};
 use numpy::{PyArray3, ToPyArray};
-use pyo3::prelude::{pyclass, pymethods, Borrowed, Bound, FromPyObject, PyAny};
-use pyo3::types::{PyInt, PyString};
+use pyo3::prelude::{pyclass, pymethods, Borrowed, Bound, FromPyObject, PyAny, PyErr, Python};
+use pyo3::types::{PyAnyMethods, PyDict, PyInt, PyModule, PyString};
 use std::path::PathBuf;
 
 pub type PyHist<'py> = Bound<'py, PyArray3<i32>>;
@@ -117,6 +117,11 @@ impl BatchData {
     /// Force histograms to be recalculated even if the data hasn't changed.
     pub fn invalidate_cache(&mut self) {
         self.data_changed = vec![true; self.n_batches()]
+    }
+
+    /// Check if any data has changed since you last ran a calculation.
+    pub fn data_changed(&mut self) -> bool {
+        self.data_changed.contains(&true)
     }
 
     /// Set histogram settings for one or all filter sets.
@@ -344,6 +349,20 @@ impl BatchData {
         Ok(())
     }
 
+    /// Clear all filters.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int | str
+    ///     Either 'all', or the index of the filter set to modify.
+    pub fn clear_filters(&mut self, index: FilterIndex) -> Result<()> {
+        for i in self.resolve_indices(&index)? {
+            self.filters[i] = Filters::new();
+            self.data_changed[i] = true;
+        }
+        Ok(())
+    }
+
     /// Save a filter set's result to a file.
     ///
     /// Parameters
@@ -448,6 +467,35 @@ impl BatchData {
             .collect())
     }
 
+    /// Get the filter and histogram settings data as a dictionary.
+    ///
+    /// Note this function is intended for the GUI frontend and is not stable.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int
+    ///     The index of the data to get.
+    pub fn _dict<'py>(&mut self, index: usize, py: Python<'py>) -> Result<Bound<'py, PyDict>> {
+        // Import Python's json module
+        let json_module = PyModule::import(py, "json")?;
+        // Get the Filters object as a JSON and use Python JSON to make the dict out of it
+        let filters_json = serde_json::to_string(&self.filters[index])?;
+        // Call json.loads(json_str)
+        let result = json_module.call_method1("loads", (filters_json,))?;
+
+        // Downcast the returned PyAny into a PyDict
+        let dict = Bound::cast_into::<PyDict>(result).map_err(PyErr::from)?;
+
+        // add histogram settings to the JSON
+        let hist_settings = PyDict::new(py);
+        hist_settings.set_item("min_time", self.results[index].min_time)?;
+        hist_settings.set_item("max_time", self.results[index].max_time)?;
+        hist_settings.set_item("n_bins", self.results[index].n_bins)?;
+        dict.set_item("hist_settings", hist_settings)?;
+
+        Ok(dict)
+    }
+
     fn __repr__(&self) -> String {
         let mut string = self.dataset.__repr__();
         for (i, (filters, results)) in self.filters.iter().zip(self.results.iter()).enumerate() {
@@ -529,6 +577,22 @@ impl BatchData {
 }
 
 #[cfg(test)]
+impl BatchData {
+    /// Build a BatchData with `n_filter_sets` empty filter sets around an
+    /// already-loaded dataset, so tests don't need a real .nxs file.
+    pub fn from_dataset(dataset: NexusData, n_filter_sets: usize) -> BatchData {
+        BatchData {
+            dataset,
+            results: (0..n_filter_sets)
+                .map(|_| Histogram::new(0, 32768, 2048))
+                .collect(),
+            filters: (0..n_filter_sets).map(|_| Filters::new()).collect(),
+            data_changed: vec![true; n_filter_sets],
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_utils::MockData;
@@ -539,14 +603,7 @@ mod tests {
     fn make_batch(n_filter_sets: usize) -> BatchData {
         let mock = MockData::new().unwrap();
         let dataset = mock.create(64, 1048576).unwrap();
-        BatchData {
-            dataset,
-            results: (0..n_filter_sets)
-                .map(|_| Histogram::new(0, 32768, 2048))
-                .collect(),
-            filters: (0..n_filter_sets).map(|_| Filters::new()).collect(),
-            data_changed: vec![true; n_filter_sets],
-        }
+        BatchData::from_dataset(dataset, n_filter_sets)
     }
 
     /// resolve_indices(All) should return every index in range.
