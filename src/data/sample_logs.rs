@@ -1,11 +1,59 @@
-use std::str::FromStr;
-
 use anyhow::{Error, Result};
-use hdf5::types::{FloatSize, IntSize, TypeDescriptor, VarLenUnicode};
+use hdf5::types::{FixedAscii, FixedUnicode, FloatSize, IntSize, TypeDescriptor, VarLenAscii, VarLenUnicode};
 use hdf5::Dataset;
 use ndarray::Array1;
 
 use crate::consts::S_TO_NS;
+
+/// Read a string attribute of either fixed or variable length from an HDF5 dataset.
+///
+/// Parameters
+/// ----------
+/// dataset: &Dataset
+///     The HDF5 dataset containing the attribute.
+/// attr_name: &str
+///     The name of the attribute to read.
+///
+/// Returns
+/// -------
+/// String
+///     The string value of the attribute, or an empty string if missing or unreadable.
+///
+fn read_string_attribute(dataset: &Dataset, attr_name: &str) -> String {
+    let attr = match dataset.attr(attr_name) {
+        Ok(attr) => attr,
+        Err(_) => return String::new(),
+    };
+    let desc = match attr.dtype().and_then(|d| d.to_descriptor()) {
+        Ok(desc) => desc,
+        Err(_) => return String::new(),
+    };
+    match desc {
+        TypeDescriptor::VarLenUnicode => {
+            attr.read_scalar::<VarLenUnicode>().map(|s| s.to_string()).unwrap_or_default()
+        }
+        TypeDescriptor::VarLenAscii => {
+            attr.read_scalar::<VarLenAscii>().map(|s| s.to_string()).unwrap_or_default()
+        }
+        TypeDescriptor::FixedAscii(len) => {
+            seq_macro::seq!(N in 1..=128 {
+                match len {
+                    #(N => attr.read_scalar::<FixedAscii<N>>().map(|s| s.as_str().to_string()).unwrap_or_default(),)*
+                    _ => String::new(),
+                }
+            })
+        }
+        TypeDescriptor::FixedUnicode(len) => {
+            seq_macro::seq!(N in 1..=128 {
+                match len {
+                    #(N => attr.read_scalar::<FixedUnicode<N>>().map(|s| s.as_str().to_string()).unwrap_or_default(),)*
+                    _ => String::new(),
+                }
+            })
+        }
+        _ => String::new(),
+    }
+}
 
 // Pattern-matching is the only way to access the internal value log,
 // so this macro lets you call a method of ValueLog from inside the
@@ -42,7 +90,22 @@ pub enum SampleLog {
 }
 
 impl SampleLog {
-    /// Create a new SampleLog.
+    /// Create a new SampleLog from a name, timestamp array, and HDF5 dataset.
+    ///
+    /// Parameters
+    /// ----------
+    /// log_name: &String
+    ///     The name of the sample log.
+    /// time: Array1<f64>
+    ///     The timestamp array for the sample log values.
+    /// value: Dataset
+    ///     The HDF5 dataset containing the log values and optional unit attribute.
+    ///
+    /// Returns
+    /// -------
+    /// Result<SampleLog>
+    ///     The constructed SampleLog variant corresponding to the dataset's data type.
+    ///
     pub fn new(log_name: &String, time: Array1<f64>, value: Dataset) -> Result<SampleLog> {
         let dtype = value.dtype()?.to_descriptor()?;
 
@@ -60,15 +123,12 @@ impl SampleLog {
                 match dtype {
                     $(
                         $hdf5_type => {
-                            let unit: VarLenUnicode = match value.attr("units") {
-                                Ok(units) => units.read().unwrap().into_scalar(),
-                                Err(_) => VarLenUnicode::from_str("").unwrap(),
-                            };
+                            let unit = read_string_attribute(&value, "units");
                             SampleLog::$variant(ValueLog::<$type> {
                             name: log_name.clone(),
                             time,
                             value: value.read_1d()?,
-                            unit: unit.to_string()
+                            unit,
                             })
                         },
                     )+
@@ -401,5 +461,198 @@ mod tests {
 
         let expected_vals = Array1::<f64>::from_vec(vec![0., 1., 2., 3., 4.]);
         assert_eq!(new_log.value, expected_vals)
+    }
+
+    /// Test reading a fixed-length ASCII string attribute (e.g. "Hz", "mm").
+    #[test]
+    fn test_read_string_attribute_fixed_ascii() {
+        let guard = crate::test_utils::lock_hdf5_test();
+        let tempfile = tempfile::NamedTempFile::new().unwrap();
+        let file = hdf5::File::create(tempfile.path()).unwrap();
+        let ds = file
+            .new_dataset::<f64>()
+            .shape((3,))
+            .create("data")
+            .unwrap();
+        let attr_val = FixedAscii::<2>::from_ascii(b"Hz").unwrap();
+        ds.new_attr::<FixedAscii<2>>()
+            .create("units")
+            .unwrap()
+            .write_scalar(&attr_val)
+            .unwrap();
+
+        let read_unit = read_string_attribute(&ds, "units");
+        assert_eq!(read_unit, "Hz");
+        drop(guard);
+    }
+
+    /// Test reading a variable-length Unicode string attribute.
+    #[test]
+    fn test_read_string_attribute_varlen_unicode() {
+        use std::str::FromStr;
+        let guard = crate::test_utils::lock_hdf5_test();
+        let tempfile = tempfile::NamedTempFile::new().unwrap();
+        let file = hdf5::File::create(tempfile.path()).unwrap();
+        let ds = file
+            .new_dataset::<f64>()
+            .shape((3,))
+            .create("data")
+            .unwrap();
+        let attr_val = VarLenUnicode::from_str("Celsius").unwrap();
+        ds.new_attr::<VarLenUnicode>()
+            .create("units")
+            .unwrap()
+            .write_scalar(&attr_val)
+            .unwrap();
+
+        let read_unit = read_string_attribute(&ds, "units");
+        assert_eq!(read_unit, "Celsius");
+        drop(guard);
+    }
+
+    /// Test reading a variable-length ASCII string attribute.
+    #[test]
+    fn test_read_string_attribute_varlen_ascii() {
+        let guard = crate::test_utils::lock_hdf5_test();
+        let tempfile = tempfile::NamedTempFile::new().unwrap();
+        let file = hdf5::File::create(tempfile.path()).unwrap();
+        let ds = file
+            .new_dataset::<f64>()
+            .shape((3,))
+            .create("data")
+            .unwrap();
+        let attr_val = VarLenAscii::from_ascii(b"meV").unwrap();
+        ds.new_attr::<VarLenAscii>()
+            .create("units")
+            .unwrap()
+            .write_scalar(&attr_val)
+            .unwrap();
+
+        let read_unit = read_string_attribute(&ds, "units");
+        assert_eq!(read_unit, "meV");
+        drop(guard);
+    }
+
+    /// Test reading a nonexistent attribute gracefully returns an empty string.
+    #[test]
+    fn test_read_string_attribute_missing() {
+        let guard = crate::test_utils::lock_hdf5_test();
+        let tempfile = tempfile::NamedTempFile::new().unwrap();
+        let file = hdf5::File::create(tempfile.path()).unwrap();
+        let ds = file
+            .new_dataset::<f64>()
+            .shape((3,))
+            .create("data")
+            .unwrap();
+
+        let read_unit = read_string_attribute(&ds, "nonexistent_attr");
+        assert_eq!(read_unit, "");
+        drop(guard);
+    }
+
+    /// Test constructing a SampleLog with a fixed-length ASCII unit attribute.
+    #[test]
+    fn test_sample_log_new_with_fixed_ascii_unit() {
+        let guard = crate::test_utils::lock_hdf5_test();
+        let tempfile = tempfile::NamedTempFile::new().unwrap();
+        let file = hdf5::File::create(tempfile.path()).unwrap();
+        let ds = file
+            .new_dataset::<f64>()
+            .shape((3,))
+            .create("chopper")
+            .unwrap();
+        ds.write(&ndarray::arr1(&[10.0, 10.0, 10.0])).unwrap();
+        let attr_val = FixedAscii::<2>::from_ascii(b"Hz").unwrap();
+        ds.new_attr::<FixedAscii<2>>()
+            .create("units")
+            .unwrap()
+            .write_scalar(&attr_val)
+            .unwrap();
+
+        let log = SampleLog::new(
+            &"chopper".to_string(),
+            ndarray::arr1(&[0.0, 1.0, 2.0]),
+            ds,
+        )
+        .unwrap();
+
+        match log {
+            SampleLog::F64(val_log) => {
+                assert_eq!(val_log.name, "chopper");
+                assert_eq!(val_log.unit, "Hz");
+                assert_eq!(val_log.value.to_vec(), vec![10.0, 10.0, 10.0]);
+            }
+            _ => panic!("Expected F64 variant"),
+        }
+        drop(guard);
+    }
+
+    /// Test constructing a SampleLog with a variable-length Unicode unit attribute.
+    #[test]
+    fn test_sample_log_new_with_varlen_unicode_unit() {
+        use std::str::FromStr;
+        let guard = crate::test_utils::lock_hdf5_test();
+        let tempfile = tempfile::NamedTempFile::new().unwrap();
+        let file = hdf5::File::create(tempfile.path()).unwrap();
+        let ds = file
+            .new_dataset::<i32>()
+            .shape((2,))
+            .create("temp")
+            .unwrap();
+        ds.write(&ndarray::arr1(&[20, 25])).unwrap();
+        let attr_val = VarLenUnicode::from_str("K").unwrap();
+        ds.new_attr::<VarLenUnicode>()
+            .create("units")
+            .unwrap()
+            .write_scalar(&attr_val)
+            .unwrap();
+
+        let log = SampleLog::new(
+            &"temp".to_string(),
+            ndarray::arr1(&[0.0, 1.0]),
+            ds,
+        )
+        .unwrap();
+
+        match log {
+            SampleLog::I32(val_log) => {
+                assert_eq!(val_log.name, "temp");
+                assert_eq!(val_log.unit, "K");
+                assert_eq!(val_log.value.to_vec(), vec![20, 25]);
+            }
+            _ => panic!("Expected I32 variant"),
+        }
+        drop(guard);
+    }
+
+    /// Test constructing a SampleLog when the units attribute is omitted.
+    #[test]
+    fn test_sample_log_new_without_unit() {
+        let guard = crate::test_utils::lock_hdf5_test();
+        let tempfile = tempfile::NamedTempFile::new().unwrap();
+        let file = hdf5::File::create(tempfile.path()).unwrap();
+        let ds = file
+            .new_dataset::<f32>()
+            .shape((2,))
+            .create("counts")
+            .unwrap();
+        ds.write(&ndarray::arr1(&[1.0f32, 2.0f32])).unwrap();
+
+        let log = SampleLog::new(
+            &"counts".to_string(),
+            ndarray::arr1(&[0.0, 1.0]),
+            ds,
+        )
+        .unwrap();
+
+        match log {
+            SampleLog::F32(val_log) => {
+                assert_eq!(val_log.name, "counts");
+                assert_eq!(val_log.unit, "");
+                assert_eq!(val_log.value.to_vec(), vec![1.0, 2.0]);
+            }
+            _ => panic!("Expected F32 variant"),
+        }
+        drop(guard);
     }
 }
