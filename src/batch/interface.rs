@@ -237,6 +237,36 @@ impl BatchData {
         Ok(())
     }
 
+    /// Edit an existing time filter.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int | str
+    ///     Either 'all', or the index of the filter set to modify.
+    /// name: str
+    ///     The name of the time filter to edit. Must already exist in each
+    ///     modified filter set.
+    /// start: float | None
+    ///     The new start point for the time filter. If None, the start
+    ///     point is left unchanged.
+    /// end: float | None
+    ///     The new end point for the time filter. If None, the end point
+    ///     is left unchanged.
+    #[pyo3(signature = (index, name, start=None, end=None))]
+    pub fn edit_time_filter(
+        &mut self,
+        index: FilterIndex,
+        name: String,
+        start: Option<f64>,
+        end: Option<f64>,
+    ) -> Result<()> {
+        for i in self.resolve_indices(&index)? {
+            self.filters[i].edit_time_filter(name.clone(), start, end)?;
+            self.data_changed[i] = true;
+        }
+        Ok(())
+    }
+
     /// Remove a time filter.
     ///
     /// Parameters
@@ -277,6 +307,40 @@ impl BatchData {
     ) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_log_filter(name.clone(), log.clone(), Some(lower), Some(upper))?;
+            self.data_changed[i] = true;
+        }
+        Ok(())
+    }
+
+    /// Edit an existing sample log filter.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int | str
+    ///     Either 'all', or the index of the filter set to modify.
+    /// name: str
+    ///     The name of the log filter to edit. Must already exist in each
+    ///     modified filter set.
+    /// log: str | None
+    ///     The new sample log for the filter to apply to. If None, the
+    ///     sample log is left unchanged.
+    /// lower: float | None
+    ///     The new lower bound for the log filter. If None, the lower
+    ///     bound is left unchanged.
+    /// upper: float | None
+    ///     The new upper bound for the log filter. If None, the upper
+    ///     bound is left unchanged.
+    #[pyo3(signature = (index, name, log=None, lower=None, upper=None))]
+    pub fn edit_log_filter(
+        &mut self,
+        index: FilterIndex,
+        name: String,
+        log: Option<String>,
+        lower: Option<f64>,
+        upper: Option<f64>,
+    ) -> Result<()> {
+        for i in self.resolve_indices(&index)? {
+            self.filters[i].edit_log_filter(name.clone(), log.clone(), lower, upper)?;
             self.data_changed[i] = true;
         }
         Ok(())
@@ -1030,6 +1094,93 @@ mod tests {
         }
     }
 
+    /// Editing a time filter at a single index should only affect that
+    /// filter set.
+    #[test]
+    fn test_edit_time_filter_single_index() {
+        let mut batch = make_batch(2);
+        batch
+            .add_time_filter(FilterIndex::All, "f1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        batch
+            .edit_time_filter(FilterIndex::Index(0), "f1".to_string(), None, Some(3.0))
+            .unwrap();
+
+        let (_, ends0) = batch.filters[0].get_time_filter_times();
+        let (_, ends1) = batch.filters[1].get_time_filter_times();
+
+        // converted to ns
+        assert_eq!(ends0, vec![3e9 as usize]);
+        assert_eq!(ends1, vec![2e9 as usize]);
+    }
+
+    /// Editing a time filter with index "All" should edit it in every
+    /// filter set.
+    #[test]
+    fn test_edit_time_filter_all_indices() {
+        let mut batch = make_batch(3);
+        batch
+            .add_time_filter(FilterIndex::All, "f1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        batch
+            .edit_time_filter(FilterIndex::All, "f1".to_string(), Some(4.0), Some(5.0))
+            .unwrap();
+
+        for filters in &batch.filters {
+            let (starts, ends) = filters.get_time_filter_times();
+            assert_eq!(starts, vec![4e9 as usize]);
+            assert_eq!(ends, vec![5e9 as usize]);
+        }
+    }
+
+    /// Editing a time filter that doesn't exist in the filter set should
+    /// error.
+    #[test]
+    fn test_edit_time_filter_nonexistent() {
+        let mut batch = make_batch(2);
+        let result =
+            batch.edit_time_filter(FilterIndex::All, "f1".to_string(), Some(1.0), Some(2.0));
+        assert!(result.is_err());
+    }
+
+    /// Editing a filter should mark the filter set for recalculation.
+    #[test]
+    fn test_edit_filter_invalidates_cache() {
+        let mut batch = make_batch(2);
+        batch
+            .add_time_filter(FilterIndex::All, "f1".to_string(), 1.0, 2.0)
+            .unwrap();
+        batch
+            .add_log_filter(
+                FilterIndex::All,
+                "lf1".to_string(),
+                "temp".to_string(),
+                1.0,
+                2.0,
+            )
+            .unwrap();
+
+        batch.data_changed = vec![false; 2];
+        batch
+            .edit_time_filter(FilterIndex::Index(0), "f1".to_string(), Some(1.5), None)
+            .unwrap();
+        assert_eq!(batch.data_changed, vec![true, false]);
+
+        batch.data_changed = vec![false; 2];
+        batch
+            .edit_log_filter(
+                FilterIndex::Index(1),
+                "lf1".to_string(),
+                None,
+                Some(1.5),
+                None,
+            )
+            .unwrap();
+        assert_eq!(batch.data_changed, vec![false, true]);
+    }
+
     /// Adding a log filter at a single index should only affect that
     /// filter set.
     #[test]
@@ -1074,6 +1225,86 @@ mod tests {
                 ["temp".to_string()].into()
             );
         }
+    }
+
+    /// Editing a log filter at a single index should only affect that
+    /// filter set.
+    #[test]
+    fn test_edit_log_filter_single_index() {
+        let mut batch = make_batch(2);
+        batch
+            .add_log_filter(
+                FilterIndex::All,
+                "lf1".to_string(),
+                "temp".to_string(),
+                1.0,
+                2.0,
+            )
+            .unwrap();
+
+        batch
+            .edit_log_filter(
+                FilterIndex::Index(1),
+                "lf1".to_string(),
+                Some("pw".to_string()),
+                None,
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(
+            batch.filters[0].get_required_log_names(),
+            ["temp".to_string()].into()
+        );
+        assert_eq!(
+            batch.filters[1].get_required_log_names(),
+            ["pw".to_string()].into()
+        );
+    }
+
+    /// Editing a log filter with index "All" should edit it in every
+    /// filter set.
+    #[test]
+    fn test_edit_log_filter_all_indices() {
+        let mut batch = make_batch(3);
+        batch
+            .add_log_filter(
+                FilterIndex::All,
+                "lf1".to_string(),
+                "temp".to_string(),
+                1.0,
+                2.0,
+            )
+            .unwrap();
+
+        batch
+            .edit_log_filter(
+                FilterIndex::All,
+                "lf1".to_string(),
+                Some("pw".to_string()),
+                None,
+                None,
+            )
+            .unwrap();
+
+        for filters in &batch.filters {
+            assert_eq!(filters.get_required_log_names(), ["pw".to_string()].into());
+        }
+    }
+
+    /// Editing a log filter that doesn't exist in the filter set should
+    /// error.
+    #[test]
+    fn test_edit_log_filter_nonexistent() {
+        let mut batch = make_batch(2);
+        let result = batch.edit_log_filter(
+            FilterIndex::All,
+            "lf1".to_string(),
+            None,
+            Some(1.0),
+            Some(2.0),
+        );
+        assert!(result.is_err());
     }
 
     /// Removing a log filter at a single index should only affect that
