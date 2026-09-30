@@ -4,12 +4,15 @@ use ndarray::Array1;
 /// Binary search to find the left bounding index of a target value.
 /// start and stop are the indices of the array to search between.
 #[inline]
-pub fn binary_search(array: &Array1<usize>, start: usize, stop: usize, target: usize) -> usize {
+pub fn binary_search<T>(array: &Array1<T>, start: usize, stop: usize, target: T) -> usize
+where
+    T: Ord + Clone,
+{
     if stop - start == 1 {
         start
     } else if stop > start {
         let midpoint = start + (stop - start) / 2;
-        let midpoint_value = array[midpoint];
+        let midpoint_value = array[midpoint].clone();
         if midpoint_value == target {
             midpoint
         } else if midpoint_value > target {

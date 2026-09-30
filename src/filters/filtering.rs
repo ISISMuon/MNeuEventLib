@@ -5,9 +5,9 @@ use crate::utils::binary_search;
 
 // Given a list of filter start and end times, get the weights array.
 pub fn get_weights(
-    filter_starts: Vec<usize>,
-    filter_ends: Vec<usize>,
-    frame_start_times: &Array1<usize>,
+    filter_starts: Vec<u64>,
+    filter_ends: Vec<u64>,
+    frame_start_times: &Array1<u64>,
     include: bool,
 ) -> Weights {
     let n_frames = frame_start_times.len();
@@ -18,9 +18,9 @@ pub fn get_weights(
 /// Assuming the data is sorted, get which frames the filters belong to.
 #[inline(always)]
 fn get_indices(
-    start_times: &Array1<usize>,
-    filter_starts: Vec<usize>,
-    filter_ends: Vec<usize>,
+    start_times: &Array1<u64>,
+    filter_starts: Vec<u64>,
+    filter_ends: Vec<u64>,
 ) -> (Vec<usize>, Vec<usize>) {
     let n_filters = filter_starts.len();
     let n_frames = start_times.len();
@@ -28,8 +28,8 @@ fn get_indices(
     // map each filter to a (start, stop) index pair
     (0..n_filters)
         .map(|j| {
-            let start = binary_search(start_times, 0, n_frames, filter_starts[j]);
-            let end = binary_search(start_times, 0, n_frames, filter_ends[j]) + 1;
+            let start = binary_search::<u64>(start_times, 0, n_frames, filter_starts[j]);
+            let end = binary_search::<u64>(start_times, 0, n_frames, filter_ends[j]) + 1;
 
             (start, end)
         })
@@ -169,9 +169,9 @@ mod tests {
 
     /// Helper function for get_weights tests.
     fn weight_test_helper(
-        starts: Vec<usize>,
-        ends: Vec<usize>,
-        start_times: Array1<usize>,
+        starts: Vec<u64>,
+        ends: Vec<u64>,
+        start_times: Array1<u64>,
         expected: Weights,
     ) {
         let weights = get_weights(starts.clone(), ends.clone(), &start_times, true);
