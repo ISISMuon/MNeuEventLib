@@ -1,5 +1,6 @@
 use std::cmp::min;
 use std::iter::Iterator;
+use std::sync::Mutex;
 
 use anyhow::{Error, Result};
 use ndarray::{s, Array1, Array3};
@@ -20,6 +21,29 @@ pub struct Histogram {
     pub n_good_frames: Vec<u32>,
     pub start_time: usize,
     pub end_time: usize,
+}
+
+/// Per-worker accumulation state for `calculate_histograms`.
+///
+/// this holds the working data as we build up the histogram
+/// for each thread, then they're all combined at the end
+struct Accumulator {
+    hist: Array3<i32>,
+    n: usize,
+}
+
+impl Accumulator {
+    fn zeros(n_periods: usize, n_spec: usize, n_bins: usize) -> Accumulator {
+        Accumulator {
+            hist: Array3::zeros((n_periods, n_spec, n_bins)),
+            n: 0,
+        }
+    }
+
+    fn merge(&mut self, other: &Accumulator) {
+        self.hist += &other.hist;
+        self.n += other.n;
+    }
 }
 
 impl Histogram {
@@ -168,11 +192,19 @@ pub fn calculate_histograms(
 ) -> Histogram {
     let width: f32 = (max_time - min_time) as f32 / n_bins as f32;
 
+    // accumulate one histogram per worker
+    // current_thread_index may be None (if it runs on a thread that isn't a Rayon thread somehow)
+    // so we keep a fallback slot just in case
+    let n_threads = rayon::current_num_threads() + 1;
+    let fallback_slot = n_threads - 1;
+    let accumulators: Vec<Mutex<Option<Accumulator>>> =
+        (0..n_threads).map(|_| Mutex::new(None)).collect();
+
     // iterate over the data chunks, make histograms for each, then sum histograms at the end
     (0..dataset.n_events)
         .into_par_iter()
         .step_by(dataset.chunk_size)
-        .map(|start| {
+        .for_each(|start| {
             let end = min(start + (dataset.chunk_size), dataset.n_events);
             let array_slice = s![start..end];
             let amps: Array1<f64> = dataset
@@ -187,59 +219,61 @@ pub fn calculate_histograms(
                 .specs
                 .read_slice_1d(array_slice)
                 .expect("Failed to read specs.");
+
+            let thread = rayon::current_thread_index().unwrap_or(fallback_slot);
+            let mut acc_mutex = accumulators[thread]
+                .lock()
+                .expect("accumulator thread panicked!");
+            let acc = acc_mutex
+                .get_or_insert_with(|| Accumulator::zeros(n_periods, dataset.n_spec, n_bins));
+
             make_histogram(
+                acc,
                 times,
                 specs,
                 amps,
-                dataset.n_spec,
                 &periods,
-                n_periods,
                 &min_amps,
                 weights,
                 frame_data.slice(start, end),
                 min_time,
                 max_time,
-                n_bins,
                 width,
-            )
+            );
+        });
+
+    // merge accumulators
+    let result = accumulators
+        .into_iter()
+        .filter_map(|thread| thread.into_inner().expect("accumulator thread panicked!"))
+        .reduce(|mut acc, other| {
+            acc.merge(&other);
+            acc
         })
-        // accumulate all chunk histograms together
-        .reduce(
-            || {
-                // rayon's reduce requires to initialise an identity value...
-                let mut empty_hist = Histogram::new(min_time, max_time, n_bins);
-                empty_hist.hist = Array3::zeros((n_periods, dataset.n_spec, n_bins));
-                empty_hist
-            },
-            |mut acc, r| {
-                acc.hist += &r.hist;
-                acc.n += &r.n;
-                acc
-            },
-        )
+        .unwrap_or_else(|| Accumulator::zeros(n_periods, dataset.n_spec, n_bins));
+
+    let mut histogram = Histogram::new(min_time, max_time, n_bins);
+    histogram.hist = result.hist;
+    histogram.n = result.n;
+    histogram
 }
 
-/// Make a histogram for a set of data.
+/// Make a histogram for a set of data into `acc`.
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 fn make_histogram(
+    acc: &mut Accumulator,
     times: Array1<u32>,
     specs: Array1<u32>,
     amps: Array1<f64>,
-    n_spec: usize,
     periods: &Array1<u32>,
-    n_periods: usize,
     min_amps: &Array1<f64>,
     weights: &Weights,
     frame_data: FrameData,
     min_time: u32,
     max_time: u32,
-    n_bins: usize,
     width: f32,
-) -> Histogram {
-    let mut result = Histogram::new(min_time, max_time, n_bins);
-    result.hist = Array3::zeros((n_periods, n_spec, n_bins));
-
+) {
     let last_frame = frame_data.frame_number.last().unwrap();
 
     // iterate over the frames in the slice
@@ -265,18 +299,42 @@ fn make_histogram(
             let spec = specs[k] as usize;
 
             if (t >= min_time) && (t < max_time) && amp > min_amps[spec] {
-                let bin = ((t - min_time) as f32 / width).floor() as usize;
-                result.hist[[period, spec, bin]] += 1;
-                result.n += 1
+                let bin = ((t - min_time) as f32 / width) as usize;
+                acc.hist[[period, spec, bin]] += 1;
+                acc.n += 1
             }
         }
     }
-    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Run a histogram over one chunk of data.
+    #[allow(clippy::too_many_arguments)]
+    fn histogram_one_chunk(
+        times: Array1<u32>,
+        specs: Array1<u32>,
+        amps: Array1<f64>,
+        n_spec: usize,
+        periods: &Array1<u32>,
+        n_periods: usize,
+        min_amps: &Array1<f64>,
+        weights: &Weights,
+        frame_data: FrameData,
+        min_time: u32,
+        max_time: u32,
+        n_bins: usize,
+        width: f32,
+    ) -> Accumulator {
+        let mut acc = Accumulator::zeros(n_periods, n_spec, n_bins);
+        make_histogram(
+            &mut acc, times, specs, amps, periods, min_amps, weights, frame_data, min_time,
+            max_time, width,
+        );
+        acc
+    }
 
     /// Test Histogram::new creates correct empty histogram.
     #[test]
@@ -299,7 +357,7 @@ mod tests {
         let min_amps = Array1::zeros(6);
         let weights = Weights::ones(6);
 
-        let result = make_histogram(
+        let result = histogram_one_chunk(
             times,
             specs,
             amps,
@@ -332,7 +390,7 @@ mod tests {
         // weight bytes are filtering out values 0, 3, 4
         let weights = Weights::from_raw(vec![0b100110]);
 
-        let result = make_histogram(
+        let result = histogram_one_chunk(
             times,
             specs,
             amps,
@@ -364,7 +422,7 @@ mod tests {
         let min_amps = Array1::zeros(6);
         let weights = Weights::ones(6);
 
-        let result = make_histogram(
+        let result = histogram_one_chunk(
             times,
             specs,
             amps,
@@ -408,7 +466,7 @@ mod tests {
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
-        let result = make_histogram(
+        let result = histogram_one_chunk(
             times,
             specs,
             amps,
@@ -440,7 +498,7 @@ mod tests {
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
 
-        let result = make_histogram(
+        let result = histogram_one_chunk(
             times,
             specs,
             amps,
@@ -472,7 +530,7 @@ mod tests {
         let min_amps = Array1::from_vec(vec![0.5, 1.5]);
         let weights = Weights::ones(6);
 
-        let result = make_histogram(
+        let result = histogram_one_chunk(
             times,
             specs,
             amps,
@@ -492,6 +550,62 @@ mod tests {
 
         assert_eq!(result.hist, expected);
         assert_eq!(result.n, 4)
+    }
+
+    /// Test that two chunks accumulated into one accumulator give the same
+    /// result as a single chunk over the same events
+    #[test]
+    fn test_accumulator_reuse_across_chunks() {
+        let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
+        let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
+        let amps: Array1<f64> = Array1::ones(6);
+        let periods = Array1::zeros(6);
+        let min_amps = Array1::zeros(6);
+        let weights = Weights::ones(6);
+        let frame_data = FrameData::new(Array1::from_vec((0..6).collect()), 6);
+
+        // all six events in one chunk
+        let single = histogram_one_chunk(
+            times.clone(),
+            specs.clone(),
+            amps.clone(),
+            2,
+            &periods,
+            1,
+            &min_amps,
+            &weights,
+            frame_data.slice(0, 6),
+            0,
+            3000,
+            3,
+            1000.,
+        );
+
+        // the same six events as two chunks into a single accumulator
+        let mut split = Accumulator::zeros(1, 2, 3);
+        for (start, end) in [(0, 3), (3, 6)] {
+            make_histogram(
+                &mut split,
+                times.slice(s![start..end]).to_owned(),
+                specs.slice(s![start..end]).to_owned(),
+                amps.slice(s![start..end]).to_owned(),
+                &periods,
+                &min_amps,
+                &weights,
+                frame_data.slice(start, end),
+                0,
+                3000,
+                1000.,
+            );
+        }
+
+        assert_eq!(split.hist, single.hist);
+        assert_eq!(split.n, single.n);
+
+        // the same values the single-chunk tests above pin down
+        let expected = Array3::<i32>::from_shape_vec((1, 2, 3), vec![1, 1, 2, 1, 0, 1]).unwrap();
+        assert_eq!(split.hist, expected);
+        assert_eq!(split.n, 6)
     }
 
     /// Test that `get_period_frames` correctly counts kept frames per period
