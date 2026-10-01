@@ -39,10 +39,10 @@ where
 ///
 /// Not designed or maintained for API use. Function to be used by MNeuEventGUI.
 #[pyfunction]
-pub fn _get_filter_times(index: usize, data: &BatchData) -> Result<(Vec<usize>, Vec<usize>)> {
+pub fn _get_filter_times(index: usize, data: &BatchData) -> Result<(Vec<u64>, Vec<u64>)> {
     let filters = &data.filters[index];
     let data = &data.dataset;
-    let frame_times = data.frame_times.read_1d()?;
+    let frame_times: Array1<u64> = data.frame_times.read_1d()?;
     let min_time = frame_times[0];
     let max_time = *frame_times.iter().last().unwrap(); // frame times is always finite
 
@@ -80,11 +80,11 @@ pub fn _get_filter_times(index: usize, data: &BatchData) -> Result<(Vec<usize>, 
 
 /// Intersect two sets of sorted, disjoint intervals.
 fn intersect_intervals(
-    starts_a: &[usize],
-    ends_a: &[usize],
-    starts_b: &[usize],
-    ends_b: &[usize],
-) -> (Vec<usize>, Vec<usize>) {
+    starts_a: &[u64],
+    ends_a: &[u64],
+    starts_b: &[u64],
+    ends_b: &[u64],
+) -> (Vec<u64>, Vec<u64>) {
     let mut new_starts = Vec::new();
     let mut new_ends = Vec::new();
 
@@ -110,14 +110,13 @@ fn intersect_intervals(
 }
 
 /// Get a list of intervals and remove overlaps.
-fn remove_overlaps(starts: &[usize], ends: &[usize]) -> (Vec<usize>, Vec<usize>) {
+fn remove_overlaps(starts: &[u64], ends: &[u64]) -> (Vec<u64>, Vec<u64>) {
     if starts.is_empty() {
         return (Vec::new(), Vec::new());
     }
 
     // Pair up starts and ends, then sort by start.
-    let mut intervals: Vec<(&usize, &usize)> =
-        starts.iter().clone().zip(ends.iter().clone()).collect();
+    let mut intervals: Vec<(u64, u64)> = starts.iter().copied().zip(ends.iter().copied()).collect();
 
     intervals.sort_by_key(|&(start, _)| start);
 
@@ -132,29 +131,24 @@ fn remove_overlaps(starts: &[usize], ends: &[usize]) -> (Vec<usize>, Vec<usize>)
             current.1 = current.1.max(end);
         } else {
             // No overlap, so save the current interval.
-            new_starts.push(*current.0);
-            new_ends.push(*current.1);
+            new_starts.push(current.0);
+            new_ends.push(current.1);
             current = (start, end);
         }
     }
 
-    new_starts.push(*current.0);
-    new_ends.push(*current.1);
+    new_starts.push(current.0);
+    new_ends.push(current.1);
 
     (new_starts, new_ends)
 }
 
 /// Invert an array of disjoint intervals.
-pub fn invert_intervals(
-    starts: &[usize],
-    ends: &[usize],
-    min: usize,
-    max: usize,
-) -> (Vec<usize>, Vec<usize>) {
-    let mut new_ends: Vec<usize> = starts.into();
+pub fn invert_intervals(starts: &[u64], ends: &[u64], min: u64, max: u64) -> (Vec<u64>, Vec<u64>) {
+    let mut new_ends: Vec<u64> = starts.into();
     new_ends.push(max);
 
-    let mut new_starts: Vec<usize> = vec![min];
+    let mut new_starts: Vec<u64> = vec![min];
     new_starts.extend_from_slice(ends);
 
     (new_starts, new_ends)
@@ -194,7 +188,7 @@ mod tests {
     use crate::test_utils::MockData;
 
     /// Create a mock dataset whose frame times are the given times (in ns).
-    fn make_mock(frame_times: Vec<usize>) -> MockData {
+    fn make_mock(frame_times: Vec<u64>) -> MockData {
         let mock = MockData::new().unwrap();
         mock.add_dataset("event_time_zero", Array1::from_vec(frame_times))
             .unwrap();
