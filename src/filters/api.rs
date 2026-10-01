@@ -293,6 +293,12 @@ impl Filters {
             return "No filters applied\n\n".to_string();
         }
 
+        let overwrite_string = if self.overwrite_type == OverwriteType::Free {
+            "Overwrite type set to 'free'\n\n"
+        } else {
+            ""
+        };
+
         let time_string = if no_times {
             "".to_string()
         } else {
@@ -337,7 +343,7 @@ impl Filters {
             format!("Amplitude filters:\n{amps_table}\n\n")
         };
 
-        format!("{time_string}{log_string}{amps_string}")
+        format!("{overwrite_string}{time_string}{log_string}{amps_string}")
     }
 }
 
