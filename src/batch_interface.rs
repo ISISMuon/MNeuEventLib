@@ -1,4 +1,6 @@
-use crate::data::save::sanitise::nexus_data::{get_period_info, save_default};
+use crate::data::save::sanitise::nexus_data::{
+    get_default_ref_file_path, get_period_info, save_default,
+};
 use crate::data::{NexusData, SaveFile, WiMDAFile};
 use crate::filters::Filters;
 use crate::stats::Histogram;
@@ -6,7 +8,6 @@ use anyhow::{Error, Result};
 use numpy::{PyArray3, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Borrowed, Bound, FromPyObject, PyAny};
 use pyo3::types::{PyInt, PyString};
-use std::path::PathBuf;
 
 pub type PyHist<'py> = Bound<'py, PyArray3<i32>>;
 
@@ -385,16 +386,19 @@ impl BatchData {
     /// ref_file: str
     ///     The reference file for the saved file. (must be a Nexus file)
     ///     Contains "correct" data that should be copied to the output file.
-    ///     This is only need it the reference file needed is not the standard
-    ///     muon nexus v2 file. The ref_file is generated from tools/make_default.py.
-    #[pyo3(signature = (index, filename, autofill=true, ref_file = (PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("files/muon_ref.nxs")).display().to_string()))]
+    ///     This is only needed if the reference file needed is not the standard
+    ///     muon nexus v2 file. If None, uses the standard embedded default muon Nexus reference file.
+    #[pyo3(signature = (index, filename, autofill=true, ref_file=None))]
     pub fn save(
         &self,
         index: FilterIndex,
         filename: String,
         autofill: bool,
-        ref_file: String,
+        ref_file: Option<String>,
     ) -> Result<()> {
+        let ref_path = get_default_ref_file_path(ref_file)?;
+        let ref_file_str = ref_path.to_string_lossy().to_string();
+
         let filename_stem = if filename.to_lowercase().ends_with(".nxs") {
             filename.clone()[..(filename.len() - 4)].to_string()
         } else {
@@ -411,7 +415,7 @@ impl BatchData {
                 let wimda_file = WiMDAFile::new(&self.dataset, &self.filters[i], &self.results[i])?;
                 wimda_file.save_file(format!("{filename_stem}.nxs"), &self.dataset.file)?;
                 if autofill {
-                    self.save_nexus(format!("{filename_stem}.nxs"), ref_file.clone())?;
+                    self.save_nexus(format!("{filename_stem}.nxs"), ref_file_str.clone())?;
                 }
             }
             FilterIndex::All => {
@@ -425,7 +429,7 @@ impl BatchData {
                         WiMDAFile::new(&self.dataset, &self.filters[i], &self.results[i])?;
                     wimda_file.save_file(format!("{filename_stem}_{i}.nxs"), &self.dataset.file)?;
                     if autofill {
-                        self.save_nexus(format!("{filename_stem}_{i}.nxs"), ref_file.clone())?;
+                        self.save_nexus(format!("{filename_stem}_{i}.nxs"), ref_file_str.clone())?;
                     }
                 }
             }
