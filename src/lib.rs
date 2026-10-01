@@ -22,6 +22,7 @@ mod batch_interface;
 use batch_interface::BatchData;
 mod consts;
 mod utils;
+use utils::_get_filter_times;
 
 #[cfg(test)]
 mod test_utils;
@@ -32,5 +33,6 @@ fn core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NexusData>()?;
     m.add_class::<Data>()?;
     m.add_class::<BatchData>()?;
+    m.add_function(wrap_pyfunction!(_get_filter_times, m)?)?;
     Ok(())
 }

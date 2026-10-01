@@ -25,6 +25,7 @@ pub struct NexusData {
     pub frame_times: Dataset,
     pub periods: Dataset,
     pub sample_logs: Group,
+    #[pyo3(get)]
     pub sample_log_names: Vec<String>,
     pub n_events: usize, // the total number of events
     pub n_frames: usize,
@@ -35,7 +36,7 @@ pub struct NexusData {
 #[pymethods]
 impl NexusData {
     /// used for testing
-    fn get_frame_times<'py>(slf: &Bound<'py, NexusData>) -> Bound<'py, PyArray1<u32>> {
+    fn get_frame_times<'py>(slf: &Bound<'py, NexusData>) -> Bound<'py, PyArray1<u64>> {
         let py = slf.py();
         slf.borrow().frame_times.read_1d().unwrap().to_pyarray(py)
     }
