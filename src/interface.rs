@@ -204,6 +204,11 @@ impl Data {
 
     /// Save to a file.
     ///
+    /// If the result is out of date (because the filters or histogram
+    /// settings have changed since it was last calculated, or because it has
+    /// never been calculated) it is recalculated first, and a warning is
+    /// printed to say so.
+    ///
     /// Parameters
     /// ----------
     /// filename: str
@@ -220,7 +225,7 @@ impl Data {
     ///     This is only needed if the reference file needed is not the standard
     ///     muon nexus v2 file. If None, uses the standard embedded default muon Nexus reference file.
     #[pyo3(signature = (filename, autofill=true, ref_file=None))]
-    fn save(&self, filename: String, autofill: bool, ref_file: Option<String>) -> Result<()> {
+    fn save(&mut self, filename: String, autofill: bool, ref_file: Option<String>) -> Result<()> {
         self.inner
             .save(FilterIndex::Index(0), filename, autofill, ref_file)
     }
