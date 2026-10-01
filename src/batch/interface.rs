@@ -405,7 +405,7 @@ impl BatchData {
 
         let mut filters = self.filters.clone();
         for (i, filter) in filters.iter_mut().enumerate() {
-            filter.extend(other.filters[i].clone())
+            filter.extend(other.filters[i].clone())?
         }
 
         Ok(BatchData {
@@ -476,7 +476,7 @@ impl BatchData {
             for j in 0..m {
                 // pushing in this order puts the pair (i, j) at index i * m + j
                 let mut combined = self.filters[i].clone();
-                combined.extend(other.filters[j].clone());
+                combined.extend(other.filters[j].clone())?;
                 filters.push(combined);
             }
         }
@@ -1181,7 +1181,7 @@ mod tests {
             assert_eq!(starts, vec![(i as f64 * 1e9) as u64]);
             assert_eq!(ends, vec![((i + 1) as f64 * 1e9) as u64]);
             // the log filter comes from the other object's filter set i
-            assert_eq!(filters.get_required_log_names(), vec![format!("log{i}")]);
+            assert_eq!(filters.get_required_log_names(), [format!("log{i}")].into());
         }
     }
 
@@ -1271,7 +1271,7 @@ mod tests {
                 assert_eq!(starts, vec![((2 * i + 1) as f64 * 1e9) as u64]);
                 assert_eq!(ends, vec![((2 * i + 2) as f64 * 1e9) as u64]);
                 // the log filter comes from the other object's filter set j
-                assert_eq!(filters.get_required_log_names(), vec![format!("log{j}")]);
+                assert_eq!(filters.get_required_log_names(), [format!("log{j}")].into());
             }
         }
     }
@@ -1301,7 +1301,10 @@ mod tests {
         for filters in &combined.filters {
             let (starts, _) = filters.get_time_filter_times();
             assert_eq!(starts, vec![1e9 as u64]);
-            assert_eq!(filters.get_required_log_names(), vec!["temp".to_string()]);
+            assert_eq!(
+                filters.get_required_log_names(),
+                ["temp".to_string()].into()
+            );
         }
     }
 
