@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use crate::data::save::sanitise::utils::*;
 use crate::data::save::utils::*;
@@ -8,7 +9,7 @@ use hdf5::{File, Group};
 use ndarray::Array1;
 
 /// Create a new dataset in the destination file with default values.
-/// These values are given in the reference file (made from tools/make_default.py
+/// These values are given in the reference file (made from MNeuEventLib/make_default.py
 /// and the length of the data array depends on the number of periods in the data)
 ///
 /// Parameters
@@ -215,6 +216,50 @@ pub fn get_period_info(file_name: &str) -> Result<(usize, usize)> {
     };
     let periods = labels.split(',').count();
     Ok((periods, 0)) // at present no Dwell info so its always zero
+}
+
+/// Get the path to the reference file for saving default values.
+///
+/// Parameters
+/// ----------
+/// ref_file: Option<String>
+///     The optional path to a reference file. If None or empty, resolves to the default
+///     reference file (checking the local workspace path first, then extracting the embedded
+///     default muon Nexus reference file).
+pub fn get_default_ref_file_path(ref_file: Option<String>) -> Result<PathBuf> {
+    // check user defined path to reference file
+    if let Some(ref path_str) = ref_file {
+        if !path_str.trim().is_empty() {
+            let path = PathBuf::from(path_str);
+            if path.exists() {
+                return Ok(path);
+            } else {
+                return Err(anyhow!("Reference file '{}' not found.", path_str));
+            }
+        }
+    }
+
+    // check for the muon_ref file (dev builds)
+    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("files/muon_ref.nxs");
+    if manifest_path.exists() {
+        return Ok(manifest_path);
+    }
+
+    // use the embedded muon_ref file (PYPI release version)
+    static EMBEDDED_REF: &[u8] =
+        include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/files/muon_ref.nxs"));
+    let temp_path = std::env::temp_dir().join("mneu_muon_ref_default.nxs");
+    // check embedded file exists
+    let write_needed = match std::fs::metadata(&temp_path) {
+        Ok(meta) => meta.len() != EMBEDDED_REF.len() as u64,
+        Err(_) => true,
+    };
+    // if not write it
+    if write_needed {
+        std::fs::write(&temp_path, EMBEDDED_REF)?;
+    }
+
+    Ok(temp_path)
 }
 
 /// Saves default values to the output file based on the reference file and shape information.
@@ -703,5 +748,28 @@ mod tests {
             .read_1d()
             .unwrap();
         assert_eq!(inst_setting.to_vec(), vec![1.23]);
+    }
+
+    #[test]
+    fn test_get_default_ref_file_path_none() {
+        let path = get_default_ref_file_path(None).unwrap();
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn test_get_default_ref_file_path_provided_exists() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("my_ref.nxs");
+        std::fs::write(&file_path, b"test").unwrap();
+
+        let res_path =
+            get_default_ref_file_path(Some(file_path.to_str().unwrap().to_string())).unwrap();
+        assert_eq!(res_path, file_path);
+    }
+
+    #[test]
+    fn test_get_default_ref_file_path_provided_missing() {
+        let res = get_default_ref_file_path(Some("non_existent_ref_12345.nxs".to_string()));
+        assert!(res.is_err());
     }
 }

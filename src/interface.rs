@@ -5,8 +5,6 @@ use pyo3::prelude::{pyclass, pymethods, Bound};
 use crate::batch_interface::{FilterIndex, PyHist};
 use crate::{BatchData, NexusData};
 
-use std::path::PathBuf;
-
 /// The main MNeuEventLib interface.
 #[pyclass(from_py_object)]
 #[derive(Clone)]
@@ -201,15 +199,15 @@ impl Data {
     ///     have mistakes/problems).
     ///     This allows the file to be read by Mantid even if the event file
     ///     is incomplete.
-    /// ref_file: str
+    /// ref_file: str | None
     ///     The reference file for the saved file. (must be a Nexus file)
     ///     Contains "correct" data that should be copied to the output file.
-    ///     This is only need it the reference file needed is not the standard
-    ///     muon nexus v2 file. The ref_file is generated from tools/make_default.py.
-    #[pyo3(signature = (filename, autofill=true, ref_file = (PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("files/muon_ref.nxs")).display().to_string()))]
-    fn save(&self, filename: String, autofill: bool, ref_file: String) -> Result<()> {
+    ///     This is only needed if the reference file needed is not the standard
+    ///     muon nexus v2 file. If None, uses the standard embedded default muon Nexus reference file.
+    #[pyo3(signature = (filename, autofill=true, ref_file=None))]
+    fn save(&self, filename: String, autofill: bool, ref_file: Option<String>) -> Result<()> {
         self.inner
-            .save(FilterIndex::Index(0), filename, autofill, ref_file.clone())
+            .save(FilterIndex::Index(0), filename, autofill, ref_file)
     }
 
     /// Get the calculated histogram.
