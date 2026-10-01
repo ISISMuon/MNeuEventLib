@@ -59,7 +59,10 @@ pub struct BatchData {
     pub dataset: Option<NexusData>,
     pub results: Vec<Histogram>,
     pub filters: Vec<Filters>,
-    data_changed: Vec<bool>, // whether data has changed since last calculation, per filter set
+    // whether data has changed since last calculation, per filter set.
+    // a filter set whose data has changed has an empty result, so a stale
+    // histogram can never be read back; see `mark_changed`.
+    data_changed: Vec<bool>,
 }
 
 #[pymethods]
@@ -127,7 +130,9 @@ impl BatchData {
 
     /// Force histograms to be recalculated even if the data hasn't changed.
     pub fn invalidate_cache(&mut self) {
-        self.data_changed = vec![true; self.n_batches()]
+        for i in 0..self.n_batches() {
+            self.mark_changed(i);
+        }
     }
 
     /// Set histogram settings for one or all filter sets.
@@ -159,9 +164,9 @@ impl BatchData {
             return Err(Error::msg("max_time must be greater than min_time."));
         }
         for i in self.resolve_indices(&index)? {
-            self.data_changed[i] = true;
             self.results[i] =
                 Histogram::new((min_time * 1e3) as u32, (max_time * 1e3) as u32, n_bins);
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -177,7 +182,7 @@ impl BatchData {
     pub fn set_time_type(&mut self, index: FilterIndex, filter_type: String) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].set_time_type(filter_type.clone())?;
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -221,7 +226,7 @@ impl BatchData {
     ) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_time_filter(name.clone(), start, end)?;
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -237,7 +242,7 @@ impl BatchData {
     pub fn remove_time_filter(&mut self, index: FilterIndex, name: String) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].remove_time_filter(name.clone())?;
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -266,7 +271,7 @@ impl BatchData {
     ) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_log_filter(name.clone(), log.clone(), Some(lower), Some(upper))?;
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -282,7 +287,7 @@ impl BatchData {
     pub fn remove_log_filter(&mut self, index: FilterIndex, name: String) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].remove_log_filter(name.clone())?;
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -308,7 +313,7 @@ impl BatchData {
     ) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_log_filter_above(name.clone(), log.clone(), lower)?;
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -334,7 +339,7 @@ impl BatchData {
     ) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_log_filter_below(name.clone(), log.clone(), upper)?;
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -352,7 +357,7 @@ impl BatchData {
     pub fn set_amp(&mut self, index: FilterIndex, detector: usize, amp: f64) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].set_amp(detector, amp);
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -368,7 +373,7 @@ impl BatchData {
     pub fn set_amps_baseline(&mut self, index: FilterIndex, amp: f64) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].set_amps_baseline(amp);
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -586,6 +591,10 @@ impl BatchData {
 
     /// Get a calculated histogram.
     ///
+    /// A histogram is empty if its filters or histogram settings have
+    /// changed since it was last calculated, or if it has never been
+    /// calculated.
+    ///
     /// Parameters
     /// ----------
     /// index: int
@@ -652,6 +661,13 @@ impl BatchData {
             filters: vec![Filters::new(); n],
             data_changed: vec![true; n],
         }
+    }
+
+    /// Mark filter set `i`'s result as out of date, emptying its histogram
+    /// so that a stale result can't be read back before it's recalculated.
+    fn mark_changed(&mut self, i: usize) {
+        self.data_changed[i] = true;
+        self.results[i].reset();
     }
 
     /// Calculate the histogram for filter set `i`, if its result is out of
@@ -966,6 +982,38 @@ mod tests {
         assert_eq!(batch.stale_indices(&[0, 1, 2]), vec![1]);
         // a set that isn't being saved shouldn't be recalculated
         assert!(batch.stale_indices(&[0, 2]).is_empty());
+    }
+
+    /// Changing one filter set should empty that set's histogram, leaving
+    /// the other results intact.
+    #[test]
+    fn test_filter_change_empties_result() {
+        let (mut batch, _guard) = make_calculable_batch(2);
+        batch.calculate().unwrap();
+        batch
+            .add_time_filter(FilterIndex::Index(1), "f1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        assert_eq!(batch.results[1].hist.dim(), (0, 0, 0));
+        assert_eq!(batch.results[1].n, 0);
+        assert_ne!(batch.results[0].hist.dim(), (0, 0, 0));
+        assert!(batch.results[0].n > 0);
+    }
+
+    /// Emptying a result shouldn't lose its histogram settings.
+    #[test]
+    fn test_filter_change_keeps_histogram_settings() {
+        let (mut batch, _guard) = make_calculable_batch(1);
+        batch
+            .set_histogram_settings(FilterIndex::All, 0.5, 2.5, 16)
+            .unwrap();
+        batch.calculate().unwrap();
+        batch.set_amp(FilterIndex::All, 0, 1.0).unwrap();
+
+        assert_eq!(batch.results[0].min_time, 500);
+        assert_eq!(batch.results[0].max_time, 2500);
+        assert_eq!(batch.results[0].n_bins, 16);
+        assert_eq!(batch.results[0].hist.dim(), (0, 0, 0));
     }
 
     /// invalidate_cache should make every result stale again.

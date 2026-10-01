@@ -231,6 +231,9 @@ impl Data {
     }
 
     /// Get the calculated histogram.
+    ///
+    /// This is empty if the filters or histogram settings have changed
+    /// since the last calculation, or if `calculate` has never been run.
     fn get_histogram<'py>(slf: &Bound<'py, Data>) -> PyHist<'py> {
         let py = slf.py();
         slf.borrow().inner.results[0].hist.to_pyarray(py)
