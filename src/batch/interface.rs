@@ -1111,8 +1111,8 @@ mod tests {
         let (_, ends1) = batch.filters[1].get_time_filter_times();
 
         // converted to ns
-        assert_eq!(ends0, vec![3e9 as usize]);
-        assert_eq!(ends1, vec![2e9 as usize]);
+        assert_eq!(ends0, vec![3e9 as u64]);
+        assert_eq!(ends1, vec![2e9 as u64]);
     }
 
     /// Editing a time filter with index "All" should edit it in every
@@ -1130,8 +1130,8 @@ mod tests {
 
         for filters in &batch.filters {
             let (starts, ends) = filters.get_time_filter_times();
-            assert_eq!(starts, vec![4e9 as usize]);
-            assert_eq!(ends, vec![5e9 as usize]);
+            assert_eq!(starts, vec![4e9 as u64]);
+            assert_eq!(ends, vec![5e9 as u64]);
         }
     }
 
