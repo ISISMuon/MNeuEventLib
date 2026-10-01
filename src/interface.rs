@@ -86,8 +86,8 @@ impl Data {
     /// overwrite_type: str
     ///     The overwrite behaviour. Must be 'strict', 'relaxed', or 'free':  
     ///     - 'strict' produces an error on attempted overwrite;
-    ///     - 'relaxed' allows and produces a warning;
-    ///     - 'free' allows with no warning.
+    ///     - 'relaxed' allows overwriting and produces a warning;
+    ///     - 'free' allows overwriting with no warnings.
     fn set_overwrite_type(&mut self, overwrite_type: String) -> Result<()> {
         self.inner
             .set_overwrite_type(FilterIndex::Index(0), overwrite_type)

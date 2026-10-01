@@ -180,8 +180,8 @@ impl BatchData {
     /// overwrite_type: str
     ///     The overwrite behaviour. Must be 'strict', 'relaxed', or 'free':  
     ///     - 'strict' produces an error on attempted overwrite;
-    ///     - 'relaxed' allows and produces a warning;
-    ///     - 'free' allows with no warning.
+    ///     - 'relaxed' allows overwriting and produces a warning;
+    ///     - 'free' allows overwriting with no warnings.
     pub fn set_overwrite_type(&mut self, index: FilterIndex, overwrite_type: String) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].set_overwrite_type(&overwrite_type)?

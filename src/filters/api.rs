@@ -164,6 +164,24 @@ impl Filters {
         }
     }
 
+    /// Handle an overwrite attempt.
+    pub fn handle_overwrite(&self, name: &str) -> Result<()> {
+        match self.overwrite_type {
+            OverwriteType::Strict => Err(Error::msg(
+                "Name already exists! Use `print(filters)` to see a list of all filters.",
+            )),
+            OverwriteType::Relaxed => {
+                println!(
+                    "Warning: overwriting filter {name}. 
+                To suppress this warning, call set_overwrite_type('free'). 
+                To turn this warning into an error, call set_overwrite_type('strict')."
+                );
+                Ok(())
+            }
+            OverwriteType::Free => Ok(()),
+        }
+    }
+
     /// Add a time filter.
     pub fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> Result<()> {
         if !start.is_finite() || !end.is_finite() {
@@ -182,21 +200,7 @@ impl Filters {
             .keys()
             .any(|filter_name| *filter_name == name)
         {
-            match self.overwrite_type {
-                OverwriteType::Strict => {
-                    return Err(Error::msg(
-                        "Name already exists! Use `print(filters)` to see a list of all filters.",
-                    ));
-                }
-                OverwriteType::Relaxed => {
-                    println!(
-                        "Warning: overwriting filter {name}. 
-                    To suppress this warning, call set_overwrite_type('free'). 
-                    To turn this warning into an error, call set_overwrite_type('strict')."
-                    );
-                }
-                OverwriteType::Free => {}
-            }
+            self.handle_overwrite(&name)?;
         }
 
         self.time_filters.insert(name, Filter { start, end });
@@ -230,22 +234,9 @@ impl Filters {
             .keys()
             .any(|filter_name| *filter_name == name)
         {
-            match self.overwrite_type {
-                OverwriteType::Strict => {
-                    return Err(Error::msg(
-                        "Name already exists! Use `print(filters)` to see a list of all filters.",
-                    ));
-                }
-                OverwriteType::Relaxed => {
-                    println!(
-                        "Warning: overwriting filter {name}. 
-                    To suppress this warning, call set_overwrite_type('free'). 
-                    To turn this warning into an error, call set_overwrite_type('strict')."
-                    );
-                }
-                OverwriteType::Free => {}
-            }
+            self.handle_overwrite(&name)?;
         }
+
         self.sample_log_filters
             .insert(name, LogFilter { log, lower, upper });
         Ok(())
