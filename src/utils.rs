@@ -116,8 +116,7 @@ fn remove_overlaps(starts: &[u64], ends: &[u64]) -> (Vec<u64>, Vec<u64>) {
     }
 
     // Pair up starts and ends, then sort by start.
-    let mut intervals: Vec<(&u64, &u64)> =
-        starts.iter().clone().zip(ends.iter().clone()).collect();
+    let mut intervals: Vec<(&u64, &u64)> = starts.iter().clone().zip(ends.iter().clone()).collect();
 
     intervals.sort_by_key(|&(start, _)| start);
 
@@ -145,12 +144,7 @@ fn remove_overlaps(starts: &[u64], ends: &[u64]) -> (Vec<u64>, Vec<u64>) {
 }
 
 /// Invert an array of disjoint intervals.
-pub fn invert_intervals(
-    starts: &[u64],
-    ends: &[u64],
-    min: u64,
-    max: u64,
-) -> (Vec<u64>, Vec<u64>) {
+pub fn invert_intervals(starts: &[u64], ends: &[u64], min: u64, max: u64) -> (Vec<u64>, Vec<u64>) {
     let mut new_ends: Vec<u64> = starts.into();
     new_ends.push(max);
 
@@ -194,7 +188,7 @@ mod tests {
     use crate::test_utils::MockData;
 
     /// Create a mock dataset whose frame times are the given times (in ns).
-    fn make_mock(frame_times: Vec<usize>) -> MockData {
+    fn make_mock(frame_times: Vec<u64>) -> MockData {
         let mock = MockData::new().unwrap();
         mock.add_dataset("event_time_zero", Array1::from_vec(frame_times))
             .unwrap();
