@@ -130,7 +130,6 @@ impl Save for WiMDAFile {
         let good_duration = hist_data.dataset("good_duration")?;
         add_str_attr::<7>(&good_duration, "seconds", "units")?;
 
-        add_str_scalar::<8>(hist_data, "pulsedTD", "definition")?;
         add_scalar(hist_data, self.discarded_raw_frames, "discarded_raw_frames")?;
         add_scalar(
             hist_data,
@@ -138,7 +137,7 @@ impl Save for WiMDAFile {
             "discarded_good_frames",
         )?;
         let duration = add_scalar(hist_data, self.duration, "duration")?;
-        add_str_attr::<7>(&duration, "seconds", "units")?;
+        add_str_attr::<7>(&duration, "second", "units")?;
 
         let start_time_string: VarLenUnicode =
             event_data.dataset("start_time")?.read()?.into_scalar();
@@ -226,6 +225,18 @@ impl Save for WiMDAFile {
 
         copy_scalar::<VarLenUnicode>(event_data, hist_data, "title")?;
 
+        match event_data.dataset("definition") {
+            Ok(def) => {
+                let _ = def.copy_to(hist_data, "definition");
+            }
+            Err(_) => {
+                if let Ok(fixed_str) = hdf5::types::FixedAscii::<8>::from_ascii("muonTD") {
+                    let arr = ndarray::Array1::from_vec(vec![fixed_str]);
+                    let _ = add_array(hist_data, &arr, "definition");
+                }
+            }
+        };
+
         let event_user1 = event_data.group("user_1");
         match event_user1 {
             Ok(user) => user.copy_to(hist_data, "user_1")?,
@@ -293,9 +304,9 @@ mod tests {
         let good_frames: u32 = hist_data.dataset("good_frames").unwrap().read_1d().unwrap()[0];
         assert_eq!(good_frames, wimda.good_frames);
 
-        let definition: hdf5::types::FixedAscii<8> =
-            hist_data.dataset("definition").unwrap().read_1d().unwrap()[0];
-        assert_eq!(definition.as_str(), "pulsedTD");
+        let definition: VarLenUnicode =
+            hist_data.dataset("definition").unwrap().read_scalar().unwrap();
+        assert_eq!(definition.as_str(), "muonTD");
 
         // instrument and periods subgroups should exist and be linked correctly
         assert!(hist_data.group("instrument").is_ok());

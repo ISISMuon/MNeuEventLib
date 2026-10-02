@@ -85,11 +85,14 @@ fn set_defaults(
     name: &str,
     shapes: &HashMap<String, usize>,
 ) -> Result<()> {
-    if name.contains("dataset_") && dest.dataset(name.replace("dataset_", "").as_str()).is_err() {
-        /* we know this is a group that defines a period
-        dependent dataset */
-        // println!("create default {}", name);
-        create_default_dataset(&source_parent.group(name)?, dest, name, shapes)?;
+    if name.contains("dataset_") {
+        let target_dataset_name = name.replace("dataset_", "");
+        if dest.dataset(&target_dataset_name).is_err() {
+            /* we know this is a group that defines a period
+            dependent dataset */
+            // println!("create default {}", name);
+            create_default_dataset(&source_parent.group(name)?, dest, name, shapes)?;
+        }
         Ok(())
     } else if source_parent.dataset(name).is_ok() && dest.dataset(name).is_ok() {
         // if dataset exists in both files

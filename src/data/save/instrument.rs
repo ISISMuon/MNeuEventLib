@@ -119,30 +119,36 @@ impl Detector1 {
 impl Save for Detector1 {
     fn save(&self, group: &Group, _: &Group) -> Result<()> {
         let counts = add_array(group, &self.counts.counts, "counts")?;
-        add_str_attr::<44>(&counts, "period_index,spectrum_index,raw_time", "axes")?;
+        add_str_attr::<48>(&counts, "[period_index, spectrum_index, raw_time]", "axes")?;
         add_attr(&counts, self.counts.t0_bin, "t0_bin")?;
         add_attr(&counts, self.counts.first_good_bin, "first_good_bin")?;
         add_attr(&counts, self.counts.last_good_bin, "last_good_bin")?;
         add_attr(&counts, 1, "signal")?;
-        add_str_attr::<15>(&counts, "positron_counts", "long_name")?;
+        add_str_attr::<15>(&counts, "positron counts", "long_name")?;
 
         let bins = add_array(group, &self.raw_time, "raw_time")?;
         add_str_attr::<4>(&bins, "time", "long_name")?;
-        add_str_attr::<12>(&bins, "microseconds", "units")?;
+        add_str_attr::<12>(&bins, "micro.second", "units")?;
+        add_attr(&bins, 1, "axis")?;
+        add_attr(&bins, 1, "primary")?;
 
         let centres = add_array(group, &self.corrected_time, "corrected_time")?;
+        add_attr(&centres, 1, "axis")?;
         add_str_attr::<4>(&centres, "time", "long_name")?;
-        add_str_attr::<12>(&centres, "microseconds", "units")?;
+        add_str_attr::<12>(&centres, "micro.second", "units")?;
 
         // min_time and max_time are in microseconds so we convert to picoseconds
         let res = add_scalar(group, self.resolution, "resolution")?;
         add_str_attr::<11>(&res, "picoseconds", "units")?;
 
-        add_array(group, &self.spectrum_index, "spectrum_index")?;
+        let spec = add_array(group, &self.spectrum_index, "spectrum_index")?;
+        add_str_attr::<16>(&spec, "spectrum number", "long_name")?;
 
-        add_scalar(group, self.time_zero, "time_zero")?;
+        let t0 = add_scalar(group, self.time_zero, "time_zero")?;
+        add_str_attr::<12>(&t0, "micro.second", "units")?;
 
-        add_array(group, &self.period_index, "period_index")?;
+        let periods = add_array(group, &self.period_index, "period_index")?;
+        add_str_attr::<15>(&periods, "period index", "long_name")?;
 
         Ok(())
     }

@@ -67,14 +67,36 @@ keep_strings = ['definition',
                 'type',
                 ]
           
+SCHEMA_UNITS_MAP = {
+    'Kelvin': 'kelvin',
+    'Gauss': 'gauss',
+    'microseconds': 'micro.second',
+    'microsecond': 'micro.second',
+    'seconds': 'second',
+    'picoseconds': 'nano.second',
+    'uAh': 'microAmp*hour',
+}
+
 def set_attributes(obj, dest):
     """
-    Copy attributes from one object to another.
+    Copy attributes from one object to another, converting legacy units
+    to comply with NeXus NXmuonTD schema single-option standards.
     :param obj: the example file's open object
     :param dest: the ref file's open object
     """
     for attr in obj.attrs:
-        dest.attrs.create(attr, obj.attrs[attr])
+        val = obj.attrs[attr]
+        if attr == 'units':
+            val_str = val.decode('utf-8') if isinstance(val, bytes) else str(val)
+            if val_str in SCHEMA_UNITS_MAP:
+                val = SCHEMA_UNITS_MAP[val_str]
+        dest.attrs.create(attr, val)
+    if dest.name.endswith('/thickness') and 'units' not in dest.attrs:
+        dest.attrs.create('units', 'milli.metre')
+    if dest.name.endswith('frames_requested'):
+        dest.attrs.create('frame_type', 'good')
+    if dest.name.endswith('grouping'):
+        dest.attrs.create('number_groups', 1)
         
 def read(obj, new_obj, key):
     """
@@ -128,7 +150,9 @@ def read(obj, new_obj, key):
         else: # assume a string
             val = obj[()]
             tmp = None
-            if name in keep_strings or (isinstance(val, str) and val=='ISIS'):
+            if name == 'definition':
+                tmp = new_obj.create_dataset(name, data='muonTD', dtype='S6')
+            elif name in keep_strings or (isinstance(val, str) and val=='ISIS'):
                 tmp = new_obj.create_dataset(name, data=val, dtype=dtype)
             elif '.dat' in name:
                 tmp = new_obj.create_dataset(name, data=val, dtype=dtype)
