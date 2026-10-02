@@ -1,8 +1,8 @@
 use crate::data::save::sanitise::nexus_data::{
     get_default_ref_file_path, get_period_info, save_default,
 };
-use crate::data::{NexusData, SampleLog, SaveFile, WiMDAFile};
-use crate::filters::{Filters, LogPredicate};
+use crate::data::{NexusData, SaveFile, WiMDAFile};
+use crate::filters::Filters;
 use crate::stats::Histogram;
 use anyhow::{Error, Result};
 use ndarray::Array1;
@@ -275,13 +275,6 @@ impl BatchData {
         lower: f64,
         upper: f64,
     ) -> Result<()> {
-        self.validate_log_filter(
-            &log,
-            &LogPredicate::Range {
-                lower: Some(lower),
-                upper: Some(upper),
-            },
-        )?;
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_log_filter(name.clone(), log.clone(), Some(lower), Some(upper))?;
             self.data_changed[i] = true;
@@ -308,7 +301,6 @@ impl BatchData {
         log: String,
         value: String,
     ) -> Result<()> {
-        self.validate_log_filter(&log, &LogPredicate::Equals(value.clone()))?;
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_string_log_filter(name.clone(), log.clone(), value.clone())?;
             self.data_changed[i] = true;
@@ -351,13 +343,6 @@ impl BatchData {
         log: String,
         lower: f64,
     ) -> Result<()> {
-        self.validate_log_filter(
-            &log,
-            &LogPredicate::Range {
-                lower: Some(lower),
-                upper: None,
-            },
-        )?;
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_log_filter_above(name.clone(), log.clone(), lower)?;
             self.data_changed[i] = true;
@@ -384,13 +369,6 @@ impl BatchData {
         log: String,
         upper: f64,
     ) -> Result<()> {
-        self.validate_log_filter(
-            &log,
-            &LogPredicate::Range {
-                lower: None,
-                upper: Some(upper),
-            },
-        )?;
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_log_filter_below(name.clone(), log.clone(), upper)?;
             self.data_changed[i] = true;
@@ -728,26 +706,6 @@ impl BatchData {
                 self.check_index(*i)?;
                 Ok(vec![*i])
             }
-        }
-    }
-
-    /// Check that a log filter can actually be applied to the data.
-    fn validate_log_filter(&self, log: &str, predicate: &LogPredicate) -> Result<()> {
-        let sample_log = self.dataset.get_sample_log(&log.to_string())?;
-        match (sample_log, predicate) {
-            (SampleLog::Str(_), LogPredicate::Equals(_)) => Ok(()),
-            (SampleLog::Str(_), LogPredicate::Range { .. }) => Err(Error::msg(format!(
-                "Sample log {} holds text, so it cannot be filtered on a range of \
-                         values. Use add_string_log_filter to filter it on a specific value.",
-                log,
-            ))),
-            (_, LogPredicate::Equals(_)) => Err(Error::msg(format!(
-                "Sample log {} holds numbers, so it cannot be filtered on a \
-                                 string value. Use add_log_filter, add_log_filter_above or \
-                                 add_log_filter_below.",
-                log,
-            ))),
-            _ => Ok(()),
         }
     }
 
