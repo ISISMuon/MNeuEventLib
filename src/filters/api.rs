@@ -84,13 +84,13 @@ impl Filters {
         if self.time_filters.is_empty() {
             return (Vec::new(), Vec::new());
         }
-        (
-            self.time_filters
-                .values()
-                .map(|f| f.start.to_ns())
-                .collect(),
-            self.time_filters.values().map(|f| f.end.to_ns()).collect(),
-        )
+        let mut ranges: Vec<(u64, u64)> = self
+            .time_filters
+            .values()
+            .map(|filter| (filter.start.to_ns(), filter.end.to_ns()))
+            .collect();
+        ranges.sort_unstable_by_key(|(start, _)| *start);
+        ranges.into_iter().unzip()
     }
 
     /// Get the start and end times for each log filter.
@@ -98,16 +98,19 @@ impl Filters {
         // get the value log for each required sample log
         // the zip/unzip is to convert it from
         // Vec<(usize, usize)> to (Vec<usize>, Vec<usize>)
-        self.sample_log_filters
+        let mut ranges: Vec<(u64, u64)> = self
+            .sample_log_filters
             .values()
-            .flat_map(|f| {
-                let (s, e) = logs[&f.log].to_time_ranges(
-                    f.lower.unwrap_or(-f64::INFINITY),
-                    f.upper.unwrap_or(f64::INFINITY),
+            .flat_map(|filter| {
+                let (starts, ends) = logs[&filter.log].to_time_ranges(
+                    filter.lower.unwrap_or(-f64::INFINITY),
+                    filter.upper.unwrap_or(f64::INFINITY),
                 );
-                s.into_iter().zip(e)
+                starts.into_iter().zip(ends)
             })
-            .unzip()
+            .collect();
+        ranges.sort_unstable_by_key(|(start, _)| *start);
+        ranges.into_iter().unzip()
     }
 
     // Get the relevant log for each log filter.
@@ -408,6 +411,24 @@ mod tests {
         assert_eq!(ranges, expected_ranges);
     }
 
+    /// Test converting filters sorts intervals by start time even though they are stored in a HashMap.
+    #[test]
+    fn test_convert_filters_sorts_by_start_time() {
+        let mut filters = Filters::new();
+        for index in (1..=32).rev() {
+            filters
+                .add_time_filter(format!("filter{index}"), index as f64, index as f64 + 0.5)
+                .unwrap();
+        }
+
+        let (starts, ends) = filters.get_time_filter_times();
+        let expected_starts: Vec<u64> = (1..=32).map(|time| (time as f64).to_ns()).collect();
+        let expected_ends: Vec<u64> = (1..=32).map(|time| (time as f64 + 0.5).to_ns()).collect();
+
+        assert_eq!(starts, expected_starts);
+        assert_eq!(ends, expected_ends);
+    }
+
     /// Test filters objects are initialised correctly.
     #[test]
     fn test_new_filters_creates_empty_filters() {
@@ -464,6 +485,45 @@ mod tests {
             ]
             .into()
         )
+    }
+
+    /// Test log filters from a HashMap are combined in chronological order.
+    #[test]
+    fn test_log_filter_to_times_sorts_ranges() {
+        let mut sample_log_filters = HashMap::<String, LogFilter>::new();
+        for index in (1..=32).rev() {
+            sample_log_filters.insert(
+                format!("filter{index}"),
+                LogFilter {
+                    log: "simple".to_string(),
+                    lower: Some(index as f64),
+                    upper: Some(index as f64 + 0.5),
+                },
+            );
+        }
+
+        let filters = Filters {
+            time_filter_type: FilterType::Include,
+            time_filters: HashMap::new(),
+            sample_log_filters,
+            amplitudes: HashMap::new(),
+            overwrite_type: OverwriteType::Free,
+        };
+        let times = Array1::<f64>::from_iter((0..=330).map(|step| step as f64 / 10.0));
+        let log = ValueLog::<f64> {
+            name: "simple".to_string(),
+            time: times.clone(),
+            value: times,
+            unit: "".to_string(),
+        };
+        let logs = HashMap::from([("simple".to_string(), SampleLog::F64(log))]);
+
+        let (starts, ends) = filters.get_log_filter_times(logs);
+        let expected_starts: Vec<u64> = (1..=32).map(|time| (time as f64).to_ns()).collect();
+        let expected_ends: Vec<u64> = (1..=32).map(|time| (time as f64 + 0.5).to_ns()).collect();
+
+        assert_eq!(starts, expected_starts);
+        assert_eq!(ends, expected_ends);
     }
 
     /// Test log_filter_times correctly gets the times from the log filters.
