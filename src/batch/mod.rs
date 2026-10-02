@@ -3,5 +3,5 @@ mod interface;
 pub use interface::{BatchData, FilterIndex, PyHist};
 mod functions;
 pub use functions::{
-    log_geomspace, log_linspace, log_range, time_geomspace, time_linspace, time_range,
+    slog_geomspace, slog_linspace, slog_range, time_geomspace, time_linspace, time_range,
 };

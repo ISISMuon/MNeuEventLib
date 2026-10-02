@@ -81,7 +81,7 @@ pub fn time_range(name: String, start: f64, end: f64, step: f64) -> Result<Batch
 /// end: float
 ///     The upper bound of the last filter set's log filter.
 #[pyfunction]
-pub fn log_linspace(
+pub fn slog_linspace(
     name: String,
     log: String,
     start: f64,
@@ -109,7 +109,7 @@ pub fn log_linspace(
 /// end: float
 ///     The upper bound of the last filter set's log filter.
 #[pyfunction]
-pub fn log_geomspace(
+pub fn slog_geomspace(
     name: String,
     log: String,
     start: f64,
@@ -140,7 +140,7 @@ pub fn log_geomspace(
 /// step: float
 ///     The width of each filter set's log filter.
 #[pyfunction]
-pub fn log_range(name: String, log: String, start: f64, end: f64, step: f64) -> Result<BatchData> {
+pub fn slog_range(name: String, log: String, start: f64, end: f64, step: f64) -> Result<BatchData> {
     let array = Array1::range(start, end, step);
     let mut data = BatchData::empty(array.len() - 1);
     data.array_to_log_filters(name, log, array)?;

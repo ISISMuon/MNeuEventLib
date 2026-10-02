@@ -20,7 +20,7 @@ mod stats;
 use interface::Data;
 mod batch;
 use batch::BatchData;
-use batch::{log_geomspace, log_linspace, log_range, time_geomspace, time_linspace, time_range};
+use batch::{slog_geomspace, slog_linspace, slog_range, time_geomspace, time_linspace, time_range};
 mod consts;
 mod utils;
 
@@ -36,8 +36,8 @@ fn core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(time_linspace, m)?)?;
     m.add_function(wrap_pyfunction!(time_geomspace, m)?)?;
     m.add_function(wrap_pyfunction!(time_range, m)?)?;
-    m.add_function(wrap_pyfunction!(log_linspace, m)?)?;
-    m.add_function(wrap_pyfunction!(log_geomspace, m)?)?;
-    m.add_function(wrap_pyfunction!(log_range, m)?)?;
+    m.add_function(wrap_pyfunction!(slog_linspace, m)?)?;
+    m.add_function(wrap_pyfunction!(slog_geomspace, m)?)?;
+    m.add_function(wrap_pyfunction!(slog_range, m)?)?;
     Ok(())
 }
