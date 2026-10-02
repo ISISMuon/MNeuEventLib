@@ -107,6 +107,29 @@ impl Data {
             .add_time_filter(FilterIndex::Index(0), name, start, end)
     }
 
+    /// Edit an existing time filter.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: str
+    ///     The name of the time filter to edit. Must already exist.
+    /// start: float | None
+    ///     The new start point for the time filter. If None, the start
+    ///     point is left unchanged.
+    /// end: float | None
+    ///     The new end point for the time filter. If None, the end point
+    ///     is left unchanged.
+    #[pyo3(signature = (name, start=None, end=None))]
+    pub fn edit_time_filter(
+        &mut self,
+        name: String,
+        start: Option<f64>,
+        end: Option<f64>,
+    ) -> Result<()> {
+        self.inner
+            .edit_time_filter(FilterIndex::Index(0), name, start, end)
+    }
+
     /// Remove a time filter.
     ///
     /// Parameters
@@ -138,6 +161,33 @@ impl Data {
     ) -> Result<()> {
         self.inner
             .add_log_filter(FilterIndex::Index(0), name, log, lower, upper)
+    }
+
+    /// Edit an existing sample log filter.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: str
+    ///     The name of the log filter to edit. Must already exist.
+    /// log: str | None
+    ///     The new sample log for the filter to apply to. If None, the
+    ///     sample log is left unchanged.
+    /// lower: float | None
+    ///     The new lower bound for the log filter. If None, the lower
+    ///     bound is left unchanged.
+    /// upper: float | None
+    ///     The new upper bound for the log filter. If None, the upper
+    ///     bound is left unchanged.
+    #[pyo3(signature = (name, log=None, lower=None, upper=None))]
+    pub fn edit_log_filter(
+        &mut self,
+        name: String,
+        log: Option<String>,
+        lower: Option<f64>,
+        upper: Option<f64>,
+    ) -> Result<()> {
+        self.inner
+            .edit_log_filter(FilterIndex::Index(0), name, log, lower, upper)
     }
 
     /// Remove a sample log filter.
