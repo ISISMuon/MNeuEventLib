@@ -652,6 +652,11 @@ impl BatchData {
 
 impl BatchData {
     /// Create an empty BatchData object.
+    ///
+    /// Parameters
+    /// ----------
+    /// n: usize
+    ///     The number of filter sets.
     pub fn empty(n: usize) -> BatchData {
         BatchData {
             dataset: None,
@@ -663,6 +668,11 @@ impl BatchData {
 
     /// Resolve a [`FilterIndex`] into a list of valid filter set indices,
     /// checking bounds along the way.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: FilterIndex
+    ///     The FilterIndex object created from the user input.
     fn resolve_indices(&self, index: &FilterIndex) -> Result<Vec<usize>> {
         match index {
             FilterIndex::All => Ok((0..self.n_batches()).collect()),
@@ -674,6 +684,11 @@ impl BatchData {
     }
 
     /// Check that a given index is valid for this BatchData's filter sets.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: usize
+    ///     The index to check.
     fn check_index(&self, index: usize) -> Result<()> {
         if index >= self.n_batches() {
             return Err(Error::msg(format!(
@@ -687,6 +702,18 @@ impl BatchData {
     /// Check that two datasets are the same or at least one is None;
     /// if both are None return None, if one is None or both are equal, return the dataset,
     /// if datasets are different, throw an error.
+    ///
+    /// If DATA1 and DATA2 are two distinct datasets:
+    ///
+    ///  combine_data(None, None) -> None
+    ///  combine_data(DATA1, DATA1) -> DATA1 (same for (DATA2, DATA2))
+    ///  combine_data(DATA1, DATA2) -> error (incompatible)
+    ///  combine_data(None, DATA1) -> DATA1 (same for (DATA2, None) etc etc)
+    ///
+    /// Parameters
+    /// ----------
+    /// other: Option<NexusData>
+    ///     The other dataset from the other BatchData object.
     fn combine_data(&self, other: &Option<NexusData>) -> Result<Option<NexusData>> {
         let data = &self.dataset;
         if let Some(dataset) = data {
@@ -711,6 +738,13 @@ impl BatchData {
     }
 
     /// Turn an array of n+1 elements into n time filters across the batches.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: String
+    ///     The name of the filters.
+    /// input: Array1<f64>
+    ///     The bounds of the n arrays.
     pub fn array_to_time_filters(&mut self, name: String, input: Array1<f64>) -> Result<()> {
         self.check_array_len(&input)?;
         for i in 0..self.n_batches() {
@@ -720,6 +754,15 @@ impl BatchData {
     }
 
     /// Turn an array of n+1 elements into n sample log filters across the batches.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: String
+    ///     The name of the filters.
+    /// log: String
+    ///     The log to which the filters apply.
+    /// input: Array1<f64>
+    ///     The bounds of the n arrays.
     pub fn array_to_log_filters(
         &mut self,
         name: String,
@@ -740,6 +783,11 @@ impl BatchData {
     }
 
     /// Check that an array holds enough elements to bound every batch.
+    ///
+    /// Parameters
+    /// ----------
+    /// input: Array1<f64>
+    ///     The proposed array bounds.
     fn check_array_len(&self, input: &Array1<f64>) -> Result<()> {
         if input.len() < self.n_batches() + 1 {
             return Err(Error::msg(format!(
