@@ -78,6 +78,9 @@ impl Histogram {
 
         let frame_start_times: Array1<u64> = data.frame_times.read_1d()?;
 
+        // estimate end of last frame
+        let run_end = frame_start_times.last().unwrap() + self.max_time as u64;
+
         let weights = if filters_exist {
             let time_weights = if time_starts.is_empty() {
                 Weights::ones(data.n_frames)
@@ -86,6 +89,7 @@ impl Histogram {
                     time_starts,
                     time_ends,
                     &frame_start_times,
+                    run_end,
                     filters.is_include(),
                     "time filter",
                 )
@@ -101,7 +105,7 @@ impl Histogram {
                     Err(info) => return Err(Error::msg(format!("Failed to get logs: {info}"))),
                 };
                 let log_filter_times = filters.get_log_filter_times(value_logs)?;
-                get_log_weights(log_filter_times, &frame_start_times)
+                get_log_weights(log_filter_times, &frame_start_times, run_end)
             };
             time_weights & log_weights
         } else {
