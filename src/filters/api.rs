@@ -35,8 +35,8 @@ pub struct Filter {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LogFilter {
     log: String,
-    lower: Option<f64>,
-    upper: Option<f64>,
+    pub lower: Option<f64>,
+    pub upper: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -44,7 +44,7 @@ pub struct Filters {
     time_filter_type: FilterType,
     overwrite_type: OverwriteType,
     time_filters: HashMap<String, Filter>,
-    sample_log_filters: HashMap<String, LogFilter>,
+    pub sample_log_filters: HashMap<String, LogFilter>,
     amplitudes: HashMap<usize, f64>,
 }
 
@@ -57,6 +57,24 @@ impl Filters {
             amplitudes: HashMap::<usize, f64>::new(),
             overwrite_type: OverwriteType::Relaxed,
         }
+    }
+
+    /// Merge another set of filters into this one. Filters in `other` whose
+    /// names clash with existing ones are handled by the overwrite behaviour.
+    pub fn extend(&mut self, other: Filters) -> Result<()> {
+        for (name, filter) in other.time_filters {
+            if self.time_filters.contains_key(&name) {
+                self.handle_overwrite(&name)?;
+            }
+            self.time_filters.insert(name, filter);
+        }
+        for (name, filter) in other.sample_log_filters {
+            if self.sample_log_filters.contains_key(&name) {
+                self.handle_overwrite(&name)?;
+            }
+            self.sample_log_filters.insert(name, filter);
+        }
+        Ok(())
     }
 
     /// Get the start and end points of each time filter.
@@ -866,6 +884,148 @@ mod tests {
         let mut filters = Filters::new();
         let result = filters.remove_log_filter("nonexistent".to_string());
         assert!(result.is_err());
+    }
+
+    /// Test extending a filter set adds the other's time and log filters.
+    #[test]
+    fn test_extend() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+        filters
+            .add_log_filter("log1".to_string(), "temp".to_string(), Some(0.), Some(1.))
+            .unwrap();
+
+        let mut other = Filters::new();
+        other
+            .add_time_filter("filter2".to_string(), 3.0, 4.0)
+            .unwrap();
+        other
+            .add_log_filter("log2".to_string(), "pw".to_string(), Some(2.), Some(3.))
+            .unwrap();
+
+        filters.extend(other).unwrap();
+
+        assert_eq!(
+            filters.time_filters,
+            HashMap::from([
+                ("filter1".to_string(), Filter { start: 1., end: 2. }),
+                ("filter2".to_string(), Filter { start: 3., end: 4. }),
+            ])
+        );
+        assert_eq!(
+            filters.sample_log_filters,
+            HashMap::from([
+                (
+                    "log1".to_string(),
+                    LogFilter {
+                        log: "temp".to_string(),
+                        lower: Some(0.),
+                        upper: Some(1.)
+                    }
+                ),
+                (
+                    "log2".to_string(),
+                    LogFilter {
+                        log: "pw".to_string(),
+                        lower: Some(2.),
+                        upper: Some(3.)
+                    }
+                ),
+            ])
+        );
+    }
+
+    /// Test extending with a clashing name overwrites the existing filter.
+    #[test]
+    fn test_extend_overwrites_clashing_names() {
+        let mut filters = Filters::new();
+        filters.set_overwrite_type("free").unwrap();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+        filters
+            .add_log_filter("log1".to_string(), "temp".to_string(), Some(0.), Some(1.))
+            .unwrap();
+
+        let mut other = Filters::new();
+        other
+            .add_time_filter("filter1".to_string(), 3.0, 4.0)
+            .unwrap();
+        other
+            .add_log_filter("log1".to_string(), "pw".to_string(), Some(2.), Some(3.))
+            .unwrap();
+
+        filters.extend(other).unwrap();
+
+        assert_eq!(
+            filters.time_filters,
+            HashMap::from([("filter1".to_string(), Filter { start: 3., end: 4. })])
+        );
+        assert_eq!(
+            filters.sample_log_filters,
+            HashMap::from([(
+                "log1".to_string(),
+                LogFilter {
+                    log: "pw".to_string(),
+                    lower: Some(2.),
+                    upper: Some(3.)
+                }
+            )])
+        );
+    }
+
+    /// Test extending with a clashing name errors under strict overwriting.
+    #[test]
+    fn test_extend_clashing_names_strict() {
+        let mut filters = Filters::new();
+        filters.set_overwrite_type("strict").unwrap();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        let mut other = Filters::new();
+        other
+            .add_time_filter("filter1".to_string(), 3.0, 4.0)
+            .unwrap();
+
+        assert!(filters.extend(other).is_err());
+    }
+
+    /// Test extending by an empty filter set leaves the filters unchanged.
+    #[test]
+    fn test_extend_empty() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+        filters
+            .add_log_filter("log1".to_string(), "temp".to_string(), Some(0.), Some(1.))
+            .unwrap();
+        let expected = filters.clone();
+
+        filters.extend(Filters::new()).unwrap();
+
+        assert_eq!(filters, expected);
+    }
+
+    /// Test extending an empty filter set takes on the other's filters.
+    #[test]
+    fn test_extend_into_empty() {
+        let mut other = Filters::new();
+        other
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+        other
+            .add_log_filter("log1".to_string(), "temp".to_string(), Some(0.), Some(1.))
+            .unwrap();
+
+        let mut filters = Filters::new();
+        filters.extend(other.clone()).unwrap();
+
+        assert_eq!(filters.time_filters, other.time_filters);
+        assert_eq!(filters.sample_log_filters, other.sample_log_filters);
     }
 
     /// Test setting an amplitude for a given detector works.
