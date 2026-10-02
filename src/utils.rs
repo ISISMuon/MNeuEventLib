@@ -14,9 +14,10 @@ pub fn binary_search<T>(array: &Array1<T>, start: usize, stop: usize, target: T)
 where
     T: Ord + Clone,
 {
-    if stop - start == 1 {
+    // `stop <= start` only happens for an empty array
+    if stop <= start + 1 {
         start
-    } else if stop > start {
+    } else {
         let midpoint = start + (stop - start) / 2;
         let midpoint_value = array[midpoint].clone();
         if midpoint_value == target {
@@ -26,10 +27,6 @@ where
         } else {
             binary_search(array, midpoint, stop, target)
         }
-    } else if target < array[start] {
-        start
-    } else {
-        stop
     }
 }
 
@@ -248,6 +245,15 @@ mod tests {
         let result = binary_search(&array, 0, array.len(), 80);
 
         assert_eq!(result, 6)
+    }
+
+    /// Test the binary search function doesn't panic on an empty array.
+    #[test]
+    fn test_binary_search_empty() {
+        let array = Array1::<i32>::from_vec(vec![]);
+        let result = binary_search(&array, 0, array.len(), 5);
+
+        assert_eq!(result, 0)
     }
 
     /// Test the binary search function for a value below the range.
