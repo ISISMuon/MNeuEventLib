@@ -174,10 +174,10 @@ mod tests {
             .map(|filters| {
                 assert_eq!(filters.sample_log_filters.len(), 1);
                 let filter = &filters.sample_log_filters[name];
-                let LogPredicate::Range { lower, upper } = &filter.predicate else {
-                    panic!("expected a range log filter")
-                };
-                (lower.unwrap(), upper.unwrap())
+                match &filter.predicate {
+                    LogPredicate::Range { lower, upper } => (lower.unwrap(), upper.unwrap()),
+                    other => panic!("expected a range predicate, got {other:?}"),
+                }
             })
             .collect()
     }

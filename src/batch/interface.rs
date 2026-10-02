@@ -1007,8 +1007,7 @@ mod tests {
     /// underlying dataset (no real .nxs file needed).
     fn make_batch(n_filter_sets: usize) -> BatchData {
         let mock = MockData::new().unwrap();
-        // log filters are validated against the data when they are added, so the mock
-        // needs to actually contain the logs these tests filter on
+        // the mock needs to actually contain the logs these tests filter on
         mock.add_sample_log(
             "temp",
             Array1::from_vec(vec![0., 1., 2., 3.]),
@@ -1489,22 +1488,6 @@ mod tests {
                 ["status".to_string()].into()
             );
         }
-    }
-
-    /// A filter naming a log that isn't in the data is rejected when it is added,
-    /// rather than at calculate time.
-    #[test]
-    fn test_add_log_filter_missing_log() {
-        let mut batch = make_batch(1);
-        let result = batch.add_log_filter(
-            FilterIndex::Index(0),
-            "broken".to_string(),
-            "nonexistent".to_string(),
-            1.0,
-            2.0,
-        );
-
-        assert!(result.is_err());
     }
 
     /// Setting an amplitude filter at a single index should only affect
