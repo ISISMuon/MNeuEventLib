@@ -1063,16 +1063,20 @@ mod tests {
                     "log1".to_string(),
                     LogFilter {
                         log: "temp".to_string(),
-                        lower: Some(0.),
-                        upper: Some(1.)
+                        predicate: LogPredicate::Range {
+                            lower: Some(0.),
+                            upper: Some(1.)
+                        }
                     }
                 ),
                 (
                     "log2".to_string(),
                     LogFilter {
                         log: "pw".to_string(),
-                        lower: Some(2.),
-                        upper: Some(3.)
+                        predicate: LogPredicate::Range {
+                            lower: Some(2.),
+                            upper: Some(3.)
+                        }
                     }
                 ),
             ])
@@ -1111,8 +1115,10 @@ mod tests {
                 "log1".to_string(),
                 LogFilter {
                     log: "pw".to_string(),
-                    lower: Some(2.),
-                    upper: Some(3.)
+                    predicate: LogPredicate::Range {
+                        lower: Some(2.),
+                        upper: Some(3.)
+                    }
                 }
             )])
         );
