@@ -282,6 +282,32 @@ impl BatchData {
         Ok(())
     }
 
+    /// Add a sample log filter matching a string log against a specific value.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int | str
+    ///     Either 'all', or the index of the filter set to modify.
+    /// name: str
+    ///     The name of the log filter. Must be unique within each modified filter set.
+    /// log: str
+    ///     The sample log in the data to which the filter applies. Must hold text.
+    /// value: str
+    ///     The value to match. Matching is case-insensitive.
+    pub fn add_string_log_filter(
+        &mut self,
+        index: FilterIndex,
+        name: String,
+        log: String,
+        value: String,
+    ) -> Result<()> {
+        for i in self.resolve_indices(&index)? {
+            self.filters[i].add_string_log_filter(name.clone(), log.clone(), value.clone())?;
+            self.data_changed[i] = true;
+        }
+        Ok(())
+    }
+
     /// Remove a sample log filter.
     ///
     /// Parameters
@@ -840,14 +866,36 @@ impl BatchData {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
+    use crate::filters::LogPredicate;
     use crate::test_utils::MockData;
+    use hdf5::types::VarLenUnicode;
     use ndarray::Array1;
 
     /// Build a BatchData with `n` filter sets using MockData as the
     /// underlying dataset (no real .nxs file needed).
     fn make_batch(n_filter_sets: usize) -> BatchData {
         let mock = MockData::new().unwrap();
+        // the mock needs to actually contain the logs these tests filter on
+        mock.add_sample_log(
+            "temp",
+            Array1::from_vec(vec![0., 1., 2., 3.]),
+            Array1::from_vec(vec![0.5, 1.5, 2.5, 3.5]),
+        )
+        .unwrap();
+        mock.add_sample_log(
+            "status",
+            Array1::from_vec(vec![0., 1., 2., 3.]),
+            Array1::from_vec(
+                ["IDLE", "RUNNING", "RUNNING", "PAUSED"]
+                    .iter()
+                    .map(|s| VarLenUnicode::from_str(s).unwrap())
+                    .collect::<Vec<VarLenUnicode>>(),
+            ),
+        )
+        .unwrap();
         let dataset = mock.create(64, 1048576).unwrap();
         BatchData {
             dataset: Some(dataset),
@@ -1025,8 +1073,13 @@ mod tests {
                 filters.get_required_log_names(),
                 ["temp".to_string()].into()
             );
-            assert_eq!(filters.sample_log_filters["lf1"].lower, Some(array[k]));
-            assert_eq!(filters.sample_log_filters["lf1"].upper, Some(array[k + 1]));
+            assert_eq!(
+                filters.sample_log_filters["lf1"].predicate,
+                LogPredicate::Range {
+                    lower: Some(array[k]),
+                    upper: Some(array[k + 1])
+                }
+            );
         }
     }
 
@@ -1123,6 +1176,27 @@ mod tests {
 
         for filters in &batch.filters {
             assert!(filters.get_required_log_names().is_empty());
+        }
+    }
+
+    /// Adding a string log filter should apply it to the named filter sets.
+    #[test]
+    fn test_add_string_log_filter() {
+        let mut batch = make_batch(2);
+        batch
+            .add_string_log_filter(
+                FilterIndex::All,
+                "running".to_string(),
+                "status".to_string(),
+                "RUNNING".to_string(),
+            )
+            .unwrap();
+
+        for filters in &batch.filters {
+            assert_eq!(
+                filters.get_required_log_names(),
+                ["status".to_string()].into()
+            );
         }
     }
 
