@@ -107,11 +107,11 @@ impl Filters {
                 .values()
                 .filter(|f| f.log == *log_name)
                 .flat_map(|f| {
-                    let (s, e) = log.to_time_ranges(
+                    let (log_starts, log_ends) = log.to_time_ranges(
                         f.lower.unwrap_or(-f64::INFINITY),
                         f.upper.unwrap_or(f64::INFINITY),
                     );
-                    s.into_iter().zip(e)
+                    log_starts.into_iter().zip(log_ends)
                 })
                 .unzip();
             results.insert(log_name.to_string(), (starts, ends));

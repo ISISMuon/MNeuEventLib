@@ -292,7 +292,7 @@ mod tests {
             .collect()
     }
 
-    /// Test that a single log filter gives the same weights as get_weights.
+    /// Test that get_log_weights for one sample log gives the expected weights.
     #[test]
     fn test_get_log_weights_one_log() {
         let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
@@ -322,6 +322,7 @@ mod tests {
         let start_times = Array1::from_vec(vec![0, 10, 20, 30, 40, 50, 60]);
         //                                            ^--------^ log A
         //                                                ^--------^ log B
+        //                                                ^----^ expected result
         let filter_times =
             log_filter_times(vec![("A", vec![15], vec![31]), ("B", vec![25], vec![51])]);
 
