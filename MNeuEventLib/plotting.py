@@ -21,7 +21,7 @@ def plot_sample_log(data: Data, log_name: str):
     fig, ax = plt.subplots()
     ax.set_title(sample_log['name'])
     ax.set_xlabel("Time (seconds)")
-    if units := sample_log['unit'] == "":
+    if (units := sample_log['unit']) == "":
         unit_string = ""
     else:
         unit_string = f"({units})"
@@ -30,7 +30,8 @@ def plot_sample_log(data: Data, log_name: str):
 
     plt.show()
 
-def plot_amplitudes(data: Data, max_height: Optional[float] = None, n_bins: int = 10):
+def plot_amplitudes(data: Data, max_height: Optional[float] = None, n_bins: int = 10,
+                    detector: Optional[int] = None):
     """
     Plot a histogram of amplitudes.
 
@@ -44,12 +45,21 @@ def plot_amplitudes(data: Data, max_height: Optional[float] = None, n_bins: int 
         If not provided, calculates the maximum amplitude in the data.
     n_bins: int, default 10
         The number of equal-width bins to use.
+    detector: int, optional
+        The detector to plot amplitudes for.
+        If not provided, plots for all detectors.
     """
     # get_amp_histogram returns the histogram and the max height used
-    hist, max_h = data.dataset.get_amp_histogram(max_height, n_bins)
+    hist, max_h = data.dataset.get_amp_histogram(max_height, n_bins, detector)
 
     steps = np.linspace(0, max_h, len(hist)+1)
     fig, ax = plt.subplots()
+    if detector is None:
+        ax.set_title("Amplitude histogram")
+    else:
+        ax.set_title(f"Amplitude histogram (detector {detector})")
+    ax.set_xlabel("Amplitude")
+    ax.set_ylabel("Counts")
     ax.stairs(hist, steps, fill = True)
 
     plt.show()
