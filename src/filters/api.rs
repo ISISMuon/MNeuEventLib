@@ -30,13 +30,37 @@ pub struct Filter {
     end: f64,
 }
 
-// LogFilter bounds are Options because serialisation doesn't support infinity or -infinity;
-// we use None to represent those
+/// The condition a sample log filter tests.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum LogPredicate {
+    // Range bounds are Options because serialisation doesn't support infinity or
+    // -infinity; we use None to represent those
+    Range {
+        lower: Option<f64>,
+        upper: Option<f64>,
+    },
+    /// Matches case-insensitively; only valid for logs holding text.
+    Equals(String),
+}
+
+impl LogPredicate {
+    /// A human-readable description of the condition, for the filter table.
+    fn describe(&self) -> String {
+        match self {
+            LogPredicate::Range { lower, upper } => format!(
+                "{} to {}",
+                lower.unwrap_or(-f64::INFINITY),
+                upper.unwrap_or(f64::INFINITY)
+            ),
+            LogPredicate::Equals(value) => format!("== {value:?}"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LogFilter {
     log: String,
-    pub lower: Option<f64>,
-    pub upper: Option<f64>,
+    pub predicate: LogPredicate,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -94,20 +118,24 @@ impl Filters {
     }
 
     /// Get the start and end times for each log filter.
-    pub fn get_log_filter_times(&self, logs: HashMap<String, SampleLog>) -> (Vec<u64>, Vec<u64>) {
-        // get the value log for each required sample log
-        // the zip/unzip is to convert it from
-        // Vec<(usize, usize)> to (Vec<usize>, Vec<usize>)
-        self.sample_log_filters
-            .values()
-            .flat_map(|f| {
-                let (s, e) = logs[&f.log].to_time_ranges(
-                    f.lower.unwrap_or(-f64::INFINITY),
-                    f.upper.unwrap_or(f64::INFINITY),
-                );
-                s.into_iter().zip(e)
-            })
-            .unzip()
+    pub fn get_log_filter_times(
+        &self,
+        logs: HashMap<String, SampleLog>,
+    ) -> Result<(Vec<u64>, Vec<u64>)> {
+        let mut starts = Vec::<u64>::new();
+        let mut ends = Vec::<u64>::new();
+        for (name, filter) in &self.sample_log_filters {
+            let log = logs.get(&filter.log).ok_or_else(|| {
+                Error::msg(format!(
+                    "Filter {} refers to sample log {}, which does not exist.",
+                    name, filter.log,
+                ))
+            })?;
+            let (s, e) = log.to_time_ranges(&filter.predicate)?;
+            starts.extend(s);
+            ends.extend(e);
+        }
+        Ok((starts, ends))
     }
 
     // Get the relevant log for each log filter.
@@ -246,6 +274,25 @@ impl Filters {
             return Err(Error::msg("upper must be greater than lower."));
         }
 
+        self.add_log_predicate(name, log, LogPredicate::Range { lower, upper })
+    }
+
+    /// Add a log filter matching a string log against a specific value.
+    pub fn add_string_log_filter(
+        &mut self,
+        name: String,
+        log: String,
+        value: String,
+    ) -> Result<()> {
+        self.add_log_predicate(name, log, LogPredicate::Equals(value))
+    }
+
+    fn add_log_predicate(
+        &mut self,
+        name: String,
+        log: String,
+        predicate: LogPredicate,
+    ) -> Result<()> {
         // check name isn't already in use
         if self
             .sample_log_filters
@@ -256,7 +303,7 @@ impl Filters {
         }
 
         self.sample_log_filters
-            .insert(name, LogFilter { log, lower, upper });
+            .insert(name, LogFilter { log, predicate });
         Ok(())
     }
 
@@ -332,14 +379,9 @@ impl Filters {
             "".to_string()
         } else {
             let mut log_builder = Builder::new();
-            log_builder.push_record(["name", "log", "min", "max"]);
+            log_builder.push_record(["name", "log", "condition"]);
             for (name, filter) in &self.sample_log_filters {
-                log_builder.push_record([
-                    name,
-                    &filter.log,
-                    &filter.lower.unwrap_or(-f64::INFINITY).to_string(),
-                    &filter.upper.unwrap_or(f64::INFINITY).to_string(),
-                ]);
+                log_builder.push_record([name, &filter.log, &filter.predicate.describe()]);
             }
             let log_table = log_builder.build();
             format!("Sample log filters:\n{log_table}\n\n")
@@ -426,24 +468,30 @@ mod tests {
             "a".to_string(),
             LogFilter {
                 log: "temp".to_string(),
-                lower: Some(1.),
-                upper: Some(2.),
+                predicate: LogPredicate::Range {
+                    lower: Some(1.),
+                    upper: Some(2.),
+                },
             },
         );
         sample_log_filters.insert(
             "b".to_string(),
             LogFilter {
                 log: "pulse width".to_string(),
-                lower: Some(3.),
-                upper: Some(4.),
+                predicate: LogPredicate::Range {
+                    lower: Some(3.),
+                    upper: Some(4.),
+                },
             },
         );
         sample_log_filters.insert(
             "c".to_string(),
             LogFilter {
                 log: "pressure".to_string(),
-                lower: Some(5.),
-                upper: Some(6.),
+                predicate: LogPredicate::Range {
+                    lower: Some(5.),
+                    upper: Some(6.),
+                },
             },
         );
 
@@ -476,24 +524,30 @@ mod tests {
             "a".to_string(),
             LogFilter {
                 log: "simple".to_string(),
-                lower: Some(2.),
-                upper: Some(3.),
+                predicate: LogPredicate::Range {
+                    lower: Some(2.),
+                    upper: Some(3.),
+                },
             },
         );
         sample_log_filters.insert(
             "b".to_string(),
             LogFilter {
                 log: "simple".to_string(),
-                lower: Some(0.),
-                upper: Some(1.),
+                predicate: LogPredicate::Range {
+                    lower: Some(0.),
+                    upper: Some(1.),
+                },
             },
         );
         sample_log_filters.insert(
             "c".to_string(),
             LogFilter {
                 log: "complex".to_string(),
-                lower: Some(2.),
-                upper: Some(8.),
+                predicate: LogPredicate::Range {
+                    lower: Some(2.),
+                    upper: Some(8.),
+                },
             },
         );
 
@@ -527,7 +581,7 @@ mod tests {
         logs.insert("simple".to_string(), SampleLog::F64(simple_log));
         logs.insert("complex".to_string(), SampleLog::F64(complex_log));
 
-        let (starts, ends) = filters.get_log_filter_times(logs);
+        let (starts, ends) = filters.get_log_filter_times(logs).unwrap();
 
         let ranges: HashSet<(u64, u64)> = starts.into_iter().zip(ends).collect();
         let expected_ranges: HashSet<(u64, u64)> = [
@@ -552,16 +606,20 @@ mod tests {
             "a".to_string(),
             LogFilter {
                 log: "simple".to_string(),
-                lower: Some(2.),
-                upper: None,
+                predicate: LogPredicate::Range {
+                    lower: Some(2.),
+                    upper: None,
+                },
             },
         );
         sample_log_filters.insert(
             "b".to_string(),
             LogFilter {
                 log: "simple".to_string(),
-                lower: None,
-                upper: Some(3.),
+                predicate: LogPredicate::Range {
+                    lower: None,
+                    upper: Some(3.),
+                },
             },
         );
 
@@ -585,7 +643,7 @@ mod tests {
         let mut logs = HashMap::<String, SampleLog>::new();
         logs.insert("simple".to_string(), SampleLog::F64(simple_log));
 
-        let (starts, ends) = filters.get_log_filter_times(logs);
+        let (starts, ends) = filters.get_log_filter_times(logs).unwrap();
 
         let ranges: HashSet<(u64, u64)> = starts.into_iter().zip(ends).collect();
         let expected_ranges: HashSet<(u64, u64)> =
@@ -732,12 +790,86 @@ mod tests {
             "name".to_string(),
             LogFilter {
                 log: "temp".to_string(),
-                lower: Some(0.),
-                upper: Some(1.),
+                predicate: LogPredicate::Range {
+                    lower: Some(0.),
+                    upper: Some(1.),
+                },
             },
         );
 
         assert_eq!(filters.sample_log_filters, expected)
+    }
+
+    /// Test adding a string log filter is stored correctly.
+    #[test]
+    fn test_add_string_log_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_string_log_filter(
+                "name".to_string(),
+                "status".to_string(),
+                "RUNNING".to_string(),
+            )
+            .unwrap();
+
+        let mut expected = HashMap::<String, LogFilter>::new();
+        expected.insert(
+            "name".to_string(),
+            LogFilter {
+                log: "status".to_string(),
+                predicate: LogPredicate::Equals("RUNNING".to_string()),
+            },
+        );
+
+        assert_eq!(filters.sample_log_filters, expected)
+    }
+
+    /// Test `__repr__` shows the value a string log filter matches on.
+    #[test]
+    fn test_repr_string_log_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_string_log_filter(
+                "logfilter".to_string(),
+                "status".to_string(),
+                "RUNNING".to_string(),
+            )
+            .unwrap();
+
+        let repr = filters.__repr__();
+        assert!(repr.contains("logfilter"));
+        assert!(repr.contains("status"));
+        assert!(repr.contains("RUNNING"));
+    }
+
+    /// Test a filter naming a log that is not in the data gives an error.
+    #[test]
+    fn test_log_filter_to_times_missing_log() {
+        let mut sample_log_filters = HashMap::<String, LogFilter>::new();
+        sample_log_filters.insert(
+            "a".to_string(),
+            LogFilter {
+                log: "nonexistent".to_string(),
+                predicate: LogPredicate::Range {
+                    lower: Some(1.),
+                    upper: Some(2.),
+                },
+            },
+        );
+
+        let filters = Filters {
+            time_filter_type: FilterType::Include,
+            time_filters: HashMap::<String, Filter>::new(),
+            sample_log_filters,
+            amplitudes: HashMap::new(),
+            overwrite_type: OverwriteType::Free,
+        };
+
+        let error = filters
+            .get_log_filter_times(HashMap::<String, SampleLog>::new())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("nonexistent"), "{error}");
     }
 
     /// Test adding multiple log filters.
@@ -759,24 +891,30 @@ mod tests {
             "name".to_string(),
             LogFilter {
                 log: "temp".to_string(),
-                lower: Some(0.),
-                upper: Some(1.),
+                predicate: LogPredicate::Range {
+                    lower: Some(0.),
+                    upper: Some(1.),
+                },
             },
         );
         expected.insert(
             "name2".to_string(),
             LogFilter {
                 log: "p".to_string(),
-                lower: Some(5.),
-                upper: None,
+                predicate: LogPredicate::Range {
+                    lower: Some(5.),
+                    upper: None,
+                },
             },
         );
         expected.insert(
             "name3".to_string(),
             LogFilter {
                 log: "temp".to_string(),
-                lower: None,
-                upper: Some(8.),
+                predicate: LogPredicate::Range {
+                    lower: None,
+                    upper: Some(8.),
+                },
             },
         );
 
@@ -815,8 +953,10 @@ mod tests {
                 "filter1".to_string(),
                 LogFilter {
                     log: "temp".to_string(),
-                    lower: Some(3.),
-                    upper: Some(4.),
+                    predicate: LogPredicate::Range {
+                        lower: Some(3.),
+                        upper: Some(4.),
+                    },
                 },
             );
 
@@ -870,8 +1010,10 @@ mod tests {
             "filter2".to_string(),
             LogFilter {
                 log: "pw".to_string(),
-                lower: Some(3.),
-                upper: Some(4.),
+                predicate: LogPredicate::Range {
+                    lower: Some(3.),
+                    upper: Some(4.),
+                },
             },
         );
 
@@ -921,16 +1063,20 @@ mod tests {
                     "log1".to_string(),
                     LogFilter {
                         log: "temp".to_string(),
-                        lower: Some(0.),
-                        upper: Some(1.)
+                        predicate: LogPredicate::Range {
+                            lower: Some(0.),
+                            upper: Some(1.)
+                        }
                     }
                 ),
                 (
                     "log2".to_string(),
                     LogFilter {
                         log: "pw".to_string(),
-                        lower: Some(2.),
-                        upper: Some(3.)
+                        predicate: LogPredicate::Range {
+                            lower: Some(2.),
+                            upper: Some(3.)
+                        }
                     }
                 ),
             ])
@@ -969,8 +1115,10 @@ mod tests {
                 "log1".to_string(),
                 LogFilter {
                     log: "pw".to_string(),
-                    lower: Some(2.),
-                    upper: Some(3.)
+                    predicate: LogPredicate::Range {
+                        lower: Some(2.),
+                        upper: Some(3.)
+                    }
                 }
             )])
         );
@@ -1102,8 +1250,10 @@ mod tests {
             "c".to_string(),
             LogFilter {
                 log: "Temp".to_string(),
-                lower: Some(5.),
-                upper: Some(6.),
+                predicate: LogPredicate::Range {
+                    lower: Some(5.),
+                    upper: Some(6.),
+                },
             },
         );
 
@@ -1141,8 +1291,10 @@ mod tests {
             "c".to_string(),
             LogFilter {
                 log: "Temp".to_string(),
-                lower: Some(5.),
-                upper: None,
+                predicate: LogPredicate::Range {
+                    lower: Some(5.),
+                    upper: None,
+                },
             },
         );
 
