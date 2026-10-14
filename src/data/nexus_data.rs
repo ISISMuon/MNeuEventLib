@@ -20,7 +20,7 @@ pub struct NexusData {
     pub filename: String,
     pub specs: Dataset,
     pub times: Dataset,
-    pub amps: Dataset,
+    pub ampl: Dataset,
     pub frames: Dataset,
     pub frame_times: Dataset,
     pub periods: Dataset,
@@ -86,14 +86,14 @@ impl NexusData {
     }
 
     /// Get a histogram of the amplitudes and the maximum height.
-    #[pyo3(name = "get_amp_histogram", signature = (max_height=None, n_bins=10))]
-    fn get_amp_histogram_py<'py>(
+    #[pyo3(name = "get_ampl_histogram", signature = (max_height=None, n_bins=10))]
+    fn get_ampl_histogram_py<'py>(
         &self,
         py: Python<'py>,
         max_height: Option<f64>,
         n_bins: usize,
     ) -> Result<(Bound<'py, PyArray1<usize>>, f64)> {
-        let (results, max) = self.get_amp_histogram(max_height, n_bins)?;
+        let (results, max) = self.get_ampl_histogram(max_height, n_bins)?;
         Ok((results.to_pyarray(py), max))
     }
 
@@ -133,7 +133,7 @@ impl NexusData {
 
     /// Get the histogram of amplitudes and the max height.
     #[inline(always)]
-    fn get_amp_histogram(
+    fn get_ampl_histogram(
         &self,
         max_height: Option<f64>,
         n_bins: usize,
@@ -141,39 +141,39 @@ impl NexusData {
         let max = match max_height {
             Some(height) if height.is_finite() => height,
             Some(_) => return Err(Error::msg("max_height must be finite.")),
-            None => self.get_dataset_max(&self.amps)?,
+            None => self.get_dataset_max(&self.ampl)?,
         };
         if n_bins == 0 {
             return Err(Error::msg("n_bins must be greater than 0."));
         }
         let width = max / n_bins as f64;
-        let n_amps = self.amps.size();
+        let n_ampl = self.ampl.size();
 
         // parallel iterate over chunks
         let results = Array1::from_iter(
-            (0..n_amps)
+            (0..n_ampl)
                 .into_par_iter()
                 .step_by(self.chunk_size)
-                // get the amps for each chunk
+                // get the ampl for each chunk
                 .map(|start| -> Array1<f64> {
-                    let end = min(start + self.chunk_size, n_amps);
+                    let end = min(start + self.chunk_size, n_ampl);
                     let array_slice = s![start..end];
-                    self.amps
+                    self.ampl
                         .read_slice_1d(array_slice)
                         .expect("Failed to read amplitude data.")
                 })
-                // bin amps for each chunk
-                .map(|amps| {
+                // bin ampl for each chunk
+                .map(|chunk| {
                     let mut array = Array1::zeros(n_bins);
-                    for amp in amps {
+                    for ampl in chunk {
                         // anything over the max is put in the last bin
-                        if amp >= max {
+                        if ampl >= max {
                             array[n_bins - 1] += 1
                         } else {
                             // it is technically impossible for the bin to be larger
                             // than n_bins - 1, but floating point error may bump
-                            // the largest amp to above this in some cases
-                            let bin = ((amp / width).floor() as usize).min(n_bins - 1);
+                            // the largest ampl to above this in some cases
+                            let bin = ((ampl / width).floor() as usize).min(n_bins - 1);
                             array[bin] += 1
                         }
                     }
@@ -238,7 +238,7 @@ fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<NexusD
 
     let specs = events.dataset("event_id")?;
     let times = events.dataset("event_time_offset")?;
-    let amps = events.dataset("pulse_height")?;
+    let ampl = events.dataset("pulse_height")?;
 
     let frames = events.dataset("event_index")?;
     let frame_times = events.dataset("event_time_zero")?;
@@ -255,7 +255,7 @@ fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<NexusD
         filename: filename.to_str().unwrap().to_string(),
         specs,
         times,
-        amps,
+        ampl,
         frames,
         frame_times,
         periods,
@@ -329,13 +329,13 @@ mod tests {
     /// Test that an amplitude histogram is successfully created for some data.
     /// This test uses a fixed maximum.
     #[test]
-    fn test_make_amp_histogram_fixed_max() {
+    fn test_make_ampl_histogram_fixed_max() {
         let data = MockData::new().unwrap();
-        let amps = Array1::from_vec(vec![0.8, 1.5, 1.2, 3.3, 2., 3.8, 6.1]);
-        data.add_dataset("pulse_height", amps).unwrap();
+        let ampl = Array1::from_vec(vec![0.8, 1.5, 1.2, 3.3, 2., 3.8, 6.1]);
+        data.add_dataset("pulse_height", ampl).unwrap();
         let nexus_data = data.create(64, 5).unwrap();
 
-        let result = nexus_data.get_amp_histogram(Some(10.), 10);
+        let result = nexus_data.get_ampl_histogram(Some(10.), 10);
         assert!(result.is_ok());
         let (hist, max) = result.unwrap();
         assert_eq!(max, 10.);
@@ -345,13 +345,13 @@ mod tests {
     /// Test that an amplitude histogram is successfully created for some data.
     /// This test uses a calculated maximum.
     #[test]
-    fn test_make_amp_histogram_calculate_max() {
+    fn test_make_ampl_histogram_calculate_max() {
         let data = MockData::new().unwrap();
-        let amps = Array1::from_vec(vec![0.8, 1.5, 1.2, 3.3, 2., 3.8, 6.1]);
-        data.add_dataset("pulse_height", amps).unwrap();
+        let ampl = Array1::from_vec(vec![0.8, 1.5, 1.2, 3.3, 2., 3.8, 6.1]);
+        data.add_dataset("pulse_height", ampl).unwrap();
         let nexus_data = data.create(64, 5).unwrap();
 
-        let result = nexus_data.get_amp_histogram(None, 10);
+        let result = nexus_data.get_ampl_histogram(None, 10);
         assert!(result.is_ok());
         let (hist, max) = result.unwrap();
         assert_eq!(max, 6.1);

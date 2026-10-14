@@ -114,7 +114,7 @@ impl Histogram {
             get_period_frames(&periods, n_periods, &weights)
         };
 
-        let min_amps = filters.get_amps(data.n_spec)?;
+        let min_ampl = filters.get_ampl(data.n_spec)?;
 
         let mut histogram = calculate_histograms(
             data,
@@ -123,7 +123,7 @@ impl Histogram {
             self.n_bins,
             n_periods,
             periods,
-            min_amps,
+            min_ampl,
             &weights,
             frame_data,
         );
@@ -185,7 +185,7 @@ pub fn calculate_histograms(
     n_bins: usize,
     n_periods: usize,
     periods: Array1<u32>,
-    min_amps: Array1<f64>,
+    min_ampl: Array1<f64>,
     weights: &Weights,
     frame_data: FrameData,
 ) -> Histogram {
@@ -206,8 +206,8 @@ pub fn calculate_histograms(
         .for_each(|start| {
             let end = min(start + (dataset.chunk_size), dataset.n_events);
             let array_slice = s![start..end];
-            let amps: Array1<f64> = dataset
-                .amps
+            let ampl: Array1<f64> = dataset
+                .ampl
                 .read_slice_1d(array_slice)
                 .expect("failed to read amplitudes.");
             let times: Array1<u32> = dataset
@@ -230,9 +230,9 @@ pub fn calculate_histograms(
                 acc,
                 times,
                 specs,
-                amps,
+                ampl,
                 &periods,
-                &min_amps,
+                &min_ampl,
                 weights,
                 frame_data.slice(start, end),
                 min_time,
@@ -264,9 +264,9 @@ fn make_histogram(
     acc: &mut Accumulator,
     times: Array1<u32>,
     specs: Array1<u32>,
-    amps: Array1<f64>,
+    ampl: Array1<f64>,
     periods: &Array1<u32>,
-    min_amps: &Array1<f64>,
+    min_ampl: &Array1<f64>,
     weights: &Weights,
     frame_data: FrameData,
     min_time: u32,
@@ -294,10 +294,10 @@ fn make_histogram(
 
         for k in frame_start_event..frame_end_event {
             let t = times[k];
-            let amp = amps[k];
+            let event_ampl = ampl[k];
             let spec = specs[k] as usize;
 
-            if (t >= min_time) && (t < max_time) && amp > min_amps[spec] {
+            if (t >= min_time) && (t < max_time) && event_ampl > min_ampl[spec] {
                 let bin = ((t - min_time) as f32 / width) as usize;
                 acc.hist[[period, spec, bin]] += 1;
                 acc.n += 1
@@ -315,11 +315,11 @@ mod tests {
     fn histogram_one_chunk(
         times: Array1<u32>,
         specs: Array1<u32>,
-        amps: Array1<f64>,
+        ampl: Array1<f64>,
         n_spec: usize,
         periods: &Array1<u32>,
         n_periods: usize,
-        min_amps: &Array1<f64>,
+        min_ampl: &Array1<f64>,
         weights: &Weights,
         frame_data: FrameData,
         min_time: u32,
@@ -329,7 +329,7 @@ mod tests {
     ) -> Accumulator {
         let mut acc = Accumulator::zeros(n_periods, n_spec, n_bins);
         make_histogram(
-            &mut acc, times, specs, amps, periods, min_amps, weights, frame_data, min_time,
+            &mut acc, times, specs, ampl, periods, min_ampl, weights, frame_data, min_time,
             max_time, width,
         );
         acc
@@ -351,19 +351,19 @@ mod tests {
     fn test_hist_no_filter() {
         let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
         let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
-        let amps = Array1::ones(6);
+        let ampl = Array1::ones(6);
         let periods = Array1::zeros(6);
-        let min_amps = Array1::zeros(6);
+        let min_ampl = Array1::zeros(6);
         let weights = Weights::ones(6);
 
         let result = histogram_one_chunk(
             times,
             specs,
-            amps,
+            ampl,
             2,
             &periods,
             1,
-            &min_amps,
+            &min_ampl,
             &weights,
             FrameData::one_frame(6),
             0,
@@ -383,20 +383,20 @@ mod tests {
     fn test_hist_filter() {
         let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
         let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
-        let amps = Array1::ones(6);
+        let ampl = Array1::ones(6);
         let periods = Array1::zeros(6);
-        let min_amps = Array1::zeros(6);
+        let min_ampl = Array1::zeros(6);
         // weight bytes are filtering out values 0, 3, 4
         let weights = Weights::from_raw(vec![0b100110]);
 
         let result = histogram_one_chunk(
             times,
             specs,
-            amps,
+            ampl,
             2,
             &periods,
             1,
-            &min_amps,
+            &min_ampl,
             &weights,
             FrameData::one_event_per_frame(6),
             0,
@@ -416,19 +416,19 @@ mod tests {
     fn test_hist_multiple_periods() {
         let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
         let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
-        let amps = Array1::ones(6);
+        let ampl = Array1::ones(6);
         let periods = Array1::from_vec(vec![0, 0, 1, 1, 0, 1]);
-        let min_amps = Array1::zeros(6);
+        let min_ampl = Array1::zeros(6);
         let weights = Weights::ones(6);
 
         let result = histogram_one_chunk(
             times,
             specs,
-            amps,
+            ampl,
             2,
             &periods,
             2,
-            &min_amps,
+            &min_ampl,
             &weights,
             FrameData::one_event_per_frame(6),
             0,
@@ -460,19 +460,19 @@ mod tests {
     fn test_hist_data_before_start() {
         let times = Array1::from_vec(vec![500, 1200, 1800, 2500]);
         let specs = Array1::from_vec(vec![0, 1, 0, 1]);
-        let amps = Array1::ones(4);
+        let ampl = Array1::ones(4);
         let periods = Array1::zeros(4);
-        let min_amps = Array1::zeros(4);
+        let min_ampl = Array1::zeros(4);
         let weights = Weights::ones(4);
 
         let result = histogram_one_chunk(
             times,
             specs,
-            amps,
+            ampl,
             2,
             &periods,
             1,
-            &min_amps,
+            &min_ampl,
             &weights,
             FrameData::one_frame(4),
             1000,
@@ -492,19 +492,19 @@ mod tests {
     fn test_hist_data_after_end() {
         let times = Array1::from_vec(vec![500, 1200, 1800, 3500]);
         let specs = Array1::from_vec(vec![0, 1, 0, 1]);
-        let amps = Array1::ones(4);
+        let ampl = Array1::ones(4);
         let periods = Array1::zeros(4);
-        let min_amps = Array1::zeros(4);
+        let min_ampl = Array1::zeros(4);
         let weights = Weights::ones(4);
 
         let result = histogram_one_chunk(
             times,
             specs,
-            amps,
+            ampl,
             2,
             &periods,
             1,
-            &min_amps,
+            &min_ampl,
             &weights,
             FrameData::one_frame(4),
             0,
@@ -521,22 +521,22 @@ mod tests {
 
     /// Test a histogram with amplitude filters is correctly constructed.
     #[test]
-    fn test_hist_amps_filter() {
+    fn test_hist_ampl_filter() {
         let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
         let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
-        let amps = Array1::from_vec(vec![1., 1., 1., 0.25, 1., 1.75]);
+        let ampl = Array1::from_vec(vec![1., 1., 1., 0.25, 1., 1.75]);
         let periods = Array1::zeros(6);
-        let min_amps = Array1::from_vec(vec![0.5, 1.5]);
+        let min_ampl = Array1::from_vec(vec![0.5, 1.5]);
         let weights = Weights::ones(6);
 
         let result = histogram_one_chunk(
             times,
             specs,
-            amps,
+            ampl,
             2,
             &periods,
             1,
-            &min_amps,
+            &min_ampl,
             &weights,
             FrameData::one_frame(6),
             0,
@@ -557,9 +557,9 @@ mod tests {
     fn test_accumulator_reuse_across_chunks() {
         let times = Array1::from_vec(vec![500, 600, 1500, 2300, 2500, 2650]);
         let specs = Array1::from_vec(vec![0, 1, 0, 0, 0, 1]);
-        let amps: Array1<f64> = Array1::ones(6);
+        let ampl: Array1<f64> = Array1::ones(6);
         let periods = Array1::zeros(6);
-        let min_amps = Array1::zeros(6);
+        let min_ampl = Array1::zeros(6);
         let weights = Weights::ones(6);
         let frame_data = FrameData::new(Array1::from_vec((0..6).collect()), 6);
 
@@ -567,11 +567,11 @@ mod tests {
         let single = histogram_one_chunk(
             times.clone(),
             specs.clone(),
-            amps.clone(),
+            ampl.clone(),
             2,
             &periods,
             1,
-            &min_amps,
+            &min_ampl,
             &weights,
             frame_data.slice(0, 6),
             0,
@@ -587,9 +587,9 @@ mod tests {
                 &mut split,
                 times.slice(s![start..end]).to_owned(),
                 specs.slice(s![start..end]).to_owned(),
-                amps.slice(s![start..end]).to_owned(),
+                ampl.slice(s![start..end]).to_owned(),
                 &periods,
-                &min_amps,
+                &min_ampl,
                 &weights,
                 frame_data.slice(start, end),
                 0,
