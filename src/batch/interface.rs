@@ -6,7 +6,7 @@ use crate::filters::Filters;
 use crate::stats::Histogram;
 use anyhow::{Error, Result};
 use ndarray::Array1;
-use numpy::{PyArray3, ToPyArray};
+use numpy::{PyArray3, PyReadonlyArray1, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Borrowed, Bound, FromPyObject, PyAny, PyErr, Python};
 use pyo3::types::{PyAnyMethods, PyDict, PyInt, PyModule, PyString};
 
@@ -485,11 +485,11 @@ impl BatchData {
     ///     Either 'all', or the index of the filter set to modify.
     /// detector: int
     ///     The detector to set a filter for.
-    /// amp: float
+    /// ampl: float
     ///     The maximum amplitude that should be ignored.
-    pub fn set_amp(&mut self, index: FilterIndex, detector: usize, amp: f64) -> Result<()> {
+    pub fn set_ampl(&mut self, index: FilterIndex, detector: usize, ampl: f64) -> Result<()> {
         for i in self.resolve_indices(&index)? {
-            self.filters[i].set_amp(detector, amp);
+            self.filters[i].set_ampl(detector, ampl);
             self.data_changed[i] = true;
         }
         Ok(())
@@ -501,11 +501,32 @@ impl BatchData {
     /// ----------
     /// index: int | str
     ///     Either 'all', or the index of the filter set to modify.
-    /// amp: float
+    /// ampl: float
     ///     The maximum amplitude that should be ignored.
-    pub fn set_amps_baseline(&mut self, index: FilterIndex, amp: f64) -> Result<()> {
+    pub fn set_ampl_baseline(&mut self, index: FilterIndex, ampl: f64) -> Result<()> {
         for i in self.resolve_indices(&index)? {
-            self.filters[i].set_amps_baseline(amp);
+            self.filters[i].set_ampl_baseline(ampl);
+            self.data_changed[i] = true;
+        }
+        Ok(())
+    }
+
+    /// Set an amplitude filter for all detectors from an array.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int | str
+    ///     Either 'all', or the index of the filter set to modify.
+    /// ampl: Array[float]
+    ///     An array of the amplitudes for each detector.
+    pub fn set_ampl_from_array(
+        &mut self,
+        index: FilterIndex,
+        ampl: PyReadonlyArray1<f64>,
+    ) -> Result<()> {
+        let ampl_array: Vec<f64> = ampl.as_array().to_vec();
+        for i in self.resolve_indices(&index)? {
+            self.filters[i].set_ampl_from_array(ampl_array.clone());
             self.data_changed[i] = true;
         }
         Ok(())
@@ -1559,16 +1580,16 @@ mod tests {
     /// Setting an amplitude filter at a single index should only affect
     /// that filter set's amplitude array.
     #[test]
-    fn test_set_amp_single_index() {
+    fn test_set_ampl_single_index() {
         let mut batch = make_batch(2);
-        batch.set_amp(FilterIndex::Index(1), 3, 5.0).unwrap();
+        batch.set_ampl(FilterIndex::Index(1), 3, 5.0).unwrap();
 
-        let amps0 = batch.filters[0].get_amps(6).unwrap();
-        let amps1 = batch.filters[1].get_amps(6).unwrap();
+        let ampl0 = batch.filters[0].get_ampl(6).unwrap();
+        let ampl1 = batch.filters[1].get_ampl(6).unwrap();
 
-        assert_eq!(amps0, Array1::<f64>::zeros(6));
+        assert_eq!(ampl0, Array1::<f64>::zeros(6));
         assert_eq!(
-            amps1,
+            ampl1,
             ndarray::Array1::from_vec(vec![0., 0., 0., 5., 0., 0.])
         );
     }
@@ -1576,14 +1597,14 @@ mod tests {
     /// Setting an amplitude filter with index "All" should apply it to
     /// every filter set.
     #[test]
-    fn test_set_amp_all_indices() {
+    fn test_set_ampl_all_indices() {
         let mut batch = make_batch(3);
-        batch.set_amp(FilterIndex::All, 2, 4.4).unwrap();
+        batch.set_ampl(FilterIndex::All, 2, 4.4).unwrap();
 
         for filter_set in &batch.filters {
-            let amps = filter_set.get_amps(6).unwrap();
+            let ampl = filter_set.get_ampl(6).unwrap();
             assert_eq!(
-                amps,
+                ampl,
                 ndarray::Array1::from_vec(vec![0., 0., 4.4, 0., 0., 0.])
             );
         }

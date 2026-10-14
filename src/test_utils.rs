@@ -103,7 +103,7 @@ impl MockData {
             file: self.nxs_file.clone(),
             specs,
             times: self.event_data.dataset("event_time_offset")?,
-            amps: self.event_data.dataset("pulse_height")?,
+            ampl: self.event_data.dataset("pulse_height")?,
             frames: self.event_data.dataset("event_index")?,
             frame_times: self.event_data.dataset("event_time_zero")?,
             periods: self.event_data.dataset("period_number")?,
@@ -149,7 +149,7 @@ fn test_create_empty() {
     let nexus = create_result.unwrap();
     assert_eq!(nexus.specs.size(), 1);
     assert_eq!(nexus.times.size(), 1);
-    assert_eq!(nexus.amps.size(), 1);
+    assert_eq!(nexus.ampl.size(), 1);
     assert_eq!(nexus.frames.size(), 1);
     assert_eq!(nexus.frame_times.size(), 1);
     assert_eq!(nexus.periods.size(), 1);
@@ -170,7 +170,7 @@ fn test_create_with_arrays() {
     let nexus = create_result.unwrap();
     assert_eq!(nexus.specs.size(), 1);
     assert_eq!(nexus.times.read_1d::<f64>().unwrap(), vals);
-    assert_eq!(nexus.amps.size(), 1);
+    assert_eq!(nexus.ampl.size(), 1);
     assert_eq!(nexus.frames.size(), 1);
     assert_eq!(nexus.frame_times.size(), 1);
     assert_eq!(nexus.periods.size(), 1);
