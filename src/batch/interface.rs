@@ -59,7 +59,10 @@ pub struct BatchData {
     pub dataset: Option<NexusData>,
     pub results: Vec<Histogram>,
     pub filters: Vec<Filters>,
-    data_changed: Vec<bool>, // whether data has changed since last calculation, per filter set
+    // whether data has changed since last calculation, per filter set.
+    // a filter set whose data has changed has an empty result, so a stale
+    // histogram can never be read back; see `mark_changed`.
+    data_changed: Vec<bool>,
 }
 
 #[pymethods]
@@ -119,26 +122,17 @@ impl BatchData {
     ///     This object, with `results[i]` holding the histogram calculated
     ///     from `dataset` and `filters[i]`, for each `i`.
     pub fn calculate(&mut self) -> Result<BatchData> {
-        match &self.dataset {
-            Some(dataset) => {
-                for i in 0..self.n_batches() {
-                    if self.data_changed[i] {
-                        let result = self.results[i].calculate(dataset, &self.filters[i])?;
-                        self.data_changed[i] = false;
-                        self.results[i] = result;
-                    }
-                }
-                Ok(self.clone())
-            }
-            None => Err(Error::msg(
-                "Dataset has not been set! Set with the set_data() method.",
-            )),
+        for i in 0..self.n_batches() {
+            self.calculate_index(i)?;
         }
+        Ok(self.clone())
     }
 
     /// Force histograms to be recalculated even if the data hasn't changed.
     pub fn invalidate_cache(&mut self) {
-        self.data_changed = vec![true; self.n_batches()]
+        for i in 0..self.n_batches() {
+            self.mark_changed(i);
+        }
     }
 
     /// Check if any data has changed since you last ran a calculation.
@@ -175,9 +169,9 @@ impl BatchData {
             return Err(Error::msg("max_time must be greater than min_time."));
         }
         for i in self.resolve_indices(&index)? {
-            self.data_changed[i] = true;
             self.results[i] =
                 Histogram::new((min_time * 1e3) as u32, (max_time * 1e3) as u32, n_bins);
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -193,7 +187,7 @@ impl BatchData {
     pub fn set_time_type(&mut self, index: FilterIndex, filter_type: String) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].set_time_type(filter_type.clone())?;
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -237,7 +231,7 @@ impl BatchData {
     ) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_time_filter(name.clone(), start, end)?;
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -253,7 +247,7 @@ impl BatchData {
     pub fn remove_time_filter(&mut self, index: FilterIndex, name: String) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].remove_time_filter(name.clone())?;
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -282,7 +276,7 @@ impl BatchData {
     ) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_log_filter(name.clone(), log.clone(), Some(lower), Some(upper))?;
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -298,7 +292,7 @@ impl BatchData {
     pub fn remove_log_filter(&mut self, index: FilterIndex, name: String) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].remove_log_filter(name.clone())?;
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -324,7 +318,7 @@ impl BatchData {
     ) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_log_filter_above(name.clone(), log.clone(), lower)?;
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -350,7 +344,7 @@ impl BatchData {
     ) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].add_log_filter_below(name.clone(), log.clone(), upper)?;
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -368,7 +362,7 @@ impl BatchData {
     pub fn set_amp(&mut self, index: FilterIndex, detector: usize, amp: f64) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].set_amp(detector, amp);
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -384,7 +378,7 @@ impl BatchData {
     pub fn set_amps_baseline(&mut self, index: FilterIndex, amp: f64) -> Result<()> {
         for i in self.resolve_indices(&index)? {
             self.filters[i].set_amps_baseline(amp);
-            self.data_changed[i] = true;
+            self.mark_changed(i);
         }
         Ok(())
     }
@@ -515,6 +509,11 @@ impl BatchData {
 
     /// Save a filter set's result to a file.
     ///
+    /// Any result that is out of date (because the filters or histogram
+    /// settings have changed since it was last calculated, or because it has
+    /// never been calculated) is recalculated first, and a warning is printed
+    /// to say so.
+    ///
     /// Parameters
     /// ----------
     /// index: int
@@ -540,7 +539,7 @@ impl BatchData {
     ///     muon nexus v2 file. If None, uses the standard embedded default muon Nexus reference file.
     #[pyo3(signature = (index, filename, autofill=true, ref_file=None))]
     pub fn save(
-        &self,
+        &mut self,
         index: FilterIndex,
         filename: String,
         autofill: bool,
@@ -550,42 +549,36 @@ impl BatchData {
         let ref_file_str = ref_path.to_string_lossy().to_string();
 
         let filename_stem = if filename.to_lowercase().ends_with(".nxs") {
-            filename.clone()[..(filename.len() - 4)].to_string()
+            filename[..(filename.len() - 4)].to_string()
         } else {
             filename.clone()
         };
+        // when saving every filter set, each one gets its index appended
+        // to the filename so the files don't overwrite each other
+        let number_files = matches!(index, FilterIndex::All);
 
-        match index {
-            FilterIndex::Index(i) => {
-                if self.results[i].hist.shape() == [0, 0, 0] {
-                    return Err(Error::msg(
-                        "Cannot save as results have not been calculated.",
-                    ));
-                }
-                let dataset = self.dataset.as_ref().unwrap();
+        let indices = self.resolve_indices(&index)?;
+        self.recalculate_stale(&indices)?;
+
+        if let Some(dataset) = &self.dataset {
+            for i in indices {
+                let out_file = if number_files {
+                    format!("{filename_stem}_{i}.nxs")
+                } else {
+                    format!("{filename_stem}.nxs")
+                };
                 let wimda_file = WiMDAFile::new(dataset, &self.filters[i], &self.results[i])?;
-                wimda_file.save_file(format!("{filename_stem}.nxs"), &dataset.file)?;
+                wimda_file.save_file(out_file.clone(), &dataset.file)?;
                 if autofill {
-                    self.save_nexus(format!("{filename_stem}.nxs"), ref_file_str.clone())?;
+                    self.save_nexus(out_file, ref_file_str.clone())?;
                 }
             }
-            FilterIndex::All => {
-                if self.results.iter().any(|r| r.hist.shape() == [0, 0, 0]) {
-                    return Err(Error::msg(
-                        "Cannot save as results have not been calculated.",
-                    ));
-                }
-                let dataset = self.dataset.as_ref().unwrap();
-                for i in 0..self.n_batches() {
-                    let wimda_file = WiMDAFile::new(dataset, &self.filters[i], &self.results[i])?;
-                    wimda_file.save_file(format!("{filename_stem}_{i}.nxs"), &dataset.file)?;
-                    if autofill {
-                        self.save_nexus(format!("{filename_stem}_{i}.nxs"), ref_file_str.clone())?;
-                    }
-                }
-            }
+            Ok(())
+        } else {
+            Err(Error::msg(
+                "No data has been set. Set a dataset with `BatchData.set_data(...)`",
+            ))
         }
-        Ok(())
     }
 
     /// Save a set of filters to a file.
@@ -616,6 +609,10 @@ impl BatchData {
     }
 
     /// Get a calculated histogram.
+    ///
+    /// A histogram is empty if its filters or histogram settings have
+    /// changed since it was last calculated, or if it has never been
+    /// calculated.
     ///
     /// Parameters
     /// ----------
@@ -712,6 +709,66 @@ impl BatchData {
             filters: vec![Filters::new(); n],
             data_changed: vec![true; n],
         }
+    }
+
+    /// Mark filter set `i`'s result as out of date, emptying its histogram
+    /// so that a stale result can't be read back before it's recalculated.
+    fn mark_changed(&mut self, i: usize) {
+        self.data_changed[i] = true;
+        self.results[i].reset();
+    }
+
+    /// Calculate the histogram for filter set `i`, if its result is out of
+    /// date.
+    fn calculate_index(&mut self, i: usize) -> Result<()> {
+        if let Some(dataset) = &self.dataset {
+            if self.data_changed[i] {
+                let result = self.results[i].calculate(dataset, &self.filters[i])?;
+                self.data_changed[i] = false;
+                self.results[i] = result;
+            }
+            Ok(())
+        } else {
+            Err(Error::msg(
+                "No data has been set. Set a dataset with `BatchData.set_data(...)`",
+            ))
+        }
+    }
+
+    /// Of the given filter sets, the ones whose results are out of date.
+    fn stale_indices(&self, indices: &[usize]) -> Vec<usize> {
+        indices
+            .iter()
+            .copied()
+            .filter(|&i| self.data_changed[i])
+            .collect()
+    }
+
+    /// Recalculate any of the given filter sets whose results are out of
+    /// date, warning the user that this is happening.
+    fn recalculate_stale(&mut self, indices: &[usize]) -> Result<()> {
+        let stale = self.stale_indices(indices);
+        if stale.is_empty() {
+            return Ok(());
+        }
+
+        let sets = stale
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<String>>()
+            .join(", ");
+        if stale.len() == 1 {
+            println!("Results for filter set {sets} are out of date; recalculating before saving.");
+        } else {
+            println!(
+                "Results for filter sets {sets} are out of date; recalculating before saving."
+            );
+        }
+
+        for i in stale {
+            self.calculate_index(i)?;
+        }
+        Ok(())
     }
 
     /// Resolve a [`FilterIndex`] into a list of valid filter set indices,
@@ -907,6 +964,7 @@ mod tests {
     use super::*;
     use crate::test_utils::MockData;
     use ndarray::Array1;
+    use std::sync::MutexGuard;
 
     /// Build a BatchData with `n` filter sets using MockData as the
     /// underlying dataset (no real .nxs file needed).
@@ -914,6 +972,20 @@ mod tests {
         let mock = MockData::new().unwrap();
         let dataset = mock.create(64, 1048576).unwrap();
         BatchData::from_dataset(dataset, n_filter_sets)
+    }
+
+    /// Build a BatchData with `n` filter sets from the fixture event file,
+    /// which (unlike MockData) holds enough real data to be calculated.
+    fn make_calculable_batch(n_filter_sets: usize) -> (BatchData, MutexGuard<'static, ()>) {
+        let guard = crate::test_utils::lock_hdf5_test();
+        let batch = BatchData::new(
+            "./tests/test_data/HIFI00195790.nxs".to_string(),
+            64,
+            n_filter_sets,
+            1048576,
+        )
+        .unwrap();
+        (batch, guard)
     }
 
     /// resolve_indices(All) should return every index in range.
@@ -938,6 +1010,76 @@ mod tests {
         let batch = make_batch(3);
         let result = batch.resolve_indices(&FilterIndex::Index(3));
         assert!(result.is_err());
+    }
+
+    /// Results that have never been calculated should be stale.
+    #[test]
+    fn test_stale_indices_before_calculate() {
+        let batch = make_batch(3);
+        assert_eq!(batch.stale_indices(&[0, 1, 2]), vec![0, 1, 2]);
+    }
+
+    /// Once calculated, no results should be stale.
+    #[test]
+    fn test_stale_indices_after_calculate() {
+        let (mut batch, _guard) = make_calculable_batch(3);
+        batch.calculate().unwrap();
+        assert!(batch.stale_indices(&[0, 1, 2]).is_empty());
+    }
+
+    /// Changing one filter set should only make that set stale.
+    #[test]
+    fn test_stale_indices_after_filter_change() {
+        let (mut batch, _guard) = make_calculable_batch(3);
+        batch.calculate().unwrap();
+        batch
+            .add_time_filter(FilterIndex::Index(1), "f1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        assert_eq!(batch.stale_indices(&[0, 1, 2]), vec![1]);
+        // a set that isn't being saved shouldn't be recalculated
+        assert!(batch.stale_indices(&[0, 2]).is_empty());
+    }
+
+    /// Changing one filter set should empty that set's histogram, leaving
+    /// the other results intact.
+    #[test]
+    fn test_filter_change_empties_result() {
+        let (mut batch, _guard) = make_calculable_batch(2);
+        batch.calculate().unwrap();
+        batch
+            .add_time_filter(FilterIndex::Index(1), "f1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        assert_eq!(batch.results[1].hist.dim(), (0, 0, 0));
+        assert_eq!(batch.results[1].n, 0);
+        assert_ne!(batch.results[0].hist.dim(), (0, 0, 0));
+        assert!(batch.results[0].n > 0);
+    }
+
+    /// Emptying a result shouldn't lose its histogram settings.
+    #[test]
+    fn test_filter_change_keeps_histogram_settings() {
+        let (mut batch, _guard) = make_calculable_batch(1);
+        batch
+            .set_histogram_settings(FilterIndex::All, 0.5, 2.5, 16)
+            .unwrap();
+        batch.calculate().unwrap();
+        batch.set_amp(FilterIndex::All, 0, 1.0).unwrap();
+
+        assert_eq!(batch.results[0].min_time, 500);
+        assert_eq!(batch.results[0].max_time, 2500);
+        assert_eq!(batch.results[0].n_bins, 16);
+        assert_eq!(batch.results[0].hist.dim(), (0, 0, 0));
+    }
+
+    /// invalidate_cache should make every result stale again.
+    #[test]
+    fn test_stale_indices_after_invalidate_cache() {
+        let (mut batch, _guard) = make_calculable_batch(3);
+        batch.calculate().unwrap();
+        batch.invalidate_cache();
+        assert_eq!(batch.stale_indices(&[0, 1, 2]), vec![0, 1, 2]);
     }
 
     /// BatchData::new should error when n_filter_sets is 0.
