@@ -696,6 +696,39 @@ mod tests {
         assert!(result.is_err());
     }
 
+    /// Test valid time bounds are accepted.
+    #[test]
+    fn test_validate_time_bounds() {
+        assert!(validate_time_bounds(1., 2.).is_ok());
+        // a start of zero is allowed
+        assert!(validate_time_bounds(0., 1.).is_ok());
+    }
+
+    /// Test time bounds which are not strictly increasing are rejected.
+    #[test]
+    fn test_validate_time_bounds_not_increasing() {
+        // end before start
+        assert!(validate_time_bounds(2., 1.).is_err());
+        // end equal to start
+        assert!(validate_time_bounds(1., 1.).is_err());
+    }
+
+    /// Test negative time bounds are rejected.
+    #[test]
+    fn test_validate_time_bounds_negative() {
+        assert!(validate_time_bounds(-2., -1.).is_err());
+        assert!(validate_time_bounds(-1., 1.).is_err());
+    }
+
+    /// Test non-finite time bounds are rejected.
+    #[test]
+    fn test_validate_time_bounds_non_finite() {
+        assert!(validate_time_bounds(f64::NEG_INFINITY, 1.).is_err());
+        assert!(validate_time_bounds(0., f64::INFINITY).is_err());
+        assert!(validate_time_bounds(f64::NAN, 1.).is_err());
+        assert!(validate_time_bounds(0., f64::NAN).is_err());
+    }
+
     /// Test adding a time filter.
     #[test]
     fn test_add_single_time_filter() {
@@ -912,6 +945,33 @@ mod tests {
 
         let result = filters.edit_time_filter("filter1".to_string(), Some(3.0), Some(4.0));
         assert!(result.is_ok());
+    }
+
+    /// Test valid log bounds are accepted.
+    #[test]
+    fn test_validate_log_bounds() {
+        assert!(validate_log_bounds(Some(1.), Some(2.)).is_ok());
+        // unlike time bounds, log bounds may be negative or infinite
+        assert!(validate_log_bounds(Some(-2.), Some(-1.)).is_ok());
+        assert!(validate_log_bounds(Some(f64::NEG_INFINITY), Some(f64::INFINITY)).is_ok());
+    }
+
+    /// Test an unbounded side of a log filter is accepted.
+    #[test]
+    fn test_validate_log_bounds_unbounded() {
+        assert!(validate_log_bounds(Some(1.), None).is_ok());
+        assert!(validate_log_bounds(None, Some(1.)).is_ok());
+        assert!(validate_log_bounds(None, None).is_ok());
+    }
+
+    /// Test log bounds which are not strictly increasing are rejected.
+    #[test]
+    fn test_validate_log_bounds_not_increasing() {
+        // upper below lower
+        assert!(validate_log_bounds(Some(2.), Some(1.)).is_err());
+        assert!(validate_log_bounds(Some(-1.), Some(-2.)).is_err());
+        // upper equal to lower
+        assert!(validate_log_bounds(Some(1.), Some(1.)).is_err());
     }
 
     /// Test adding a single log filter.
