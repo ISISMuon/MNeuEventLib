@@ -136,7 +136,7 @@ impl Filters {
     }
 
     /// Turn the detectors map into an array for indexing.
-    pub fn get_amps(&self, n_spec: usize) -> Result<Array1<f64>> {
+    pub fn get_ampl(&self, n_spec: usize) -> Result<Array1<f64>> {
         // usize::MAX is used as a placeholder key for 'all other detectors'
         let mut array: Array1<f64> = if let Some(val) = self.amplitudes.get(&usize::MAX) {
             Array1::from_elem(n_spec, *val)
@@ -287,13 +287,23 @@ impl Filters {
     }
 
     /// Set the minimum amplitude for a given detector.
-    pub fn set_amp(&mut self, detector: usize, amp: f64) {
-        self.amplitudes.insert(detector, amp);
+    pub fn set_ampl(&mut self, detector: usize, ampl: f64) {
+        self.amplitudes.insert(detector, ampl);
     }
 
     /// Set the minimum amplitude for all detectors not otherwise specified.
-    pub fn set_amps_baseline(&mut self, amp: f64) {
-        self.amplitudes.insert(usize::MAX, amp);
+    pub fn set_ampl_baseline(&mut self, ampl: f64) {
+        self.amplitudes.insert(usize::MAX, ampl);
+    }
+
+    /// Set the minimum amplitude for all detectors from an array.
+    pub fn set_ampl_from_array(&mut self, ampl_array: Vec<f64>) {
+        // this method chain enumerates the amplitudes as (i, value)
+        // and then `collect` converts (i, value) into a key-value pair
+        self.amplitudes = ampl_array
+            .into_iter()
+            .enumerate()
+            .collect();
     }
 
     /// Save the filters to a JSON file.
@@ -314,9 +324,9 @@ impl Filters {
     pub fn __repr__(&self) -> String {
         let no_times = self.time_filters.is_empty();
         let no_logs = self.sample_log_filters.is_empty();
-        let no_amps = self.amplitudes.is_empty();
+        let no_ampl = self.amplitudes.is_empty();
 
-        if no_times && no_logs && no_amps {
+        if no_times && no_logs && no_ampl {
             return "No filters applied\n\n".to_string();
         }
 
@@ -354,23 +364,23 @@ impl Filters {
             format!("Sample log filters:\n{log_table}\n\n")
         };
 
-        let amps_string = if no_amps {
+        let ampl_string = if no_ampl {
             "".to_string()
         } else {
-            let mut amps_builder = Builder::new();
-            amps_builder.push_record(["detector", "amplitude"]);
-            for (detector, amp) in self.amplitudes.iter() {
+            let mut ampl_builder = Builder::new();
+            ampl_builder.push_record(["detector", "amplitude"]);
+            for (detector, ampl) in self.amplitudes.iter() {
                 if detector == &usize::MAX {
-                    amps_builder.push_record(["baseline", &amp.to_string()]);
+                    ampl_builder.push_record(["baseline", &ampl.to_string()]);
                 } else {
-                    amps_builder.push_record([detector.to_string(), amp.to_string()]);
+                    ampl_builder.push_record([detector.to_string(), ampl.to_string()]);
                 }
             }
-            let amps_table = amps_builder.build();
-            format!("Amplitude filters:\n{amps_table}\n\n")
+            let ampl_table = ampl_builder.build();
+            format!("Amplitude filters:\n{ampl_table}\n\n")
         };
 
-        format!("{overwrite_string}{time_string}{log_string}{amps_string}")
+        format!("{overwrite_string}{time_string}{log_string}{ampl_string}")
     }
 }
 
@@ -1043,9 +1053,9 @@ mod tests {
 
     /// Test setting an amplitude for a given detector works.
     #[test]
-    fn test_set_amp() {
+    fn test_set_ampl() {
         let mut filters = Filters::new();
-        filters.set_amp(5, 3.);
+        filters.set_ampl(5, 3.);
 
         let mut expected = HashMap::<usize, f64>::new();
         expected.insert(5, 3.);
@@ -1054,9 +1064,9 @@ mod tests {
 
     /// Test setting an amplitude for all detectors works.
     #[test]
-    fn test_set_amps_baseline() {
+    fn test_set_ampl_baseline() {
         let mut filters = Filters::new();
-        filters.set_amps_baseline(3.);
+        filters.set_ampl_baseline(3.);
 
         let mut expected = HashMap::<usize, f64>::new();
         expected.insert(usize::MAX, 3.);
@@ -1065,39 +1075,39 @@ mod tests {
 
     /// Test amplitudes are correctly converted to an array.
     #[test]
-    fn test_get_amps() {
+    fn test_get_ampl() {
         let mut filters = Filters::new();
-        filters.set_amp(2, 4.4);
-        filters.set_amp(5, 9.);
+        filters.set_ampl(2, 4.4);
+        filters.set_ampl(5, 9.);
 
         let expected = Array1::from_vec(vec![0., 0., 4.4, 0., 0., 9.]);
-        let actual = filters.get_amps(6).unwrap();
+        let actual = filters.get_ampl(6).unwrap();
 
         assert_eq!(actual, expected)
     }
 
     /// Test amplitudes are correctly converted to an array with baseline.
     #[test]
-    fn test_get_amps_baseline() {
+    fn test_get_ampl_baseline() {
         let mut filters = Filters::new();
-        filters.set_amp(2, 4.4);
-        filters.set_amp(5, 9.);
-        filters.set_amps_baseline(1.5);
+        filters.set_ampl(2, 4.4);
+        filters.set_ampl(5, 9.);
+        filters.set_ampl_baseline(1.5);
 
         let expected = Array1::from_vec(vec![1.5, 1.5, 4.4, 1.5, 1.5, 9.]);
-        let actual = filters.get_amps(6).unwrap();
+        let actual = filters.get_ampl(6).unwrap();
 
         assert_eq!(actual, expected)
     }
 
     /// Test an error is produced if a bad amplitude is given.
     #[test]
-    fn test_get_amps_bad_amp() {
+    fn test_get_ampl_bad_ampl() {
         let mut filters = Filters::new();
-        filters.set_amp(2, 4.4);
-        filters.set_amp(20, 9.);
+        filters.set_ampl(2, 4.4);
+        filters.set_ampl(20, 9.);
 
-        let result = filters.get_amps(6);
+        let result = filters.get_ampl(6);
         assert!(result.is_err());
 
         assert_eq!(result.unwrap_err().to_string(), "Attempted to set amplitude filter for detector 20, but instrument only has 6 detectors.".to_string())
@@ -1275,7 +1285,7 @@ mod tests {
     #[test]
     fn test_repr_amplitude_baseline_label() {
         let mut filters = Filters::new();
-        filters.set_amps_baseline(3.5);
+        filters.set_ampl_baseline(3.5);
 
         let repr = filters.__repr__();
         assert!(repr.contains("baseline"));
@@ -1286,7 +1296,7 @@ mod tests {
     #[test]
     fn test_repr_amplitude_detector_label() {
         let mut filters = Filters::new();
-        filters.set_amp(7, 2.2);
+        filters.set_ampl(7, 2.2);
 
         let repr = filters.__repr__();
         assert!(repr.contains("7"));
@@ -1297,8 +1307,8 @@ mod tests {
     #[test]
     fn test_repr_amplitude_detector_mixed() {
         let mut filters = Filters::new();
-        filters.set_amp(7, 2.2);
-        filters.set_amps_baseline(1.5);
+        filters.set_ampl(7, 2.2);
+        filters.set_ampl_baseline(1.5);
 
         let repr = filters.__repr__();
         assert!(repr.contains("7"));

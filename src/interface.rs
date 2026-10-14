@@ -1,5 +1,5 @@
 use anyhow::Result;
-use numpy::ToPyArray;
+use numpy::{PyReadonlyArray1, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Bound};
 
 use crate::batch::{BatchData, FilterIndex, PyHist};
@@ -191,20 +191,32 @@ impl Data {
     /// ----------
     /// detector: int
     ///     The detector to set a filter for.
-    /// amp: float
+    /// ampl: float
     ///     The maximum amplitude that should be ignored.
-    fn set_amp(&mut self, detector: usize, amp: f64) -> Result<()> {
-        self.inner.set_amp(FilterIndex::Index(0), detector, amp)
+    fn set_ampl(&mut self, detector: usize, ampl: f64) -> Result<()> {
+        self.inner.set_ampl(FilterIndex::Index(0), detector, ampl)
     }
 
     /// Set an amplitude filter for all detectors that don't have one defined.
     ///
     /// Parameters
     /// ----------
-    /// amp: float
+    /// ampl: float
     ///     The maximum amplitude that should be ignored.
-    fn set_amps_baseline(&mut self, amp: f64) -> Result<()> {
-        self.inner.set_amps_baseline(FilterIndex::Index(0), amp)
+    fn set_ampl_baseline(&mut self, ampl: f64) -> Result<()> {
+        self.inner.set_ampl_baseline(FilterIndex::Index(0), ampl)
+    }
+
+    /// Set an amplitude filter for all detectors from an array.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int | str
+    ///     Either 'all', or the index of the filter set to modify.
+    /// ampl: Array[float]
+    ///     An array of the amplitudes for each detector.
+    pub fn set_ampl_from_array(&mut self, ampl: PyReadonlyArray1<f64>) -> Result<()> {
+        self.inner.set_ampl_from_array(FilterIndex::Index(0), ampl)
     }
 
     /// Clear all filters.
