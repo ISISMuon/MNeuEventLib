@@ -57,8 +57,8 @@ def plot_amplitudes(data: Data, max_height: Optional[float] = None, n_bins: int 
         The detector to plot amplitudes for.
         If not provided, plots for all detectors.
     """
-    # get_amp_histogram returns the histogram and the max height used
-    hist, max_h = data.dataset.get_amp_histogram(max_height, n_bins, detector)
+    # get_ampl_histogram returns the histogram and the max height used
+    hist, max_h = data.dataset.get_ampl_histogram(max_height, n_bins, detector)
 
     steps = np.linspace(0, max_h, len(hist)+1)
     fig, ax = plt.subplots()
