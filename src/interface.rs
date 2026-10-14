@@ -253,7 +253,7 @@ impl Data {
     /// filename: str
     ///     The filename for the saved file.
     fn save_filters(&self, filename: String) -> Result<()> {
-        self.inner.save_filters(0, filename)
+        self.inner.save_filters(FilterIndex::Index(0), filename)
     }
 
     /// Load a set of filters from a file.

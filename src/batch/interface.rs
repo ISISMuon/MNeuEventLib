@@ -1,3 +1,4 @@
+use std::fs::File;
 use crate::data::save::sanitise::nexus_data::{
     get_default_ref_file_path, get_period_info, save_default,
 };
@@ -593,11 +594,18 @@ impl BatchData {
     /// Parameters
     /// ----------
     /// index: usize
-    ///     The index of a specific filter set.
+    ///     The index of a specific filter set, or 'all' to save all filter sets to one file.
     /// filename: str
     ///     The filename for the saved file.
-    pub fn save_filters(&self, index: usize, filename: String) -> Result<()> {
-        self.filters[index].save(filename)
+    pub fn save_filters(&self, index: FilterIndex, filename: String) -> Result<()> {
+        if let FilterIndex::Index(i) = index {
+            self.filters[i].save(filename)?;
+        } else {
+            let file = File::create(&filename)?;
+            serde_json::to_writer_pretty(file, &self.filters)?;
+            println!("Saved filters to {filename}");
+        }
+        Ok(())
     }
 
     /// Load a set of filters from a file.
