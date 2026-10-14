@@ -519,7 +519,8 @@ impl BatchData {
     ///     Either 'all', or the index of the filter set to modify.
     /// ampl: Array[float]
     ///     An array of the amplitudes for each detector.
-    pub fn set_ampl_from_array(
+    #[pyo3(name = "set_ampl_from_array")]
+    pub fn set_ampl_from_array_py(
         &mut self,
         index: FilterIndex,
         ampl: PyReadonlyArray1<f64>,
@@ -855,6 +856,22 @@ impl BatchData {
             filters: vec![Filters::new(); n],
             data_changed: vec![true; n],
         }
+    }
+
+    /// Set an amplitude filter for all detectors from an array.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: FilterIndex
+    ///     Either 'all', or the index of the filter set to modify.
+    /// ampl: Vec<f64>
+    ///     The amplitudes for each detector.
+    pub fn set_ampl_from_array(&mut self, index: FilterIndex, ampl: Vec<f64>) -> Result<()> {
+        for i in self.resolve_indices(&index)? {
+            self.filters[i].set_ampl_from_array(ampl.clone());
+            self.data_changed[i] = true;
+        }
+        Ok(())
     }
 
     /// Resolve a [`FilterIndex`] into a list of valid filter set indices,
@@ -1607,6 +1624,54 @@ mod tests {
                 ampl,
                 ndarray::Array1::from_vec(vec![0., 0., 4.4, 0., 0., 0.])
             );
+        }
+    }
+
+    /// Setting amplitudes from an array at a single index should only
+    /// affect that filter set's amplitude array.
+    #[test]
+    fn test_set_ampl_from_array_single_index() {
+        let mut batch = make_batch(2);
+        let ampl = vec![0., 1.1, 2.2, 3.3, 4.4, 5.5];
+
+        batch
+            .set_ampl_from_array(FilterIndex::Index(1), ampl.clone())
+            .unwrap();
+
+        let ampl0 = batch.filters[0].get_ampl(6).unwrap();
+        let ampl1 = batch.filters[1].get_ampl(6).unwrap();
+
+        assert_eq!(ampl0, Array1::<f64>::zeros(6));
+        assert_eq!(ampl1, Array1::from_vec(ampl));
+    }
+
+    /// Setting amplitudes from an array with index "All" should apply the
+    /// array to every filter set.
+    #[test]
+    fn test_set_ampl_from_array_all_indices() {
+        let mut batch = make_batch(3);
+        let ampl = vec![0., 1.1, 2.2, 3.3, 4.4, 5.5];
+
+        batch
+            .set_ampl_from_array(FilterIndex::All, ampl.clone())
+            .unwrap();
+
+        for filters in &batch.filters {
+            assert_eq!(filters.get_ampl(6).unwrap(), Array1::from_vec(ampl.clone()));
+        }
+    }
+
+    /// Setting amplitudes from an array should error for an out-of-range index,
+    /// and leave every filter set untouched.
+    #[test]
+    fn test_set_ampl_from_array_out_of_range() {
+        let mut batch = make_batch(2);
+
+        let result = batch.set_ampl_from_array(FilterIndex::Index(5), vec![1.1; 6]);
+
+        assert!(result.is_err());
+        for filters in &batch.filters {
+            assert_eq!(filters.get_ampl(6).unwrap(), Array1::<f64>::zeros(6));
         }
     }
 
