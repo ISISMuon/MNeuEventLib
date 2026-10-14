@@ -300,10 +300,7 @@ impl Filters {
     pub fn set_ampl_from_array(&mut self, ampl_array: Vec<f64>) {
         // this method chain enumerates the amplitudes as (i, value)
         // and then `collect` converts (i, value) into a key-value pair
-        self.amplitudes = ampl_array
-            .into_iter()
-            .enumerate()
-            .collect();
+        self.amplitudes = ampl_array.into_iter().enumerate().collect();
     }
 
     /// Save the filters to a JSON file.
@@ -1071,6 +1068,63 @@ mod tests {
         let mut expected = HashMap::<usize, f64>::new();
         expected.insert(usize::MAX, 3.);
         assert_eq!(filters.amplitudes, expected)
+    }
+
+    /// Test setting amplitudes from an array sets one per detector.
+    #[test]
+    fn test_set_ampl_from_array() {
+        let mut filters = Filters::new();
+        filters.set_ampl_from_array(vec![1.5, 0., 4.4]);
+
+        let expected = HashMap::<usize, f64>::from([(0, 1.5), (1, 0.), (2, 4.4)]);
+        assert_eq!(filters.amplitudes, expected)
+    }
+
+    /// Test setting amplitudes from an array overwrites any amplitudes
+    /// which were previously set, including the baseline.
+    #[test]
+    fn test_set_ampl_from_array_overwrites() {
+        let mut filters = Filters::new();
+        filters.set_ampl(2, 9.);
+        filters.set_ampl_baseline(7.);
+        filters.set_ampl_from_array(vec![1.5, 0., 4.4]);
+
+        let expected = HashMap::<usize, f64>::from([(0, 1.5), (1, 0.), (2, 4.4)]);
+        assert_eq!(filters.amplitudes, expected)
+    }
+
+    /// Test setting amplitudes from an empty array clears the amplitude filters.
+    #[test]
+    fn test_set_ampl_from_empty_array() {
+        let mut filters = Filters::new();
+        filters.set_ampl(2, 9.);
+        filters.set_ampl_from_array(vec![]);
+
+        assert!(filters.amplitudes.is_empty())
+    }
+
+    /// Test amplitudes set from an array are correctly converted back to an array.
+    #[test]
+    fn test_get_ampl_from_array() {
+        let mut filters = Filters::new();
+        filters.set_ampl_from_array(vec![0., 0., 4.4, 0., 0., 9.]);
+
+        let expected = Array1::from_vec(vec![0., 0., 4.4, 0., 0., 9.]);
+        let actual = filters.get_ampl(6).unwrap();
+
+        assert_eq!(actual, expected)
+    }
+
+    /// Test an error is produced if the array is longer than the number of detectors.
+    #[test]
+    fn test_get_ampl_from_oversized_array() {
+        let mut filters = Filters::new();
+        filters.set_ampl_from_array(vec![0.; 7]);
+
+        let result = filters.get_ampl(6);
+        assert!(result.is_err());
+
+        assert_eq!(result.unwrap_err().to_string(), "Attempted to set amplitude filter for detector 6, but instrument only has 6 detectors.".to_string())
     }
 
     /// Test amplitudes are correctly converted to an array.

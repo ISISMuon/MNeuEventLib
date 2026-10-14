@@ -216,7 +216,8 @@ impl Data {
     /// ampl: Array[float]
     ///     An array of the amplitudes for each detector.
     pub fn set_ampl_from_array(&mut self, ampl: PyReadonlyArray1<f64>) -> Result<()> {
-        self.inner.set_ampl_from_array(FilterIndex::Index(0), ampl)
+        self.inner
+            .set_ampl_from_array(FilterIndex::Index(0), ampl.as_array().to_vec())
     }
 
     /// Clear all filters.
