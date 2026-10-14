@@ -422,9 +422,6 @@ fn validate_time_bounds(start: f64, end: f64) -> Result<()> {
     if !start.is_finite() || !end.is_finite() {
         return Err(Error::msg("start and end must be finite."));
     }
-    if start < 0.0 || end < 0.0 {
-        return Err(Error::msg("start and end must be non-negative."));
-    }
     if end <= start {
         return Err(Error::msg("end must be greater than start."));
     }
@@ -713,13 +710,6 @@ mod tests {
         assert!(validate_time_bounds(1., 1.).is_err());
     }
 
-    /// Test negative time bounds are rejected.
-    #[test]
-    fn test_validate_time_bounds_negative() {
-        assert!(validate_time_bounds(-2., -1.).is_err());
-        assert!(validate_time_bounds(-1., 1.).is_err());
-    }
-
     /// Test non-finite time bounds are rejected.
     #[test]
     fn test_validate_time_bounds_non_finite() {
@@ -919,9 +909,6 @@ mod tests {
 
         // end before start
         let result = filters.edit_time_filter("filter1".to_string(), Some(5.0), None);
-        assert!(result.is_err());
-        // negative start
-        let result = filters.edit_time_filter("filter1".to_string(), Some(-1.0), None);
         assert!(result.is_err());
         // non-finite end
         let result = filters.edit_time_filter("filter1".to_string(), None, Some(f64::INFINITY));

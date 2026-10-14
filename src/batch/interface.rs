@@ -328,7 +328,8 @@ impl BatchData {
     ///     modified filter set.
     /// log: str | None
     ///     The new sample log for the filter to apply to. If None, the
-    ///     sample log is left unchanged.
+    ///     sample log is left unchanged, otherwise the filter is moved to the
+    ///     new sample log.
     /// lower: float | None
     ///     The new lower bound for the log filter. If None, the lower
     ///     bound is left unchanged.
@@ -1292,18 +1293,19 @@ mod tests {
         batch
             .add_log_filter(
                 FilterIndex::All,
-                "lf1".to_string(),
+                "my filter".to_string(),
                 "temp".to_string(),
                 1.0,
                 2.0,
             )
             .unwrap();
 
+        // change the log in batch 1 to pulse_width
         batch
             .edit_log_filter(
                 FilterIndex::Index(1),
-                "lf1".to_string(),
-                Some("pw".to_string()),
+                "my filter".to_string(),
+                Some("pulse_width".to_string()),
                 None,
                 None,
             )
@@ -1315,7 +1317,7 @@ mod tests {
         );
         assert_eq!(
             batch.filters[1].get_required_log_names(),
-            ["pw".to_string()].into()
+            ["pulse_width".to_string()].into()
         );
     }
 
