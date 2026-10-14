@@ -211,15 +211,7 @@ impl Filters {
 
     /// Add a time filter.
     pub fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> Result<()> {
-        if !start.is_finite() || !end.is_finite() {
-            return Err(Error::msg("start and end must be finite."));
-        }
-        if start < 0.0 || end < 0.0 {
-            return Err(Error::msg("start and end must be non-negative."));
-        }
-        if end <= start {
-            return Err(Error::msg("end must be greater than start."));
-        }
+        validate_time_bounds(start, end)?;
 
         // check name isn't already in use
         if self
@@ -231,6 +223,28 @@ impl Filters {
         }
 
         self.time_filters.insert(name, Filter { start, end });
+        Ok(())
+    }
+
+    /// Edit an existing time filter.
+    ///
+    /// A bound given as `None` is left as it is; note this is unlike
+    /// the bounds of a log filter, where `None` means 'unbounded'.
+    pub fn edit_time_filter(
+        &mut self,
+        name: String,
+        start: Option<f64>,
+        end: Option<f64>,
+    ) -> Result<()> {
+        let filter = self.time_filters.get_mut(&name).ok_or(Error::msg(
+            "No such name in time filters. Use `print(filters)` to see a list of all filters.",
+        ))?;
+
+        let start = start.unwrap_or(filter.start);
+        let end = end.unwrap_or(filter.end);
+        validate_time_bounds(start, end)?;
+
+        *filter = Filter { start, end };
         Ok(())
     }
 
@@ -251,9 +265,7 @@ impl Filters {
         lower: Option<f64>,
         upper: Option<f64>,
     ) -> Result<()> {
-        if upper.is_some() && lower.is_some() && upper <= lower {
-            return Err(Error::msg("upper must be greater than lower."));
-        }
+        validate_log_bounds(lower, upper)?;
 
         // check name isn't already in use
         if self
@@ -266,6 +278,31 @@ impl Filters {
 
         self.sample_log_filters
             .insert(name, LogFilter { log, lower, upper });
+        Ok(())
+    }
+
+    /// Edit an existing log filter.
+    ///
+    /// A field given as `None` is left as it is; note this means an
+    /// existing bound cannot be made unbounded by editing it, as `None`
+    /// here does not mean 'unbounded'.
+    pub fn edit_log_filter(
+        &mut self,
+        name: String,
+        log: Option<String>,
+        lower: Option<f64>,
+        upper: Option<f64>,
+    ) -> Result<()> {
+        let filter = self.sample_log_filters.get_mut(&name).ok_or(Error::msg(
+            "No such name in log filters. Use `print(filters)` to see a list of all filters.",
+        ))?;
+
+        let log = log.unwrap_or(filter.log.clone());
+        let lower = lower.or(filter.lower);
+        let upper = upper.or(filter.upper);
+        validate_log_bounds(lower, upper)?;
+
+        *filter = LogFilter { log, lower, upper };
         Ok(())
     }
 
@@ -378,6 +415,25 @@ impl Default for Filters {
     fn default() -> Self {
         Filters::new()
     }
+}
+
+/// Check the bounds of a time filter are valid.
+fn validate_time_bounds(start: f64, end: f64) -> Result<()> {
+    if !start.is_finite() || !end.is_finite() {
+        return Err(Error::msg("start and end must be finite."));
+    }
+    if end <= start {
+        return Err(Error::msg("end must be greater than start."));
+    }
+    Ok(())
+}
+
+/// Check the bounds of a log filter are valid; `None` is an unbounded side.
+fn validate_log_bounds(lower: Option<f64>, upper: Option<f64>) -> Result<()> {
+    if upper.is_some() && lower.is_some() && upper <= lower {
+        return Err(Error::msg("upper must be greater than lower."));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -637,6 +693,32 @@ mod tests {
         assert!(result.is_err());
     }
 
+    /// Test valid time bounds are accepted.
+    #[test]
+    fn test_validate_time_bounds() {
+        assert!(validate_time_bounds(1., 2.).is_ok());
+        // a start of zero is allowed
+        assert!(validate_time_bounds(0., 1.).is_ok());
+    }
+
+    /// Test time bounds which are not strictly increasing are rejected.
+    #[test]
+    fn test_validate_time_bounds_not_increasing() {
+        // end before start
+        assert!(validate_time_bounds(2., 1.).is_err());
+        // end equal to start
+        assert!(validate_time_bounds(1., 1.).is_err());
+    }
+
+    /// Test non-finite time bounds are rejected.
+    #[test]
+    fn test_validate_time_bounds_non_finite() {
+        assert!(validate_time_bounds(f64::NEG_INFINITY, 1.).is_err());
+        assert!(validate_time_bounds(0., f64::INFINITY).is_err());
+        assert!(validate_time_bounds(f64::NAN, 1.).is_err());
+        assert!(validate_time_bounds(0., f64::NAN).is_err());
+    }
+
     /// Test adding a time filter.
     #[test]
     fn test_add_single_time_filter() {
@@ -730,6 +812,153 @@ mod tests {
         let mut filters = Filters::new();
         let result = filters.remove_time_filter("nonexistent".to_string());
         assert!(result.is_err());
+    }
+
+    /// Test editing both bounds of a time filter.
+    #[test]
+    fn test_edit_time_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+        filters
+            .edit_time_filter("filter1".to_string(), Some(3.0), Some(4.0))
+            .unwrap();
+
+        let mut expected = HashMap::<String, Filter>::new();
+        expected.insert("filter1".to_string(), Filter { start: 3., end: 4. });
+
+        assert_eq!(filters.time_filters, expected)
+    }
+
+    /// Test editing one bound of a time filter leaves the other unchanged.
+    #[test]
+    fn test_edit_time_filter_single_bound() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        filters
+            .edit_time_filter("filter1".to_string(), Some(1.5), None)
+            .unwrap();
+        assert_eq!(
+            filters.time_filters["filter1"],
+            Filter {
+                start: 1.5,
+                end: 2.
+            }
+        );
+
+        filters
+            .edit_time_filter("filter1".to_string(), None, Some(5.0))
+            .unwrap();
+        assert_eq!(
+            filters.time_filters["filter1"],
+            Filter {
+                start: 1.5,
+                end: 5.
+            }
+        );
+    }
+
+    /// Test editing a time filter only changes the named filter.
+    #[test]
+    fn test_edit_time_filter_leaves_others_alone() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+        filters
+            .add_time_filter("filter2".to_string(), 3.0, 4.0)
+            .unwrap();
+
+        filters
+            .edit_time_filter("filter1".to_string(), Some(0.5), Some(0.75))
+            .unwrap();
+
+        let mut expected = HashMap::<String, Filter>::new();
+        expected.insert(
+            "filter1".to_string(),
+            Filter {
+                start: 0.5,
+                end: 0.75,
+            },
+        );
+        expected.insert("filter2".to_string(), Filter { start: 3., end: 4. });
+
+        assert_eq!(filters.time_filters, expected)
+    }
+
+    /// Test editing a time filter that doesn't exist throws an error.
+    #[test]
+    fn test_edit_time_filter_nonexistent() {
+        let mut filters = Filters::new();
+        let result = filters.edit_time_filter("nonexistent".to_string(), Some(1.0), Some(2.0));
+        assert!(result.is_err());
+    }
+
+    /// Test editing a time filter to invalid bounds throws an error
+    /// and leaves the filter as it was.
+    #[test]
+    fn test_edit_time_filter_invalid_bounds() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        // end before start
+        let result = filters.edit_time_filter("filter1".to_string(), Some(5.0), None);
+        assert!(result.is_err());
+        // non-finite end
+        let result = filters.edit_time_filter("filter1".to_string(), None, Some(f64::INFINITY));
+        assert!(result.is_err());
+
+        assert_eq!(
+            filters.time_filters["filter1"],
+            Filter { start: 1., end: 2. }
+        );
+    }
+
+    /// Test editing a time filter is allowed in strict overwrite mode;
+    /// editing an existing filter is not an overwrite.
+    #[test]
+    fn test_edit_time_filter_strict_overwrite() {
+        let mut filters = Filters::new();
+        filters.set_overwrite_type("strict").unwrap();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        let result = filters.edit_time_filter("filter1".to_string(), Some(3.0), Some(4.0));
+        assert!(result.is_ok());
+    }
+
+    /// Test valid log bounds are accepted.
+    #[test]
+    fn test_validate_log_bounds() {
+        assert!(validate_log_bounds(Some(1.), Some(2.)).is_ok());
+        // unlike time bounds, log bounds may be negative or infinite
+        assert!(validate_log_bounds(Some(-2.), Some(-1.)).is_ok());
+        assert!(validate_log_bounds(Some(f64::NEG_INFINITY), Some(f64::INFINITY)).is_ok());
+    }
+
+    /// Test an unbounded side of a log filter is accepted.
+    #[test]
+    fn test_validate_log_bounds_unbounded() {
+        assert!(validate_log_bounds(Some(1.), None).is_ok());
+        assert!(validate_log_bounds(None, Some(1.)).is_ok());
+        assert!(validate_log_bounds(None, None).is_ok());
+    }
+
+    /// Test log bounds which are not strictly increasing are rejected.
+    #[test]
+    fn test_validate_log_bounds_not_increasing() {
+        // upper below lower
+        assert!(validate_log_bounds(Some(2.), Some(1.)).is_err());
+        assert!(validate_log_bounds(Some(-1.), Some(-2.)).is_err());
+        // upper equal to lower
+        assert!(validate_log_bounds(Some(1.), Some(1.)).is_err());
     }
 
     /// Test adding a single log filter.
@@ -1039,6 +1268,154 @@ mod tests {
 
         assert_eq!(filters.time_filters, other.time_filters);
         assert_eq!(filters.sample_log_filters, other.sample_log_filters);
+    }
+
+    /// Test editing every field of a log filter.
+    #[test]
+    fn test_edit_log_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter(
+                "filter1".to_string(),
+                "temp".to_string(),
+                Some(1.0),
+                Some(2.0),
+            )
+            .unwrap();
+        filters
+            .edit_log_filter(
+                "filter1".to_string(),
+                Some("pw".to_string()),
+                Some(3.0),
+                Some(4.0),
+            )
+            .unwrap();
+
+        let mut expected = HashMap::<String, LogFilter>::new();
+        expected.insert(
+            "filter1".to_string(),
+            LogFilter {
+                log: "pw".to_string(),
+                lower: Some(3.),
+                upper: Some(4.),
+            },
+        );
+
+        assert_eq!(filters.sample_log_filters, expected)
+    }
+
+    /// Test fields of a log filter given as None are left unchanged.
+    #[test]
+    fn test_edit_log_filter_partial() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter(
+                "filter1".to_string(),
+                "temp".to_string(),
+                Some(1.0),
+                Some(2.0),
+            )
+            .unwrap();
+
+        filters
+            .edit_log_filter("filter1".to_string(), None, None, Some(5.0))
+            .unwrap();
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "temp".to_string(),
+                lower: Some(1.),
+                upper: Some(5.),
+            }
+        );
+
+        filters
+            .edit_log_filter("filter1".to_string(), Some("pw".to_string()), None, None)
+            .unwrap();
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "pw".to_string(),
+                lower: Some(1.),
+                upper: Some(5.),
+            }
+        );
+    }
+
+    /// Test editing a log filter leaves an unbounded side unbounded.
+    #[test]
+    fn test_edit_log_filter_unbounded() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter_above("filter1".to_string(), "temp".to_string(), 1.0)
+            .unwrap();
+
+        filters
+            .edit_log_filter("filter1".to_string(), None, Some(2.0), None)
+            .unwrap();
+
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "temp".to_string(),
+                lower: Some(2.),
+                upper: None,
+            }
+        );
+    }
+
+    /// Test editing a log filter that doesn't exist throws an error.
+    #[test]
+    fn test_edit_log_filter_nonexistent() {
+        let mut filters = Filters::new();
+        let result = filters.edit_log_filter("nonexistent".to_string(), None, Some(1.0), Some(2.0));
+        assert!(result.is_err());
+    }
+
+    /// Test editing a log filter to invalid bounds throws an error
+    /// and leaves the filter as it was.
+    #[test]
+    fn test_edit_log_filter_invalid_bounds() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter(
+                "filter1".to_string(),
+                "temp".to_string(),
+                Some(1.0),
+                Some(2.0),
+            )
+            .unwrap();
+
+        let result = filters.edit_log_filter("filter1".to_string(), None, Some(3.0), None);
+        assert!(result.is_err());
+
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "temp".to_string(),
+                lower: Some(1.),
+                upper: Some(2.),
+            }
+        );
+    }
+
+    /// Test editing a log filter is allowed in strict overwrite mode;
+    /// editing an existing filter is not an overwrite.
+    #[test]
+    fn test_edit_log_filter_strict_overwrite() {
+        let mut filters = Filters::new();
+        filters.set_overwrite_type("strict").unwrap();
+        filters
+            .add_log_filter(
+                "filter1".to_string(),
+                "temp".to_string(),
+                Some(1.0),
+                Some(2.0),
+            )
+            .unwrap();
+
+        let result = filters.edit_log_filter("filter1".to_string(), None, Some(1.5), None);
+        assert!(result.is_ok());
     }
 
     /// Test setting an amplitude for a given detector works.
