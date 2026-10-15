@@ -62,7 +62,7 @@ impl SampleLog {
         let dtype = value.dtype()?.to_descriptor()?;
         let unit = read_unit(&value);
 
-        // Handle string lengths separately to the macro as there are two string types 
+        // Handle string lengths separately to the macro as there are two string types
         //
         // Fixed-length strings are deliberately not supported: FixedAscii<N>/FixedUnicode<N>
         // carry N as a const generic while TypeDescriptor::FixedAscii(usize) carries it as a
@@ -187,8 +187,7 @@ impl SampleLog {
                         Ok(log.to_time_ranges_eq(value))
                     }
                     (SampleLog::Str(log), LogPredicate::Range { .. }) => Err(Error::msg(format!(
-                        "Sample log {} holds text, so it cannot be filtered on a range of \
-                         values. Use add_string_log_filter to filter it on a specific value.",
+                        "Sample log {} holds text, so it cannot be filtered on a range of values. Use add_string_log_filter to filter it on a specific value.",
                         log.name,
                     ))),
                     $(
@@ -200,9 +199,7 @@ impl SampleLog {
                         },
                         (SampleLog::$variant(log), LogPredicate::Equals(_)) => {
                             Err(Error::msg(format!(
-                                "Sample log {} holds numbers, so it cannot be filtered on a \
-                                 string value. Use add_log_filter, add_log_filter_above or \
-                                 add_log_filter_below.",
+                                "Sample log {} holds numbers, so it cannot be filtered on a string value. Use add_log_filter, add_log_filter_above or add_log_filter_below.",
                                 log.name,
                             )))
                         },
@@ -304,7 +301,7 @@ where
 {
     /// Internal implementation of SampleLog.apply_filters.
     fn apply_filters(&self, start_times: &[u64], end_times: &[u64], include: bool) -> ValueLog<T> {
-        // Sort filters to make overlaps easier to handle: if the start_times and end_times are sorted, 
+        // Sort filters to make overlaps easier to handle: if the start_times and end_times are sorted,
         // we will never get a scenario where one interval lies completely inside another:
         //
         // let (--) be one filter and [~~] another,

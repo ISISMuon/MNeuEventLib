@@ -378,6 +378,37 @@ impl BatchData {
         Ok(())
     }
 
+    /// Edit an existing string sample log filter.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int | str
+    ///     Either 'all', or the index of the filter set to modify.
+    /// name: str
+    ///     The name of the string log filter to edit. Must already exist in
+    ///     each modified filter set.
+    /// log: str | None
+    ///     The new sample log for the filter to apply to. If None, the
+    ///     sample log is left unchanged, otherwise the filter is moved to the
+    ///     new sample log. Must hold text.
+    /// value: str | None
+    ///     The new value to match. If None, the value is left unchanged.
+    ///     Matching is case-insensitive.
+    #[pyo3(signature = (index, name, log=None, value=None))]
+    pub fn edit_string_log_filter(
+        &mut self,
+        index: FilterIndex,
+        name: String,
+        log: Option<String>,
+        value: Option<String>,
+    ) -> Result<()> {
+        for i in self.resolve_indices(&index)? {
+            self.filters[i].edit_string_log_filter(name.clone(), log.clone(), value.clone())?;
+            self.data_changed[i] = true;
+        }
+        Ok(())
+    }
+
     /// Remove a sample log filter.
     ///
     /// Parameters
@@ -1488,6 +1519,41 @@ mod tests {
                 ["status".to_string()].into()
             );
         }
+    }
+
+    /// Editing a string log filter at a single index should only affect
+    /// that filter set.
+    #[test]
+    fn test_edit_string_log_filter_single_index() {
+        let mut batch = make_batch(2);
+        batch
+            .add_string_log_filter(
+                FilterIndex::All,
+                "running".to_string(),
+                "status".to_string(),
+                "RUNNING".to_string(),
+            )
+            .unwrap();
+
+        batch.data_changed = vec![false; 2];
+        batch
+            .edit_string_log_filter(
+                FilterIndex::Index(1),
+                "running".to_string(),
+                Some("state".to_string()),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(batch.data_changed, vec![false, true]);
+        assert_eq!(
+            batch.filters[0].get_required_log_names(),
+            ["status".to_string()].into()
+        );
+        assert_eq!(
+            batch.filters[1].get_required_log_names(),
+            ["state".to_string()].into()
+        );
     }
 
     /// Setting an amplitude filter at a single index should only affect

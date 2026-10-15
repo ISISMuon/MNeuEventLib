@@ -351,13 +351,38 @@ impl Filters {
             LogPredicate::Equals(value) => {
                 if lower.is_some() || upper.is_some() {
                     return Err(Error::msg(format!(
-                        "Log filter {} matches a string value, so it has no bounds to edit.",
-                        name,
+                        "Log filter {name} matches a string value, so it has no bounds to edit. Use edit_string_log_filter to change the value it matches."
                     )));
                 }
                 LogPredicate::Equals(value.clone())
             }
         };
+
+        *filter = LogFilter { log, predicate };
+        Ok(())
+    }
+
+    /// Edit an existing string log filter.
+    ///
+    /// A field given as `None` is left as it is.
+    pub fn edit_string_log_filter(
+        &mut self,
+        name: String,
+        log: Option<String>,
+        value: Option<String>,
+    ) -> Result<()> {
+        let filter = self.sample_log_filters.get_mut(&name).ok_or(Error::msg(
+            "No such name in log filters. Use `print(filters)` to see a list of all filters.",
+        ))?;
+
+        let LogPredicate::Equals(old_value) = &filter.predicate else {
+            return Err(Error::msg(format!(
+                "Log filter {name} matches a range of values, not a string value. Use edit_log_filter to change its bounds."
+            )));
+        };
+
+        let log = log.unwrap_or(filter.log.clone());
+        let predicate = LogPredicate::Equals(value.unwrap_or(old_value.clone()));
 
         *filter = LogFilter { log, predicate };
         Ok(())
@@ -1157,11 +1182,7 @@ mod tests {
     fn test_string_log_filter_on_numeric_log_errors() {
         let mut filters = Filters::new();
         filters
-            .add_string_log_filter(
-                "a".to_string(),
-                "temp".to_string(),
-                "RUNNING".to_string(),
-            )
+            .add_string_log_filter("a".to_string(), "temp".to_string(), "RUNNING".to_string())
             .unwrap();
 
         let mut logs = HashMap::<String, SampleLog>::new();
@@ -1639,6 +1660,130 @@ mod tests {
 
         let result = filters.edit_log_filter("filter1".to_string(), None, Some(1.5), None);
         assert!(result.is_ok());
+    }
+
+    /// Test editing the bounds of a string log filter throws an error.
+    #[test]
+    fn test_edit_log_filter_bounds_on_string_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_string_log_filter(
+                "filter1".to_string(),
+                "status".to_string(),
+                "RUNNING".to_string(),
+            )
+            .unwrap();
+
+        let result = filters.edit_log_filter("filter1".to_string(), None, Some(1.0), None);
+        assert!(result.is_err());
+    }
+
+    /// Test editing every field of a string log filter.
+    #[test]
+    fn test_edit_string_log_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_string_log_filter(
+                "filter1".to_string(),
+                "status".to_string(),
+                "RUNNING".to_string(),
+            )
+            .unwrap();
+        filters
+            .edit_string_log_filter(
+                "filter1".to_string(),
+                Some("state".to_string()),
+                Some("PAUSED".to_string()),
+            )
+            .unwrap();
+
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "state".to_string(),
+                predicate: LogPredicate::Equals("PAUSED".to_string()),
+            }
+        );
+    }
+
+    /// Test fields of a string log filter given as None are left unchanged.
+    #[test]
+    fn test_edit_string_log_filter_partial() {
+        let mut filters = Filters::new();
+        filters
+            .add_string_log_filter(
+                "filter1".to_string(),
+                "status".to_string(),
+                "RUNNING".to_string(),
+            )
+            .unwrap();
+
+        filters
+            .edit_string_log_filter("filter1".to_string(), None, Some("PAUSED".to_string()))
+            .unwrap();
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "status".to_string(),
+                predicate: LogPredicate::Equals("PAUSED".to_string()),
+            }
+        );
+
+        filters
+            .edit_string_log_filter("filter1".to_string(), Some("state".to_string()), None)
+            .unwrap();
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "state".to_string(),
+                predicate: LogPredicate::Equals("PAUSED".to_string()),
+            }
+        );
+    }
+
+    /// Test editing a string log filter that doesn't exist throws an error.
+    #[test]
+    fn test_edit_string_log_filter_nonexistent() {
+        let mut filters = Filters::new();
+        let result = filters.edit_string_log_filter(
+            "nonexistent".to_string(),
+            None,
+            Some("RUNNING".to_string()),
+        );
+        assert!(result.is_err());
+    }
+
+    /// Test editing a range log filter as a string log filter throws an
+    /// error and leaves the filter as it was.
+    #[test]
+    fn test_edit_string_log_filter_on_range_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter(
+                "filter1".to_string(),
+                "temp".to_string(),
+                Some(1.0),
+                Some(2.0),
+            )
+            .unwrap();
+
+        let result = filters.edit_string_log_filter(
+            "filter1".to_string(),
+            Some("status".to_string()),
+            Some("RUNNING".to_string()),
+        );
+        assert!(result.is_err());
+
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "temp".to_string(),
+                predicate: LogPredicate::Range {
+                    lower: Some(1.),
+                    upper: Some(2.),
+                },
+            }
+        );
     }
 
     /// Test setting an amplitude for a given detector works.

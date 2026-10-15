@@ -215,6 +215,29 @@ impl Data {
             .edit_log_filter(FilterIndex::Index(0), name, log, lower, upper)
     }
 
+    /// Edit an existing string sample log filter.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: str
+    ///     The name of the string log filter to edit. Must already exist.
+    /// log: str | None
+    ///     The new sample log for the filter to apply to. If None, the
+    ///     sample log is left unchanged. Must hold text.
+    /// value: str | None
+    ///     The new value to match. If None, the value is left unchanged.
+    ///     Matching is case-insensitive.
+    #[pyo3(signature = (name, log=None, value=None))]
+    pub fn edit_string_log_filter(
+        &mut self,
+        name: String,
+        log: Option<String>,
+        value: Option<String>,
+    ) -> Result<()> {
+        self.inner
+            .edit_string_log_filter(FilterIndex::Index(0), name, log, value)
+    }
+
     /// Remove a sample log filter.
     ///
     /// Parameters
