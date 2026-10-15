@@ -25,6 +25,7 @@ impl Save for SampleLog {
             SampleLog::U64(log) => log.save_with_narrowing(group),
             SampleLog::F32(log) => log.save_to_group(group),
             SampleLog::F64(log) => log.save_with_narrowing(group),
+            SampleLog::Str(log) => log.save_to_group(group),
         }
     }
 }
@@ -83,7 +84,9 @@ pub fn get_all_sample_logs(event_data: &NexusData, filters: &Filters) -> Result<
             match event_data.get_sample_log(name) {
                 Ok(sample_log) => match filter_starts.is_empty() {
                     true => Some(sample_log),
-                    false => Some(sample_log.apply_filters(&filter_starts, &filter_ends)),
+                    // get_filter_times has already folded exclude filters into
+                    // the include ranges it returns
+                    false => Some(sample_log.apply_filters(&filter_starts, &filter_ends, true)),
                 }
                 Err(error) => {
                     // if sample log is unsupported, ignore in output

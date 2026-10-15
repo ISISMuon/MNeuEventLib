@@ -21,12 +21,20 @@ def plot_sample_log(data: Data, log_name: str):
     fig, ax = plt.subplots()
     ax.set_title(sample_log['name'])
     ax.set_xlabel("Time (seconds)")
-    if units := sample_log['unit'] == "":
-        unit_string = ""
-    else:
-        unit_string = f"({units})"
+    units = sample_log['unit']
+    unit_string = "" if units == "" else f"({units})"
     ax.set_ylabel(f"Value {unit_string}")
-    ax.plot(sample_log['time'], sample_log['value'])
+
+    values = sample_log['value']
+    if isinstance(values, list):
+        # a string log comes back as a list of str rather than an array, so
+        # we need to plot it differently
+        categories = list(dict.fromkeys(values))
+        ax.plot(sample_log['time'], values, drawstyle="steps-post", marker="o")
+        ax.set_yticks(categories)
+        ax.set_ylabel("Value")
+    else:
+        ax.plot(sample_log['time'], values)
 
     plt.show()
 
