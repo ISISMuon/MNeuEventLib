@@ -492,7 +492,9 @@ fn validate_log_bounds(lower: Option<f64>, upper: Option<f64>) -> Result<()> {
 mod tests {
     use super::*;
     use std::env::temp_dir;
+    use std::str::FromStr;
 
+    use hdf5::types::VarLenUnicode;
     use ndarray::Array1;
 
     use crate::data::ValueLog;
@@ -1122,6 +1124,59 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("nonexistent"), "{error}");
+    }
+
+    /// Test a numeric log filter on a string log gives an error.
+    #[test]
+    fn test_numeric_log_filter_on_string_log_errors() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter("a".to_string(), "status".to_string(), Some(1.), Some(2.))
+            .unwrap();
+
+        let mut logs = HashMap::<String, SampleLog>::new();
+        logs.insert(
+            "status".to_string(),
+            SampleLog::Str(ValueLog::<VarLenUnicode> {
+                name: "status".to_string(),
+                time: Array1::<f64>::from_vec(vec![0., 1.]),
+                value: Array1::from_vec(vec![
+                    VarLenUnicode::from_str("IDLE").unwrap(),
+                    VarLenUnicode::from_str("RUNNING").unwrap(),
+                ]),
+                unit: "".to_string(),
+            }),
+        );
+
+        let error = filters.get_log_filter_times(logs).unwrap_err().to_string();
+        assert!(error.contains("holds text"), "{error}");
+    }
+
+    /// Test a string log filter on a numeric log gives an error.
+    #[test]
+    fn test_string_log_filter_on_numeric_log_errors() {
+        let mut filters = Filters::new();
+        filters
+            .add_string_log_filter(
+                "a".to_string(),
+                "temp".to_string(),
+                "RUNNING".to_string(),
+            )
+            .unwrap();
+
+        let mut logs = HashMap::<String, SampleLog>::new();
+        logs.insert(
+            "temp".to_string(),
+            SampleLog::F64(ValueLog::<f64> {
+                name: "temp".to_string(),
+                time: Array1::<f64>::linspace(0., 4., 5),
+                value: Array1::<f64>::linspace(0., 4., 5),
+                unit: "".to_string(),
+            }),
+        );
+
+        let error = filters.get_log_filter_times(logs).unwrap_err().to_string();
+        assert!(error.contains("holds numbers"), "{error}");
     }
 
     /// Test adding multiple log filters.

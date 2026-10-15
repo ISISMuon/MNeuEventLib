@@ -500,8 +500,8 @@ impl BatchData {
         let data_changed = vec![true; results.len()];
 
         let mut filters = self.filters.clone();
-        for (i, filter) in filters.iter_mut().enumerate() {
-            filter.extend(other.filters[i].clone())?
+        for (i, filter_set) in filters.iter_mut().enumerate() {
+            filter_set.extend(other.filters[i].clone())?
         }
 
         Ok(BatchData {
@@ -700,8 +700,8 @@ impl BatchData {
     /// filename: str
     ///     The filename for the filters.
     pub fn load_filters(&mut self, index: usize, filename: String) -> Result<()> {
-        let filters = Filters::load(filename)?;
-        self.filters[index] = filters;
+        let filter_set = Filters::load(filename)?;
+        self.filters[index] = filter_set;
         self.data_changed[index] = true;
         Ok(())
     }
@@ -773,10 +773,10 @@ impl BatchData {
             Some(data) => data.__repr__(),
             None => "No data set.".to_string(),
         };
-        for (i, (filters, results)) in self.filters.iter().zip(self.results.iter()).enumerate() {
+        for (i, (filter_set, results)) in self.filters.iter().zip(self.results.iter()).enumerate() {
             string += &format!(
                 "\n\nFilter set {i}:\n{}{}",
-                filters.__repr__(),
+                filter_set.__repr__(),
                 results.__repr__()
             );
         }
@@ -1088,8 +1088,8 @@ mod tests {
             .add_time_filter(FilterIndex::All, "f1".to_string(), 1.0, 2.0)
             .unwrap();
 
-        for filters in &batch.filters {
-            let (starts, ends) = filters.get_time_filter_times();
+        for filter_set in &batch.filters {
+            let (starts, ends) = filter_set.get_time_filter_times();
             assert_eq!(starts, vec![1e9 as u64]);
             assert_eq!(ends, vec![2e9 as u64]);
         }
@@ -1106,8 +1106,8 @@ mod tests {
         let result = batch.add_time_filter(FilterIndex::Index(5), "f1".to_string(), 1.0, 2.0);
         assert!(result.is_err());
 
-        for (index, filters) in batch.filters.into_iter().enumerate() {
-            let (starts, ends) = filters.get_time_filter_times();
+        for (index, filter_set) in batch.filters.into_iter().enumerate() {
+            let (starts, ends) = filter_set.get_time_filter_times();
             if index == 1 {
                 // converted to ns
                 assert_eq!(starts, vec![0.5e9 as u64]);
@@ -1174,8 +1174,8 @@ mod tests {
             .array_to_time_filters("f1".to_string(), array.clone())
             .unwrap();
 
-        for (i, filters) in batch.filters.iter().enumerate() {
-            let (starts, ends) = filters.get_time_filter_times();
+        for (i, filter_set) in batch.filters.iter().enumerate() {
+            let (starts, ends) = filter_set.get_time_filter_times();
             assert_eq!(starts, vec![(array[i] * 1e9) as u64]);
             assert_eq!(ends, vec![(array[i + 1] * 1e9) as u64]);
         }
@@ -1190,13 +1190,13 @@ mod tests {
             .array_to_log_filters("lf1".to_string(), "temp".to_string(), array.clone())
             .unwrap();
 
-        for (k, filters) in batch.filters.into_iter().enumerate() {
+        for (k, filter_set) in batch.filters.into_iter().enumerate() {
             assert_eq!(
-                filters.get_required_log_names(),
+                filter_set.get_required_log_names(),
                 ["temp".to_string()].into()
             );
             assert_eq!(
-                filters.sample_log_filters["lf1"].predicate,
+                filter_set.sample_log_filters["lf1"].predicate,
                 LogPredicate::Range {
                     lower: Some(array[k]),
                     upper: Some(array[k + 1])
@@ -1330,9 +1330,9 @@ mod tests {
             )
             .unwrap();
 
-        for filters in &batch.filters {
+        for filter_set in &batch.filters {
             assert_eq!(
-                filters.get_required_log_names(),
+                filter_set.get_required_log_names(),
                 ["temp".to_string()].into()
             );
         }
@@ -1464,8 +1464,8 @@ mod tests {
             .remove_log_filter(FilterIndex::All, "lf1".to_string())
             .unwrap();
 
-        for filters in &batch.filters {
-            assert!(filters.get_required_log_names().is_empty());
+        for filter_set in &batch.filters {
+            assert!(filter_set.get_required_log_names().is_empty());
         }
     }
 
@@ -1482,9 +1482,9 @@ mod tests {
             )
             .unwrap();
 
-        for filters in &batch.filters {
+        for filter_set in &batch.filters {
             assert_eq!(
-                filters.get_required_log_names(),
+                filter_set.get_required_log_names(),
                 ["status".to_string()].into()
             );
         }
@@ -1514,8 +1514,8 @@ mod tests {
         let mut batch = make_batch(3);
         batch.set_amp(FilterIndex::All, 2, 4.4).unwrap();
 
-        for filters in &batch.filters {
-            let amps = filters.get_amps(6).unwrap();
+        for filter_set in &batch.filters {
+            let amps = filter_set.get_amps(6).unwrap();
             assert_eq!(
                 amps,
                 ndarray::Array1::from_vec(vec![0., 0., 4.4, 0., 0., 0.])
@@ -1540,8 +1540,8 @@ mod tests {
 
         assert_eq!(combined.__len__(), 5);
         assert_eq!(combined.results.len(), 5);
-        for (i, filters) in combined.filters.iter().enumerate() {
-            let (starts, ends) = filters.get_time_filter_times();
+        for (i, filter_set) in combined.filters.iter().enumerate() {
+            let (starts, ends) = filter_set.get_time_filter_times();
             if i < 2 {
                 assert_eq!(starts, vec![1e9 as u64]);
                 assert_eq!(ends, vec![2e9 as u64]);
@@ -1587,13 +1587,16 @@ mod tests {
         assert_eq!(combined.results.len(), 3);
         assert_eq!(combined.data_changed, vec![true; 3]);
 
-        for (i, filters) in combined.filters.iter().enumerate() {
+        for (i, filter_set) in combined.filters.iter().enumerate() {
             // the time filter comes from this object's filter set i
-            let (starts, ends) = filters.get_time_filter_times();
+            let (starts, ends) = filter_set.get_time_filter_times();
             assert_eq!(starts, vec![(i as f64 * 1e9) as u64]);
             assert_eq!(ends, vec![((i + 1) as f64 * 1e9) as u64]);
             // the log filter comes from the other object's filter set i
-            assert_eq!(filters.get_required_log_names(), [format!("log{i}")].into());
+            assert_eq!(
+                filter_set.get_required_log_names(),
+                [format!("log{i}")].into()
+            );
         }
     }
 
@@ -1677,13 +1680,16 @@ mod tests {
         for i in 0..2 {
             for j in 0..3 {
                 let k = i * 3 + j;
-                let filters = &combined.filters[k];
+                let filter_set = &combined.filters[k];
                 // the time filter comes from this object's filter set i
-                let (starts, ends) = filters.get_time_filter_times();
+                let (starts, ends) = filter_set.get_time_filter_times();
                 assert_eq!(starts, vec![((2 * i + 1) as f64 * 1e9) as u64]);
                 assert_eq!(ends, vec![((2 * i + 2) as f64 * 1e9) as u64]);
                 // the log filter comes from the other object's filter set j
-                assert_eq!(filters.get_required_log_names(), [format!("log{j}")].into());
+                assert_eq!(
+                    filter_set.get_required_log_names(),
+                    [format!("log{j}")].into()
+                );
             }
         }
     }
@@ -1710,11 +1716,11 @@ mod tests {
         let combined = batch.combinations(other).unwrap();
 
         assert_eq!(combined.__len__(), 3);
-        for filters in &combined.filters {
-            let (starts, _) = filters.get_time_filter_times();
+        for filter_set in &combined.filters {
+            let (starts, _) = filter_set.get_time_filter_times();
             assert_eq!(starts, vec![1e9 as u64]);
             assert_eq!(
-                filters.get_required_log_names(),
+                filter_set.get_required_log_names(),
                 ["temp".to_string()].into()
             );
         }
@@ -1825,8 +1831,8 @@ mod tests {
             .set_time_type(FilterIndex::All, "exclude".to_string())
             .unwrap();
 
-        for filters in &batch.filters {
-            assert!(!filters.is_include());
+        for filter_set in &batch.filters {
+            assert!(!filter_set.is_include());
         }
     }
 }

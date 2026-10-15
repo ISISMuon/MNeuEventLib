@@ -62,14 +62,12 @@ impl SampleLog {
         let dtype = value.dtype()?.to_descriptor()?;
         let unit = read_unit(&value);
 
-        // String logs are handled before the numeric macro because both variable-length
-        // encodings normalise onto a single Str variant, so they do not fit the
-        // one-HDF5-type-per-Rust-type shape the macro assumes.
+        // Handle string lengths separately to the macro as there are two string types 
         //
         // Fixed-length strings are deliberately not supported: FixedAscii<N>/FixedUnicode<N>
         // carry N as a const generic while TypeDescriptor::FixedAscii(usize) carries it as a
         // runtime value, so dispatching between them needs a hardcoded ladder of sizes.
-        // ISIS writes variable-length UTF-8, so this buys nothing.
+        // ISIS writes variable-length UTF-8, so this costs nothing.
         match dtype {
             TypeDescriptor::VarLenUnicode => {
                 return Ok(SampleLog::Str(ValueLog::<VarLenUnicode> {
@@ -80,8 +78,9 @@ impl SampleLog {
                 }))
             }
             TypeDescriptor::VarLenAscii => {
+                // we read the ascii and then convert it to unicode to unify the string type
                 let ascii: Array1<VarLenAscii> = value.read_1d()?;
-                let values = ascii
+                let values: Vec<VarLenUnicode> = ascii
                     .iter()
                     .map(|s| VarLenUnicode::from_str(s))
                     .collect::<Result<Vec<VarLenUnicode>, _>>()?;
@@ -305,7 +304,22 @@ where
 {
     /// Internal implementation of SampleLog.apply_filters.
     fn apply_filters(&self, start_times: &[u64], end_times: &[u64], include: bool) -> ValueLog<T> {
-        // Sort filters to make overlaps easier to handle
+        // Sort filters to make overlaps easier to handle: if the start_times and end_times are sorted, 
+        // we will never get a scenario where one interval lies completely inside another:
+        //
+        // let (--) be one filter and [~~] another,
+        // then the filter pair [s1, e1], [s2, e2] like so
+        // s1      e1
+        // (-------)
+        //   [~~~]
+        //   s2  e2
+        // has starts [s1, s2], ends [e1, e2]
+        // which would be sorted as starts [s1, s2], ends [e2, e1]
+        // which parses as filters [s1, e2], [s2, e1]
+        // s1    e2
+        // (-----)
+        //   [~~~~~]
+        //   s2    e1
         let mut ranges: Vec<(u64, u64)> = start_times
             .iter()
             .copied()
@@ -359,18 +373,14 @@ mod tests {
         }
     }
 
-    fn ns(seconds: f64) -> u64 {
-        seconds.to_ns()
-    }
-
     #[test]
     fn test_str_time_ranges() {
         let log = string_log(&[(0., "IDLE"), (3., "RUNNING"), (10., "PAUSED")]);
 
         let (starts, ends) = log.to_time_ranges_eq("RUNNING");
 
-        assert_eq!(starts, vec![ns(3.)]);
-        assert_eq!(ends, vec![ns(10.)]);
+        assert_eq!(starts, vec![3.0.to_ns()]);
+        assert_eq!(ends, vec![10.0.to_ns()]);
     }
 
     /// A run still matching at the end of the log ends at the last logged time.
@@ -380,8 +390,8 @@ mod tests {
 
         let (starts, ends) = log.to_time_ranges_eq("RUNNING");
 
-        assert_eq!(starts, vec![ns(3.)]);
-        assert_eq!(ends, vec![ns(10.)]);
+        assert_eq!(starts, vec![3.0.to_ns()]);
+        assert_eq!(ends, vec![10.0.to_ns()]);
     }
 
     /// A log whose first value already matches starts at its first timestamp.
@@ -391,8 +401,8 @@ mod tests {
 
         let (starts, ends) = log.to_time_ranges_eq("RUNNING");
 
-        assert_eq!(starts, vec![ns(2.)]);
-        assert_eq!(ends, vec![ns(5.)]);
+        assert_eq!(starts, vec![2.0.to_ns()]);
+        assert_eq!(ends, vec![5.0.to_ns()]);
     }
 
     /// Alternating values produce one range per matching run.
@@ -408,8 +418,8 @@ mod tests {
 
         let (starts, ends) = log.to_time_ranges_eq("RUNNING");
 
-        assert_eq!(starts, vec![ns(0.), ns(2.)]);
-        assert_eq!(ends, vec![ns(1.), ns(4.)]);
+        assert_eq!(starts, vec![0.0.to_ns(), 2.0.to_ns()]);
+        assert_eq!(ends, vec![1.0.to_ns(), 4.0.to_ns()]);
     }
 
     /// A value that never appears produces no ranges.
@@ -430,8 +440,8 @@ mod tests {
 
         let (starts, ends) = log.to_time_ranges_eq("rUnNiNg");
 
-        assert_eq!(starts, vec![ns(3.)]);
-        assert_eq!(ends, vec![ns(10.)]);
+        assert_eq!(starts, vec![3.0.to_ns()]);
+        assert_eq!(ends, vec![10.0.to_ns()]);
     }
 
     /// A string log cannot be filtered on a numeric range.
@@ -496,7 +506,7 @@ mod tests {
             (3., "IDLE"),
         ]));
 
-        let filtered = log.apply_filters(&[ns(1.)], &[ns(2.)], true);
+        let filtered = log.apply_filters(&[1.0.to_ns()], &[2.0.to_ns()], true);
 
         match filtered {
             SampleLog::Str(log) => {
