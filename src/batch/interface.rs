@@ -621,6 +621,33 @@ impl BatchData {
         self.combinations(other)
     }
 
+    /// Add a new batch, with an empty filter set and default histogram
+    /// settings, to the end of this object.
+    pub fn add_batch(&mut self) {
+        self.filters.push(Filters::new());
+        self.results.push(Histogram::new(0, 32768, 2048));
+        self.data_changed.push(true);
+    }
+
+    /// Remove a batch (its filter set and result).
+    ///
+    /// Batches after the removed one will have their index reduced by one.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int
+    ///     The index of the batch to remove.
+    pub fn remove_batch(&mut self, index: usize) -> Result<()> {
+        self.check_index(index)?;
+        if self.n_batches() == 1 {
+            return Err(Error::msg("Cannot remove the only remaining batch."));
+        }
+        self.filters.remove(index);
+        self.results.remove(index);
+        self.data_changed.remove(index);
+        Ok(())
+    }
+
     /// Clear all filters.
     ///
     /// Parameters
@@ -1900,5 +1927,62 @@ mod tests {
         for filter_set in &batch.filters {
             assert!(!filter_set.is_include());
         }
+    }
+
+    /// Adding a batch should append an empty filter set and result to the end.
+    #[test]
+    fn test_add_batch() {
+        let mut batch = make_batch(2);
+        batch
+            .add_time_filter(FilterIndex::All, "f1".to_string(), 1.0, 2.0)
+            .unwrap();
+        // simulate the existing batches having been calculated
+        batch.data_changed = vec![false; 2];
+        batch.add_batch();
+
+        assert_eq!(batch.__len__(), 3);
+        assert_eq!(batch.results.len(), 3);
+        let (starts, ends) = batch.filters[2].get_time_filter_times();
+        assert!(starts.is_empty() && ends.is_empty());
+        // only the new batch needs calculating
+        assert_eq!(batch.data_changed, vec![false, false, true]);
+    }
+
+    /// Removing a batch should remove only that filter set and result,
+    /// shifting later batches down.
+    #[test]
+    fn test_remove_batch() {
+        let mut batch = make_batch(3);
+        batch
+            .add_time_filter(FilterIndex::Index(0), "f0".to_string(), 0.0, 1.0)
+            .unwrap();
+        batch
+            .add_time_filter(FilterIndex::Index(2), "f2".to_string(), 2.0, 3.0)
+            .unwrap();
+        batch.remove_batch(1).unwrap();
+
+        assert_eq!(batch.__len__(), 2);
+        assert_eq!(batch.results.len(), 2);
+        assert_eq!(batch.data_changed.len(), 2);
+        let (starts0, _) = batch.filters[0].get_time_filter_times();
+        let (starts1, _) = batch.filters[1].get_time_filter_times();
+        assert_eq!(starts0, vec![0]);
+        assert_eq!(starts1, vec![2e9 as u64]);
+    }
+
+    /// Removing a batch at an out-of-range index should error.
+    #[test]
+    fn test_remove_batch_out_of_range() {
+        let mut batch = make_batch(2);
+        assert!(batch.remove_batch(2).is_err());
+        assert_eq!(batch.__len__(), 2);
+    }
+
+    /// Removing the only remaining batch should error.
+    #[test]
+    fn test_remove_last_batch_errors() {
+        let mut batch = make_batch(1);
+        assert!(batch.remove_batch(0).is_err());
+        assert_eq!(batch.__len__(), 1);
     }
 }
