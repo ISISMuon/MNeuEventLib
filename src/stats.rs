@@ -78,6 +78,9 @@ impl Histogram {
 
         let frame_start_times: Array1<u64> = data.frame_times.read_1d()?;
 
+        // estimate end of last frame
+        let run_end = frame_start_times.last().unwrap() + self.max_time as u64;
+
         let weights = if filters_exist {
             let time_weights = if time_starts.is_empty() {
                 Weights::ones(data.n_frames)
@@ -86,7 +89,9 @@ impl Histogram {
                     time_starts,
                     time_ends,
                     &frame_start_times,
+                    run_end,
                     filters.is_include(),
+                    "time filter",
                 )
             };
             // log weights are always include filters
@@ -100,7 +105,7 @@ impl Histogram {
                     Err(info) => return Err(Error::msg(format!("Failed to get logs: {info}"))),
                 };
                 let log_filter_times = filters.get_log_filter_times(value_logs)?;
-                get_log_weights(log_filter_times, &frame_start_times)
+                get_log_weights(log_filter_times, &frame_start_times, run_end)
             };
             time_weights & log_weights
         } else {
@@ -169,10 +174,11 @@ pub fn get_period_frames(periods: &Array1<u32>, n_periods: usize, weights: &Weig
 
 /// Get the start and end times of the (optionally filtered) experiment.
 pub fn get_experiment_times(weights: Weights, frame_start_times: Array1<u64>) -> (u64, u64) {
-    (
-        frame_start_times[weights.get_first_one().unwrap()],
-        frame_start_times[weights.get_last_one().unwrap()],
-    )
+    match (weights.get_first_one(), weights.get_last_one()) {
+        (Some(first), Some(last)) => (frame_start_times[first], frame_start_times[last]),
+        // return 0 time when all frames have been filtered out rather than crashing
+        _ => (0, 0),
+    }
 }
 
 /// Calculate histograms and output the result.
@@ -648,6 +654,19 @@ mod tests {
 
         assert_eq!(start, 100);
         assert_eq!(end, 500);
+    }
+
+    /// Test that `get_experiment_times` returns zeroes rather than panicking
+    /// when the filters keep no frames at all.
+    #[test]
+    fn test_get_experiment_times_no_frames() {
+        let frame_start_times = Array1::<u64>::from_vec(vec![100, 200, 300, 400, 500]);
+        let weights = Weights::zeros(5);
+
+        let (start, end) = get_experiment_times(weights, frame_start_times);
+
+        assert_eq!(start, 0);
+        assert_eq!(end, 0);
     }
 
     /// Test that `get_experiment_times` correctly identifies the start and
