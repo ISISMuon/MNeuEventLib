@@ -62,6 +62,11 @@ impl Histogram {
         }
     }
 
+    /// Empty the calculated result, keeping the histogram settings.
+    pub fn reset(&mut self) {
+        *self = Histogram::new(self.min_time, self.max_time, self.n_bins);
+    }
+
     pub fn calculate(&self, data: &NexusData, filters: &Filters) -> Result<Histogram> {
         // get period data
         let periods: Array1<u32> = data.periods.read_1d()?;
