@@ -56,6 +56,8 @@ pub struct WiMDAFile {
     title: CopyData,
     /// Information about the user performing the experiment.
     user_1: CopyData,
+    /// Information about the filters used by MNeuEventLib.
+    filters: String
 }
 
 impl WiMDAFile {
@@ -79,6 +81,8 @@ impl WiMDAFile {
 
         let selog = get_all_sample_logs(dataset, filters)?;
 
+        let filter_string = serde_json::to_string_pretty(filters)?;
+
         Ok(WiMDAFile {
             IDF_version: (),
             good_duration,
@@ -100,6 +104,7 @@ impl WiMDAFile {
             start_time,
             title: (),
             user_1: (),
+            filters: filter_string,
         })
     }
 }
@@ -236,6 +241,20 @@ impl Save for WiMDAFile {
                 add_str_scalar::<3>(&user_1, "RAL", "affiliation")?;
             }
         };
+
+        // add the filters JSON as a string
+        unsafe {
+            let filters_unicode = VarLenUnicode::from_str_unchecked(self.filters.clone());
+
+            // Create scalar dataset rather than length-1 vector
+            // so that it is actually readable in hdf5 viewers
+            let ds = hist_data
+                .new_dataset::<VarLenUnicode>()
+                .shape(())
+                .create("filters")?;
+            ds.write_scalar(&filters_unicode)?;
+        }
+
         Ok(())
     }
 }
