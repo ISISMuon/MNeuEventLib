@@ -6,7 +6,7 @@ use crate::filters::Filters;
 use crate::stats::Histogram;
 use anyhow::{Error, Result};
 use ndarray::Array1;
-use numpy::{PyArray3, ToPyArray};
+use numpy::{PyArray3, PyReadonlyArray1, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Borrowed, Bound, FromPyObject, PyAny, PyErr, Python};
 use pyo3::types::{PyAnyMethods, PyDict, PyInt, PyModule, PyString};
 
@@ -485,11 +485,20 @@ impl BatchData {
     ///     Either 'all', or the index of the filter set to modify.
     /// detector: int
     ///     The detector to set a filter for.
-    /// amp: float
+    /// ampl: float
     ///     The maximum amplitude that should be ignored.
-    pub fn set_amp(&mut self, index: FilterIndex, detector: usize, amp: f64) -> Result<()> {
+    pub fn set_ampl(&mut self, index: FilterIndex, detector: usize, ampl: f64) -> Result<()> {
+        if let Some(dataset) = &self.dataset {
+            if detector >= dataset.n_spec {
+                return Err(Error::msg(format!(
+                    "Expected a detector index between 0 and {}, but got {}.",
+                    dataset.n_spec - 1,
+                    detector
+                )));
+            }
+        }
         for i in self.resolve_indices(&index)? {
-            self.filters[i].set_amp(detector, amp);
+            self.filters[i].set_ampl(detector, ampl);
             self.data_changed[i] = true;
         }
         Ok(())
@@ -501,14 +510,31 @@ impl BatchData {
     /// ----------
     /// index: int | str
     ///     Either 'all', or the index of the filter set to modify.
-    /// amp: float
+    /// ampl: float
     ///     The maximum amplitude that should be ignored.
-    pub fn set_amps_baseline(&mut self, index: FilterIndex, amp: f64) -> Result<()> {
+    pub fn set_ampl_baseline(&mut self, index: FilterIndex, ampl: f64) -> Result<()> {
         for i in self.resolve_indices(&index)? {
-            self.filters[i].set_amps_baseline(amp);
+            self.filters[i].set_ampl_baseline(ampl);
             self.data_changed[i] = true;
         }
         Ok(())
+    }
+
+    /// Set an amplitude filter for all detectors from an array.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int | str
+    ///     Either 'all', or the index of the filter set to modify.
+    /// ampl: Array[float]
+    ///     An array of the amplitudes for each detector.
+    #[pyo3(name = "set_ampl_from_array")]
+    pub fn set_ampl_from_array_py(
+        &mut self,
+        index: FilterIndex,
+        ampl: PyReadonlyArray1<f64>,
+    ) -> Result<()> {
+        self.set_ampl_from_array(index, ampl.as_array().to_vec())
     }
 
     /// Add two BatchData objects together componentwise.
@@ -836,6 +862,35 @@ impl BatchData {
         }
     }
 
+    /// Set an amplitude filter for all detectors from an array.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: FilterIndex
+    ///     Either 'all', or the index of the filter set to modify.
+    /// ampl: Vec<f64>
+    ///     The amplitudes for each detector.
+    pub fn set_ampl_from_array(&mut self, index: FilterIndex, ampl: Vec<f64>) -> Result<()> {
+        // throw an error if the array is the wrong size
+        // if dataset has not been given yet, we let the user off,
+        // but it'll throw an error when they calculate
+        if let Some(dataset) = &self.dataset {
+            if ampl.len() != dataset.n_spec {
+                return Err(Error::msg(format!(
+                    "Expected one amplitude per detector ({} values), but given array has {}.",
+                    dataset.n_spec,
+                    ampl.len()
+                )));
+            }
+        }
+
+        for i in self.resolve_indices(&index)? {
+            self.filters[i].set_ampl_from_array(ampl.clone());
+            self.data_changed[i] = true;
+        }
+        Ok(())
+    }
+
     /// Resolve a [`FilterIndex`] into a list of valid filter set indices,
     /// checking bounds along the way.
     ///
@@ -1056,7 +1111,7 @@ mod tests {
             ),
         )
         .unwrap();
-        let dataset = mock.create(64, 1048576).unwrap();
+        let dataset = mock.create(6, 1048576).unwrap();
         BatchData::from_dataset(dataset, n_filter_sets)
     }
 
@@ -1559,16 +1614,16 @@ mod tests {
     /// Setting an amplitude filter at a single index should only affect
     /// that filter set's amplitude array.
     #[test]
-    fn test_set_amp_single_index() {
+    fn test_set_ampl_single_index() {
         let mut batch = make_batch(2);
-        batch.set_amp(FilterIndex::Index(1), 3, 5.0).unwrap();
+        batch.set_ampl(FilterIndex::Index(1), 3, 5.0).unwrap();
 
-        let amps0 = batch.filters[0].get_amps(6).unwrap();
-        let amps1 = batch.filters[1].get_amps(6).unwrap();
+        let ampl0 = batch.filters[0].get_ampl(6).unwrap();
+        let ampl1 = batch.filters[1].get_ampl(6).unwrap();
 
-        assert_eq!(amps0, Array1::<f64>::zeros(6));
+        assert_eq!(ampl0, Array1::<f64>::zeros(6));
         assert_eq!(
-            amps1,
+            ampl1,
             ndarray::Array1::from_vec(vec![0., 0., 0., 5., 0., 0.])
         );
     }
@@ -1576,16 +1631,149 @@ mod tests {
     /// Setting an amplitude filter with index "All" should apply it to
     /// every filter set.
     #[test]
-    fn test_set_amp_all_indices() {
+    fn test_set_ampl_all_indices() {
         let mut batch = make_batch(3);
-        batch.set_amp(FilterIndex::All, 2, 4.4).unwrap();
+        batch.set_ampl(FilterIndex::All, 2, 4.4).unwrap();
 
         for filter_set in &batch.filters {
-            let amps = filter_set.get_amps(6).unwrap();
+            let ampl = filter_set.get_ampl(6).unwrap();
             assert_eq!(
-                amps,
+                ampl,
                 ndarray::Array1::from_vec(vec![0., 0., 4.4, 0., 0., 0.])
             );
+        }
+    }
+
+    /// Setting amplitudes from an array at a single index should only
+    /// affect that filter set's amplitude array.
+    #[test]
+    fn test_set_ampl_from_array_single_index() {
+        let mut batch = make_batch(2);
+        let ampl = vec![0., 1.1, 2.2, 3.3, 4.4, 5.5];
+
+        batch
+            .set_ampl_from_array(FilterIndex::Index(1), ampl.clone())
+            .unwrap();
+
+        let ampl0 = batch.filters[0].get_ampl(6).unwrap();
+        let ampl1 = batch.filters[1].get_ampl(6).unwrap();
+
+        assert_eq!(ampl0, Array1::<f64>::zeros(6));
+        assert_eq!(ampl1, Array1::from_vec(ampl));
+    }
+
+    /// Setting amplitudes from an array with index "All" should apply the
+    /// array to every filter set.
+    #[test]
+    fn test_set_ampl_from_array_all_indices() {
+        let mut batch = make_batch(3);
+        let ampl = vec![0., 1.1, 2.2, 3.3, 4.4, 5.5];
+
+        batch
+            .set_ampl_from_array(FilterIndex::All, ampl.clone())
+            .unwrap();
+
+        for filters in &batch.filters {
+            assert_eq!(filters.get_ampl(6).unwrap(), Array1::from_vec(ampl.clone()));
+        }
+    }
+
+    /// Setting amplitudes from an array should error for an out-of-range index,
+    /// and leave every filter set untouched.
+    #[test]
+    fn test_set_ampl_from_array_out_of_range() {
+        let mut batch = make_batch(2);
+
+        let result = batch.set_ampl_from_array(FilterIndex::Index(5), vec![1.1; 6]);
+
+        assert!(result.is_err());
+        for filters in &batch.filters {
+            assert_eq!(filters.get_ampl(6).unwrap(), Array1::<f64>::zeros(6));
+        }
+    }
+
+    /// Setting an amplitude filter for a detector which doesn't exist should
+    /// error, and leave every filter set untouched.
+    #[test]
+    fn test_set_ampl_detector_out_of_bounds() {
+        let mut batch = make_batch(2);
+
+        let result = batch.set_ampl(FilterIndex::All, 6, 5.0);
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Expected a detector index between 0 and 5, but got 6.".to_string()
+        );
+        for filters in &batch.filters {
+            assert_eq!(filters.get_ampl(6).unwrap(), Array1::<f64>::zeros(6));
+        }
+    }
+
+    /// Setting an amplitude filter for a detector which doesn't exist should
+    /// be allowed if no dataset has been set yet.
+    #[test]
+    fn test_set_ampl_detector_out_of_bounds_no_dataset() {
+        let mut batch = BatchData::empty(2);
+        batch.set_ampl(FilterIndex::All, 6, 5.0).unwrap();
+
+        for filters in &batch.filters {
+            assert_eq!(
+                filters.get_ampl(7).unwrap(),
+                Array1::from_vec(vec![0., 0., 0., 0., 0., 0., 5.])
+            );
+        }
+    }
+
+    /// Setting amplitudes from an array shorter than the number of detectors
+    /// should error, and leave every filter set untouched.
+    #[test]
+    fn test_set_ampl_from_short_array() {
+        let mut batch = make_batch(2);
+
+        let result = batch.set_ampl_from_array(FilterIndex::All, vec![1.1; 3]);
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Expected one amplitude per detector (6 values), but given array has 3.".to_string()
+        );
+        for filters in &batch.filters {
+            assert_eq!(filters.get_ampl(6).unwrap(), Array1::<f64>::zeros(6));
+        }
+    }
+
+    /// Setting amplitudes from an array longer than the number of detectors
+    /// should error, and leave every filter set untouched.
+    #[test]
+    fn test_set_ampl_from_long_array() {
+        let mut batch = make_batch(2);
+
+        let result = batch.set_ampl_from_array(FilterIndex::All, vec![1.1; 7]);
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Expected one amplitude per detector (6 values), but given array has 7.".to_string()
+        );
+        for filters in &batch.filters {
+            assert_eq!(filters.get_ampl(6).unwrap(), Array1::<f64>::zeros(6));
+        }
+    }
+
+    /// Setting amplitudes from an array of any length should be allowed if no
+    /// dataset has been set yet.
+    #[test]
+    fn test_set_ampl_from_array_no_dataset() {
+        let mut batch = BatchData::empty(2);
+        let ampl = vec![1.1, 2.2, 3.3];
+
+        batch
+            .set_ampl_from_array(FilterIndex::All, ampl.clone())
+            .unwrap();
+
+        for filters in &batch.filters {
+            assert_eq!(filters.get_ampl(3).unwrap(), Array1::from_vec(ampl.clone()));
         }
     }
 
