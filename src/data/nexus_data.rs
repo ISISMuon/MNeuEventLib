@@ -169,8 +169,9 @@ impl NexusData {
         if let Some(detector) = detector {
             if detector >= self.n_spec {
                 return Err(Error::msg(format!(
-                    "Attempted to get amplitude histogram for detector {detector}, but instrument only has {} detectors.",
-                    self.n_spec
+                    "Attempted to get amplitude histogram for detector {detector}, but instrument only has {} detectors (numbered 0 to {}).",
+                    self.n_spec,
+                    self.n_spec - 1
                 )));
             }
         }
