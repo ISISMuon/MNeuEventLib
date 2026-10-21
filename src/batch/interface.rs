@@ -488,6 +488,15 @@ impl BatchData {
     /// ampl: float
     ///     The maximum amplitude that should be ignored.
     pub fn set_ampl(&mut self, index: FilterIndex, detector: usize, ampl: f64) -> Result<()> {
+        if let Some(dataset) = &self.dataset {
+            if detector >= dataset.n_spec {
+                return Err(Error::msg(format!(
+                    "Expected a detector index between 0 and {}, but got {}.",
+                    dataset.n_spec - 1,
+                    detector
+                )));
+            }
+        }
         for i in self.resolve_indices(&index)? {
             self.filters[i].set_ampl(detector, ampl);
             self.data_changed[i] = true;
@@ -525,12 +534,7 @@ impl BatchData {
         index: FilterIndex,
         ampl: PyReadonlyArray1<f64>,
     ) -> Result<()> {
-        let ampl_array: Vec<f64> = ampl.as_array().to_vec();
-        for i in self.resolve_indices(&index)? {
-            self.filters[i].set_ampl_from_array(ampl_array.clone());
-            self.data_changed[i] = true;
-        }
-        Ok(())
+        self.set_ampl_from_array(index, ampl.as_array().to_vec())
     }
 
     /// Add two BatchData objects together componentwise.
@@ -867,6 +871,19 @@ impl BatchData {
     /// ampl: Vec<f64>
     ///     The amplitudes for each detector.
     pub fn set_ampl_from_array(&mut self, index: FilterIndex, ampl: Vec<f64>) -> Result<()> {
+        // throw an error if the array is the wrong size
+        // if dataset has not been given yet, we let the user off,
+        // but it'll throw an error when they calculate
+        if let Some(dataset) = &self.dataset {
+            if ampl.len() != dataset.n_spec {
+                return Err(Error::msg(format!(
+                    "Expected one amplitude per detector ({} values), but given array has {}.",
+                    dataset.n_spec,
+                    ampl.len()
+                )));
+            }
+        }
+
         for i in self.resolve_indices(&index)? {
             self.filters[i].set_ampl_from_array(ampl.clone());
             self.data_changed[i] = true;
@@ -1094,7 +1111,7 @@ mod tests {
             ),
         )
         .unwrap();
-        let dataset = mock.create(64, 1048576).unwrap();
+        let dataset = mock.create(6, 1048576).unwrap();
         BatchData::from_dataset(dataset, n_filter_sets)
     }
 
@@ -1672,6 +1689,91 @@ mod tests {
         assert!(result.is_err());
         for filters in &batch.filters {
             assert_eq!(filters.get_ampl(6).unwrap(), Array1::<f64>::zeros(6));
+        }
+    }
+
+    /// Setting an amplitude filter for a detector which doesn't exist should
+    /// error, and leave every filter set untouched.
+    #[test]
+    fn test_set_ampl_detector_out_of_bounds() {
+        let mut batch = make_batch(2);
+
+        let result = batch.set_ampl(FilterIndex::All, 6, 5.0);
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Expected a detector index between 0 and 5, but got 6.".to_string()
+        );
+        for filters in &batch.filters {
+            assert_eq!(filters.get_ampl(6).unwrap(), Array1::<f64>::zeros(6));
+        }
+    }
+
+    /// Setting an amplitude filter for a detector which doesn't exist should
+    /// be allowed if no dataset has been set yet.
+    #[test]
+    fn test_set_ampl_detector_out_of_bounds_no_dataset() {
+        let mut batch = BatchData::empty(2);
+        batch.set_ampl(FilterIndex::All, 6, 5.0).unwrap();
+
+        for filters in &batch.filters {
+            assert_eq!(
+                filters.get_ampl(7).unwrap(),
+                Array1::from_vec(vec![0., 0., 0., 0., 0., 0., 5.])
+            );
+        }
+    }
+
+    /// Setting amplitudes from an array shorter than the number of detectors
+    /// should error, and leave every filter set untouched.
+    #[test]
+    fn test_set_ampl_from_short_array() {
+        let mut batch = make_batch(2);
+
+        let result = batch.set_ampl_from_array(FilterIndex::All, vec![1.1; 3]);
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Expected one amplitude per detector (6 values), but given array has 3.".to_string()
+        );
+        for filters in &batch.filters {
+            assert_eq!(filters.get_ampl(6).unwrap(), Array1::<f64>::zeros(6));
+        }
+    }
+
+    /// Setting amplitudes from an array longer than the number of detectors
+    /// should error, and leave every filter set untouched.
+    #[test]
+    fn test_set_ampl_from_long_array() {
+        let mut batch = make_batch(2);
+
+        let result = batch.set_ampl_from_array(FilterIndex::All, vec![1.1; 7]);
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Expected one amplitude per detector (6 values), but given array has 7.".to_string()
+        );
+        for filters in &batch.filters {
+            assert_eq!(filters.get_ampl(6).unwrap(), Array1::<f64>::zeros(6));
+        }
+    }
+
+    /// Setting amplitudes from an array of any length should be allowed if no
+    /// dataset has been set yet.
+    #[test]
+    fn test_set_ampl_from_array_no_dataset() {
+        let mut batch = BatchData::empty(2);
+        let ampl = vec![1.1, 2.2, 3.3];
+
+        batch
+            .set_ampl_from_array(FilterIndex::All, ampl.clone())
+            .unwrap();
+
+        for filters in &batch.filters {
+            assert_eq!(filters.get_ampl(3).unwrap(), Array1::from_vec(ampl.clone()));
         }
     }
 
