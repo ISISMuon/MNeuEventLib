@@ -9,6 +9,7 @@ use ndarray::Array1;
 use numpy::{PyArray3, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Borrowed, Bound, FromPyObject, PyAny, PyErr, Python};
 use pyo3::types::{PyAnyMethods, PyDict, PyInt, PyModule, PyString};
+use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 pub type PyHist<'py> = Bound<'py, PyArray3<i32>>;
 
@@ -679,17 +680,21 @@ impl BatchData {
     ///     needed because the event data files have mistakes/problems).
     ///     This allows the file to be read by Mantid even if the event file
     ///     is incomplete.
+    /// nexus_v3: bool
+    ///     Whether to use NeXus v3 format to save all (i.e. all batches in one file)
+    ///     or not (each batch in a separate file)
     /// ref_file: str
     ///     The reference file for the saved file. (must be a Nexus file)
     ///     Contains "correct" data that should be copied to the output file.
     ///     This is only needed if the reference file needed is not the standard
     ///     muon nexus v2 file. If None, uses the standard embedded default muon Nexus reference file.
-    #[pyo3(signature = (index, filename, autofill=true, ref_file=None))]
+    #[pyo3(signature = (index, filename, autofill=true, nexus_v3=true, ref_file=None))]
     pub fn save(
         &mut self,
         index: FilterIndex,
         filename: String,
         autofill: bool,
+        nexus_v3: bool,
         ref_file: Option<String>,
     ) -> Result<()> {
         let ref_path = get_default_ref_file_path(ref_file)?;
@@ -700,14 +705,28 @@ impl BatchData {
         } else {
             filename.clone()
         };
-        // when saving every filter set, each one gets its index appended
-        // to the filename so the files don't overwrite each other
-        let number_files = matches!(index, FilterIndex::All);
 
         let indices = self.resolve_indices(&index)?;
         self.recalculate_stale(&indices)?;
 
         if let Some(dataset) = &self.dataset {
+            // all batches in one NeXus v3 file; every other case writes one
+            // file per batch
+            if matches!(index, FilterIndex::All) && nexus_v3 {
+                // calculate data to save for each batch in parallel
+                let save_data: Vec<WiMDAFile> = self
+                    .filters
+                    .par_iter()
+                    .zip(self.results.par_iter())
+                    .map(|(filters, results)| WiMDAFile::new(dataset, filters, results))
+                    .collect::<Result<Vec<WiMDAFile>>>()?;
+                save_data.save_file(format!("{filename_stem}.nxs"), &dataset.file)?;
+                return Ok(());
+            }
+
+            // when saving every filter set separately, each one gets its index
+            // appended to the filename so the files don't overwrite each other
+            let number_files = matches!(index, FilterIndex::All);
             for i in indices {
                 let out_file = if number_files {
                     format!("{filename_stem}_{i}.nxs")
