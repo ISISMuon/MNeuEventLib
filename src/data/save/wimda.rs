@@ -122,6 +122,23 @@ impl SaveFile for WiMDAFile {
     }
 }
 
+// histogram nexus v3 save; iteratively save a vector of saveable objects
+// into raw_data_1, raw_data_2...
+impl<T: Save> SaveFile for Vec<T> {
+    fn save_file(&self, filename: String, input_file: &File) -> Result<()> {
+        let output = File::create(&filename)?;
+        let event_data = input_file.group("raw_data_1")?;
+
+        for (i, batch) in self.iter().enumerate() {
+            let hist_data = output.create_group(&format!("raw_data_{}", i+1))?;
+            add_nx_class(&hist_data, "NXentry")?;
+            batch.save(&hist_data, &event_data)?;
+        }
+        println!("Saved to output file {filename}");
+        Ok(())
+    }
+}
+
 impl Save for WiMDAFile {
     fn save(&self, hist_data: &Group, event_data: &Group) -> Result<()> {
         copy_scalar::<i32>(event_data, hist_data, "IDF_version")?;

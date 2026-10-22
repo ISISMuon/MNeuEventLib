@@ -9,6 +9,7 @@ use ndarray::Array1;
 use numpy::{PyArray3, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Borrowed, Bound, FromPyObject, PyAny, PyErr, Python};
 use pyo3::types::{PyAnyMethods, PyDict, PyInt, PyModule, PyString};
+use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 pub type PyHist<'py> = Bound<'py, PyArray3<i32>>;
 
@@ -655,17 +656,21 @@ impl BatchData {
     ///     needed because the event data files have mistakes/problems).
     ///     This allows the file to be read by Mantid even if the event file
     ///     is incomplete.
+    /// nexus_v3: bool
+    ///     Whether to use NeXus v3 format to save all (i.e. all batches in one file)
+    ///     or not (each batch in a separate file)
     /// ref_file: str
     ///     The reference file for the saved file. (must be a Nexus file)
     ///     Contains "correct" data that should be copied to the output file.
     ///     This is only needed if the reference file needed is not the standard
     ///     muon nexus v2 file. If None, uses the standard embedded default muon Nexus reference file.
-    #[pyo3(signature = (index, filename, autofill=true, ref_file=None))]
+    #[pyo3(signature = (index, filename, autofill=true, nexus_v3=true, ref_file=None))]
     pub fn save(
         &self,
         index: FilterIndex,
         filename: String,
         autofill: bool,
+        nexus_v3: bool,
         ref_file: Option<String>,
     ) -> Result<()> {
         let ref_path = get_default_ref_file_path(ref_file)?;
@@ -698,12 +703,22 @@ impl BatchData {
                     ));
                 }
                 let dataset = self.dataset.as_ref().unwrap();
-                for i in 0..self.n_batches() {
-                    let wimda_file = WiMDAFile::new(dataset, &self.filters[i], &self.results[i])?;
-                    wimda_file.save_file(format!("{filename_stem}_{i}.nxs"), &dataset.file)?;
-                    if autofill {
-                        self.save_nexus(format!("{filename_stem}_{i}.nxs"), ref_file_str.clone())?;
-                    }
+                // calculate data to save for each batch in parallel 
+                let save_data: Vec<WiMDAFile> = self.filters
+                    .par_iter()
+                    .zip(self.results.par_iter())
+                    .map(|(filters, results)| WiMDAFile::new(dataset, filters, results))
+                    .collect::<Result<Vec<WiMDAFile>>>()?;
+
+                if nexus_v3 {
+                    save_data.save_file(format!("{filename_stem}.nxs"), &dataset.file)?;
+                } else {
+                    for (i, file) in save_data.iter().enumerate() {
+                        file.save_file(format!("{filename_stem}_{i}.nxs"), &dataset.file)?;
+                        if autofill {
+                            self.save_nexus(format!("{filename_stem}_{i}.nxs"), ref_file_str.clone())?;
+                        }
+                    } 
                 }
             }
         }
