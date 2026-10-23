@@ -110,14 +110,13 @@ impl WiMDAFile {
 }
 
 impl SaveFile for WiMDAFile {
-    fn save_file(&self, filename: String, input_file: &File) -> Result<()> {
-        let output = File::create(&filename)?;
+    fn save_file(&self, filename: &str, input_file: &File) -> Result<()> {
+        let output = File::create(filename)?;
         let hist_data = output.create_group("raw_data_1")?;
         let event_data = input_file.group("raw_data_1")?;
         add_nx_class(&hist_data, "NXentry")?;
 
         self.save(&hist_data, &event_data)?;
-        println!("Saved to output file {filename}");
         Ok(())
     }
 }
@@ -125,8 +124,8 @@ impl SaveFile for WiMDAFile {
 // histogram nexus v3 save; iteratively save a vector of saveable objects
 // into raw_data_1, raw_data_2...
 impl<T: Save> SaveFile for Vec<T> {
-    fn save_file(&self, filename: String, input_file: &File) -> Result<()> {
-        let output = File::create(&filename)?;
+    fn save_file(&self, filename: &str, input_file: &File) -> Result<()> {
+        let output = File::create(filename)?;
         let event_data = input_file.group("raw_data_1")?;
 
         for (i, batch) in self.iter().enumerate() {
@@ -134,7 +133,6 @@ impl<T: Save> SaveFile for Vec<T> {
             add_nx_class(&hist_data, "NXentry")?;
             batch.save(&hist_data, &event_data)?;
         }
-        println!("Saved to output file {filename}");
         Ok(())
     }
 }
@@ -315,9 +313,7 @@ mod tests {
         tmp_path.push("wimda_test_structure.nxs");
         let tmp_path_str = tmp_path.to_str().unwrap().to_string();
 
-        wimda
-            .save_file(tmp_path_str.clone(), &dataset.file)
-            .unwrap();
+        wimda.save_file(&tmp_path_str, &dataset.file).unwrap();
 
         let output = File::open(tmp_path_str).unwrap();
         let hist_data = output.group("raw_data_1").unwrap();
@@ -355,9 +351,7 @@ mod tests {
         tmp_path.push("wimda_test_sample_name.nxs");
         let tmp_path_str = tmp_path.to_str().unwrap().to_string();
 
-        wimda
-            .save_file(tmp_path_str.clone(), &dataset.file)
-            .unwrap();
+        wimda.save_file(&tmp_path_str, &dataset.file).unwrap();
 
         let output = File::open(tmp_path_str).unwrap();
         let hist_data = output.group("raw_data_1").unwrap();
@@ -385,9 +379,7 @@ mod tests {
         tmp_path.push("wimda_test_user_1.nxs");
         let tmp_path_str = tmp_path.to_str().unwrap().to_string();
 
-        wimda
-            .save_file(tmp_path_str.clone(), &dataset.file)
-            .unwrap();
+        wimda.save_file(&tmp_path_str, &dataset.file).unwrap();
 
         let output = File::open(tmp_path_str).unwrap();
         let hist_data = output.group("raw_data_1").unwrap();
@@ -418,9 +410,7 @@ mod tests {
         tmp_path.push("wimda_test_filters.nxs");
         let tmp_path_str = tmp_path.to_str().unwrap().to_string();
 
-        wimda
-            .save_file(tmp_path_str.clone(), &dataset.file)
-            .unwrap();
+        wimda.save_file(&tmp_path_str, &dataset.file).unwrap();
 
         let output = File::open(tmp_path_str).unwrap();
         let hist_data = output.group("raw_data_1").unwrap();
@@ -454,9 +444,7 @@ mod tests {
         tmp_path.push("wimda_test_vec.nxs");
         let tmp_path_str = tmp_path.to_str().unwrap().to_string();
 
-        wimda_files
-            .save_file(tmp_path_str.clone(), &dataset.file)
-            .unwrap();
+        wimda_files.save_file(&tmp_path_str, &dataset.file).unwrap();
 
         let output = File::open(tmp_path_str).unwrap();
         assert_eq!(
