@@ -703,8 +703,9 @@ impl BatchData {
                     ));
                 }
                 let dataset = self.dataset.as_ref().unwrap();
-                // calculate data to save for each batch in parallel 
-                let save_data: Vec<WiMDAFile> = self.filters
+                // calculate data to save for each batch in parallel
+                let save_data: Vec<WiMDAFile> = self
+                    .filters
                     .par_iter()
                     .zip(self.results.par_iter())
                     .map(|(filters, results)| WiMDAFile::new(dataset, filters, results))
@@ -716,9 +717,12 @@ impl BatchData {
                     for (i, file) in save_data.iter().enumerate() {
                         file.save_file(format!("{filename_stem}_{i}.nxs"), &dataset.file)?;
                         if autofill {
-                            self.save_nexus(format!("{filename_stem}_{i}.nxs"), ref_file_str.clone())?;
+                            self.save_nexus(
+                                format!("{filename_stem}_{i}.nxs"),
+                                ref_file_str.clone(),
+                            )?;
                         }
-                    } 
+                    }
                 }
             }
         }
@@ -1915,5 +1919,93 @@ mod tests {
         for filter_set in &batch.filters {
             assert!(!filter_set.is_include());
         }
+    }
+
+    /// Build a calculated BatchData with `n_filter_sets` filter sets from
+    /// the real test event file, so it can be saved.
+    fn calculated_batch(n_filter_sets: usize) -> BatchData {
+        let mut batch = BatchData::new(
+            "./tests/test_data/HIFI00195790.nxs".to_string(),
+            64,
+            n_filter_sets,
+            1048576,
+        )
+        .unwrap();
+        batch.calculate().unwrap();
+        batch
+    }
+
+    /// Saving all batches with `nexus_v3` should write a single file with
+    /// one `raw_data_<n>` entry per batch.
+    #[test]
+    fn test_save_all_nexus_v3_single_file() {
+        let _guard = crate::test_utils::lock_hdf5_test();
+        let batch = calculated_batch(3);
+        let dir = tempfile::tempdir().unwrap();
+        let filename = dir.path().join("out.nxs");
+
+        batch
+            .save(
+                FilterIndex::All,
+                filename.to_str().unwrap().to_string(),
+                false,
+                true,
+                None,
+            )
+            .unwrap();
+
+        assert!(!dir.path().join("out_0.nxs").exists());
+        let output = hdf5::File::open(&filename).unwrap();
+        assert_eq!(
+            output.member_names().unwrap(),
+            vec!["raw_data_1", "raw_data_2", "raw_data_3"]
+        );
+    }
+
+    /// Saving all batches without `nexus_v3` should write one file per
+    /// batch, suffixed with the batch index.
+    #[test]
+    fn test_save_all_separate_files() {
+        let _guard = crate::test_utils::lock_hdf5_test();
+        let batch = calculated_batch(3);
+        let dir = tempfile::tempdir().unwrap();
+        // no extension, to check it is added
+        let filename = dir.path().join("out");
+
+        batch
+            .save(
+                FilterIndex::All,
+                filename.to_str().unwrap().to_string(),
+                false,
+                false,
+                None,
+            )
+            .unwrap();
+
+        assert!(!dir.path().join("out.nxs").exists());
+        for i in 0..3 {
+            let output = hdf5::File::open(dir.path().join(format!("out_{i}.nxs"))).unwrap();
+            assert_eq!(output.member_names().unwrap(), vec!["raw_data_1"]);
+        }
+    }
+
+    /// Saving all batches should fail without writing anything if any
+    /// result has not been calculated.
+    #[test]
+    fn test_save_all_uncalculated_errors() {
+        let batch = make_batch(2);
+        let dir = tempfile::tempdir().unwrap();
+        let filename = dir.path().join("out.nxs");
+
+        let result = batch.save(
+            FilterIndex::All,
+            filename.to_str().unwrap().to_string(),
+            false,
+            true,
+            None,
+        );
+
+        assert!(result.is_err());
+        assert!(!filename.exists());
     }
 }

@@ -57,7 +57,7 @@ pub struct WiMDAFile {
     /// Information about the user performing the experiment.
     user_1: CopyData,
     /// Information about the filters used by MNeuEventLib.
-    filters: String
+    filters: String,
 }
 
 impl WiMDAFile {
@@ -130,7 +130,7 @@ impl<T: Save> SaveFile for Vec<T> {
         let event_data = input_file.group("raw_data_1")?;
 
         for (i, batch) in self.iter().enumerate() {
-            let hist_data = output.create_group(&format!("raw_data_{}", i+1))?;
+            let hist_data = output.create_group(&format!("raw_data_{}", i + 1))?;
             add_nx_class(&hist_data, "NXentry")?;
             batch.save(&hist_data, &event_data)?;
         }
@@ -400,5 +400,83 @@ mod tests {
         let affiliation: hdf5::types::FixedAscii<3> =
             user_1.dataset("affiliation").unwrap().read_1d().unwrap()[0];
         assert_eq!(affiliation.as_str(), "RAL");
+    }
+
+    /// Saving should write the filters as a scalar JSON string which
+    /// deserialises back to the filters used for the result.
+    #[test]
+    fn test_wimda_save_writes_filters_json() {
+        let _guard = crate::test_utils::lock_hdf5_test();
+        let mut data = calculated_data();
+        data.filters[0]
+            .add_time_filter("f1".to_string(), 1.0, 2.0)
+            .unwrap();
+        let dataset = &data.dataset.unwrap();
+        let wimda = WiMDAFile::new(dataset, &data.filters[0], &data.results[0]).unwrap();
+
+        let mut tmp_path = temp_dir();
+        tmp_path.push("wimda_test_filters.nxs");
+        let tmp_path_str = tmp_path.to_str().unwrap().to_string();
+
+        wimda
+            .save_file(tmp_path_str.clone(), &dataset.file)
+            .unwrap();
+
+        let output = File::open(tmp_path_str).unwrap();
+        let hist_data = output.group("raw_data_1").unwrap();
+        let filters_ds = hist_data.dataset("filters").unwrap();
+        assert!(filters_ds.is_scalar());
+
+        let filters_json: VarLenUnicode = filters_ds.read_scalar().unwrap();
+        let filters: Filters = serde_json::from_str(filters_json.as_str()).unwrap();
+        assert_eq!(filters, data.filters[0]);
+    }
+
+    /// Saving a `Vec` of `WiMDAFile`s should write each one to its own
+    /// `raw_data_<n>` NXentry (1-indexed) in a single file.
+    #[test]
+    fn test_vec_save_file_writes_one_entry_per_batch() {
+        let _guard = crate::test_utils::lock_hdf5_test();
+        let mut data = BatchData::new(TEST_FILE.to_string(), 64, 3, 1048576).unwrap();
+        // give each batch distinct filters so we can tell the entries apart
+        for i in 0..3 {
+            data.filters[i]
+                .add_time_filter(format!("f{i}"), i as f64, i as f64 + 1.0)
+                .unwrap();
+        }
+        data.calculate().unwrap();
+        let dataset = data.dataset.as_ref().unwrap();
+        let wimda_files: Vec<WiMDAFile> = (0..3)
+            .map(|i| WiMDAFile::new(dataset, &data.filters[i], &data.results[i]).unwrap())
+            .collect();
+
+        let mut tmp_path = temp_dir();
+        tmp_path.push("wimda_test_vec.nxs");
+        let tmp_path_str = tmp_path.to_str().unwrap().to_string();
+
+        wimda_files
+            .save_file(tmp_path_str.clone(), &dataset.file)
+            .unwrap();
+
+        let output = File::open(tmp_path_str).unwrap();
+        assert_eq!(
+            output.member_names().unwrap(),
+            vec!["raw_data_1", "raw_data_2", "raw_data_3"]
+        );
+        for (i, wimda) in wimda_files.iter().enumerate() {
+            let hist_data = output.group(&format!("raw_data_{}", i + 1)).unwrap();
+
+            let nx_class: VarLenUnicode =
+                hist_data.attr("NX_class").unwrap().read_scalar().unwrap();
+            assert_eq!(nx_class.as_str(), "NXentry");
+
+            let good_frames: u32 = hist_data.dataset("good_frames").unwrap().read_1d().unwrap()[0];
+            assert_eq!(good_frames, wimda.good_frames);
+
+            let filters_json: VarLenUnicode =
+                hist_data.dataset("filters").unwrap().read_scalar().unwrap();
+            let filters: Filters = serde_json::from_str(filters_json.as_str()).unwrap();
+            assert_eq!(filters, data.filters[i]);
+        }
     }
 }
