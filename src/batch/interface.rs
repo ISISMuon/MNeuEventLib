@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use crate::data::save::sanitise::nexus_data::{
-    get_default_ref_file_path, get_period_info, save_default,
+    add_default_metadata_v2, add_default_metadata_v3, get_default_ref_file_path, get_period_info,
 };
 use crate::data::{NexusData, SaveFile, WiMDAFile};
 use crate::filters::Filters;
@@ -710,6 +712,8 @@ impl BatchData {
         self.recalculate_stale(&indices)?;
 
         if let Some(dataset) = &self.dataset {
+            let shapes = self.get_shape_data()?;
+
             // all batches in one NeXus v3 file; every other case writes one
             // file per batch
             if matches!(index, FilterIndex::All) && nexus_v3 {
@@ -720,7 +724,12 @@ impl BatchData {
                     .zip(self.results.par_iter())
                     .map(|(filters, results)| WiMDAFile::new(dataset, filters, results))
                     .collect::<Result<Vec<WiMDAFile>>>()?;
-                save_data.save_file(format!("{filename_stem}.nxs"), &dataset.file)?;
+                let output_name = format!("{filename_stem}.nxs");
+                save_data.save_file(&output_name, &dataset.file)?;
+                if autofill {
+                    add_default_metadata_v3(&output_name, &ref_file_str, &shapes)?;
+                }
+                println!("Saved all data to NeXus v3 file {output_name}");
                 return Ok(());
             }
 
@@ -728,16 +737,17 @@ impl BatchData {
             // appended to the filename so the files don't overwrite each other
             let number_files = matches!(index, FilterIndex::All);
             for i in indices {
-                let out_file = if number_files {
+                let output_name = if number_files {
                     format!("{filename_stem}_{i}.nxs")
                 } else {
                     format!("{filename_stem}.nxs")
                 };
                 let wimda_file = WiMDAFile::new(dataset, &self.filters[i], &self.results[i])?;
-                wimda_file.save_file(out_file.clone(), &dataset.file)?;
+                wimda_file.save_file(&output_name, &dataset.file)?;
                 if autofill {
-                    self.save_nexus(out_file, ref_file_str.clone())?;
+                    add_default_metadata_v2(&output_name, &ref_file_str, &shapes)?;
                 }
+                println!("Saved batch {i} to NeXus v2 file {output_name}");
             }
             Ok(())
         } else {
@@ -1075,20 +1085,8 @@ impl BatchData {
         self.filters.len()
     }
 
-    /// Save to a Nexus version 2 file that is compatable with
-    /// Mantid using provided reference file for data.
-    /// This is needed because the event data files has mistakes/problems.
-    ///
-    /// Parameters
-    /// ----------
-    /// filename: str
-    ///     The filename for the saved file.
-    /// ref_file: str
-    ///     The reference file for the saved file. (must be a Nexus file)
-    ///     Contains "correct" data that should be copied to the output file.
-    ///     This is only need it the reference file needed is not the standard
-    ///     muon nexus v2 file. The ref_file is generated from tools/make_default.py.
-    pub fn save_nexus(&self, filename: String, ref_file: String) -> Result<()> {
+    /// Get the shape data in terms of periods for a dataset.
+    pub fn get_shape_data(&self) -> Result<HashMap<String, usize>> {
         // 1. Read p_info from input file
         let dataset = self.dataset.as_ref().unwrap();
         let (periods, dwell) = get_period_info(&dataset.filename)?;
@@ -1102,10 +1100,7 @@ impl BatchData {
         shapes.insert("PD".to_string(), periods + dwell);
         shapes.insert("NPD".to_string(), n * (periods + dwell));
 
-        // 3. Run save_default to merge/copy from ref_file
-        save_default(&filename, &ref_file, &shapes)?;
-
-        Ok(())
+        Ok(shapes)
     }
 }
 
