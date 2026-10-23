@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use crate::data::save::sanitise::nexus_data::{
-    get_default_ref_file_path, get_period_info, save_default,
+    add_default_metadata_v2, add_default_metadata_v3, get_default_ref_file_path, get_period_info,
 };
 use crate::data::{NexusData, SaveFile, WiMDAFile};
 use crate::filters::Filters;
@@ -9,6 +11,7 @@ use ndarray::Array1;
 use numpy::{PyArray3, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Borrowed, Bound, FromPyObject, PyAny, PyErr, Python};
 use pyo3::types::{PyAnyMethods, PyDict, PyInt, PyModule, PyString};
+use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 pub type PyHist<'py> = Bound<'py, PyArray3<i32>>;
 
@@ -655,17 +658,21 @@ impl BatchData {
     ///     needed because the event data files have mistakes/problems).
     ///     This allows the file to be read by Mantid even if the event file
     ///     is incomplete.
+    /// nexus_v3: bool
+    ///     Whether to use NeXus v3 format to save all (i.e. all batches in one file)
+    ///     or not (each batch in a separate file)
     /// ref_file: str
     ///     The reference file for the saved file. (must be a Nexus file)
     ///     Contains "correct" data that should be copied to the output file.
     ///     This is only needed if the reference file needed is not the standard
     ///     muon nexus v2 file. If None, uses the standard embedded default muon Nexus reference file.
-    #[pyo3(signature = (index, filename, autofill=true, ref_file=None))]
+    #[pyo3(signature = (index, filename, autofill=true, nexus_v3=true, ref_file=None))]
     pub fn save(
         &self,
         index: FilterIndex,
         filename: String,
         autofill: bool,
+        nexus_v3: bool,
         ref_file: Option<String>,
     ) -> Result<()> {
         let ref_path = get_default_ref_file_path(ref_file)?;
@@ -677,6 +684,8 @@ impl BatchData {
             filename.clone()
         };
 
+        let shapes = self.get_shape_data()?;
+
         match index {
             FilterIndex::Index(i) => {
                 if self.results[i].hist.shape() == [0, 0, 0] {
@@ -686,10 +695,12 @@ impl BatchData {
                 }
                 let dataset = self.dataset.as_ref().unwrap();
                 let wimda_file = WiMDAFile::new(dataset, &self.filters[i], &self.results[i])?;
-                wimda_file.save_file(format!("{filename_stem}.nxs"), &dataset.file)?;
+                let output_name = format!("{filename_stem}.nxs");
+                wimda_file.save_file(&output_name, &dataset.file)?;
                 if autofill {
-                    self.save_nexus(format!("{filename_stem}.nxs"), ref_file_str.clone())?;
+                    add_default_metadata_v2(&output_name, &ref_file_str, &shapes)?;
                 }
+                println!("Saved batch {i} to NeXus v2 file {output_name}");
             }
             FilterIndex::All => {
                 if self.results.iter().any(|r| r.hist.shape() == [0, 0, 0]) {
@@ -698,11 +709,29 @@ impl BatchData {
                     ));
                 }
                 let dataset = self.dataset.as_ref().unwrap();
-                for i in 0..self.n_batches() {
-                    let wimda_file = WiMDAFile::new(dataset, &self.filters[i], &self.results[i])?;
-                    wimda_file.save_file(format!("{filename_stem}_{i}.nxs"), &dataset.file)?;
+                // calculate data to save for each batch in parallel
+                let save_data: Vec<WiMDAFile> = self
+                    .filters
+                    .par_iter()
+                    .zip(self.results.par_iter())
+                    .map(|(filters, results)| WiMDAFile::new(dataset, filters, results))
+                    .collect::<Result<Vec<WiMDAFile>>>()?;
+
+                if nexus_v3 {
+                    let output_name = format!("{filename_stem}.nxs");
+                    save_data.save_file(&output_name, &dataset.file)?;
                     if autofill {
-                        self.save_nexus(format!("{filename_stem}_{i}.nxs"), ref_file_str.clone())?;
+                        add_default_metadata_v3(&output_name, &ref_file_str, &shapes)?;
+                    }
+                    println!("Saved all data to NeXus v3 file {output_name}");
+                } else {
+                    for (i, file) in save_data.iter().enumerate() {
+                        let output_name = format!("{filename_stem}_{i}.nxs");
+                        file.save_file(&output_name, &dataset.file)?;
+                        if autofill {
+                            add_default_metadata_v2(&output_name, &ref_file_str, &shapes)?;
+                        }
+                        println!("Saved batch {i} to NeXus v2 file {output_name}");
                     }
                 }
             }
@@ -974,20 +1003,8 @@ impl BatchData {
         self.filters.len()
     }
 
-    /// Save to a Nexus version 2 file that is compatable with
-    /// Mantid using provided reference file for data.
-    /// This is needed because the event data files has mistakes/problems.
-    ///
-    /// Parameters
-    /// ----------
-    /// filename: str
-    ///     The filename for the saved file.
-    /// ref_file: str
-    ///     The reference file for the saved file. (must be a Nexus file)
-    ///     Contains "correct" data that should be copied to the output file.
-    ///     This is only need it the reference file needed is not the standard
-    ///     muon nexus v2 file. The ref_file is generated from tools/make_default.py.
-    pub fn save_nexus(&self, filename: String, ref_file: String) -> Result<()> {
+    /// Get the shape data in terms of periods for a dataset.
+    pub fn get_shape_data(&self) -> Result<HashMap<String, usize>> {
         // 1. Read p_info from input file
         let dataset = self.dataset.as_ref().unwrap();
         let (periods, dwell) = get_period_info(&dataset.filename)?;
@@ -1001,10 +1018,7 @@ impl BatchData {
         shapes.insert("PD".to_string(), periods + dwell);
         shapes.insert("NPD".to_string(), n * (periods + dwell));
 
-        // 3. Run save_default to merge/copy from ref_file
-        save_default(&filename, &ref_file, &shapes)?;
-
-        Ok(())
+        Ok(shapes)
     }
 }
 
@@ -1900,5 +1914,93 @@ mod tests {
         for filter_set in &batch.filters {
             assert!(!filter_set.is_include());
         }
+    }
+
+    /// Build a calculated BatchData with `n_filter_sets` filter sets from
+    /// the real test event file, so it can be saved.
+    fn calculated_batch(n_filter_sets: usize) -> BatchData {
+        let mut batch = BatchData::new(
+            "./tests/test_data/HIFI00195790.nxs".to_string(),
+            64,
+            n_filter_sets,
+            1048576,
+        )
+        .unwrap();
+        batch.calculate().unwrap();
+        batch
+    }
+
+    /// Saving all batches with `nexus_v3` should write a single file with
+    /// one `raw_data_<n>` entry per batch.
+    #[test]
+    fn test_save_all_nexus_v3_single_file() {
+        let _guard = crate::test_utils::lock_hdf5_test();
+        let batch = calculated_batch(3);
+        let dir = tempfile::tempdir().unwrap();
+        let filename = dir.path().join("out.nxs");
+
+        batch
+            .save(
+                FilterIndex::All,
+                filename.to_str().unwrap().to_string(),
+                false,
+                true,
+                None,
+            )
+            .unwrap();
+
+        assert!(!dir.path().join("out_0.nxs").exists());
+        let output = hdf5::File::open(&filename).unwrap();
+        assert_eq!(
+            output.member_names().unwrap(),
+            vec!["raw_data_1", "raw_data_2", "raw_data_3"]
+        );
+    }
+
+    /// Saving all batches without `nexus_v3` should write one file per
+    /// batch, suffixed with the batch index.
+    #[test]
+    fn test_save_all_separate_files() {
+        let _guard = crate::test_utils::lock_hdf5_test();
+        let batch = calculated_batch(3);
+        let dir = tempfile::tempdir().unwrap();
+        // no extension, to check it is added
+        let filename = dir.path().join("out");
+
+        batch
+            .save(
+                FilterIndex::All,
+                filename.to_str().unwrap().to_string(),
+                false,
+                false,
+                None,
+            )
+            .unwrap();
+
+        assert!(!dir.path().join("out.nxs").exists());
+        for i in 0..3 {
+            let output = hdf5::File::open(dir.path().join(format!("out_{i}.nxs"))).unwrap();
+            assert_eq!(output.member_names().unwrap(), vec!["raw_data_1"]);
+        }
+    }
+
+    /// Saving all batches should fail without writing anything if any
+    /// result has not been calculated.
+    #[test]
+    fn test_save_all_uncalculated_errors() {
+        let batch = make_batch(2);
+        let dir = tempfile::tempdir().unwrap();
+        let filename = dir.path().join("out.nxs");
+
+        let result = batch.save(
+            FilterIndex::All,
+            filename.to_str().unwrap().to_string(),
+            false,
+            true,
+            None,
+        );
+
+        assert!(result.is_err());
+        assert!(!filename.exists());
     }
 }
