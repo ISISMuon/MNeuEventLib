@@ -2142,4 +2142,95 @@ mod tests {
         assert!(batch.remove_batch(0).is_err());
         assert_eq!(batch.__len__(), 1);
     }
+
+    /// Build a BatchData with `n_filter_sets` filter sets from the real test
+    /// event file, so it can be saved.
+    fn saveable_batch(n_filter_sets: usize) -> BatchData {
+        BatchData::new(
+            "./tests/test_data/HIFI00195790.nxs".to_string(),
+            64,
+            n_filter_sets,
+            1048576,
+        )
+        .unwrap()
+    }
+
+    /// Saving all batches with `nexus_v3` should write a single file with
+    /// one `raw_data_<n>` entry per batch.
+    #[test]
+    fn test_save_all_nexus_v3_single_file() {
+        let _guard = crate::test_utils::lock_hdf5_test();
+        let mut batch = saveable_batch(3);
+        batch.calculate().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let filename = dir.path().join("out.nxs");
+
+        batch
+            .save(
+                FilterIndex::All,
+                filename.to_str().unwrap().to_string(),
+                false,
+                true,
+                None,
+            )
+            .unwrap();
+
+        assert!(!dir.path().join("out_0.nxs").exists());
+        let output = hdf5::File::open(&filename).unwrap();
+        assert_eq!(
+            output.member_names().unwrap(),
+            vec!["raw_data_1", "raw_data_2", "raw_data_3"]
+        );
+    }
+
+    /// Saving all batches without `nexus_v3` should write one file per
+    /// batch, suffixed with the batch index.
+    #[test]
+    fn test_save_all_separate_files() {
+        let _guard = crate::test_utils::lock_hdf5_test();
+        let mut batch = saveable_batch(3);
+        batch.calculate().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        // no extension, to check it is added
+        let filename = dir.path().join("out");
+
+        batch
+            .save(
+                FilterIndex::All,
+                filename.to_str().unwrap().to_string(),
+                false,
+                false,
+                None,
+            )
+            .unwrap();
+
+        assert!(!dir.path().join("out.nxs").exists());
+        for i in 0..3 {
+            let output = hdf5::File::open(dir.path().join(format!("out_{i}.nxs"))).unwrap();
+            assert_eq!(output.member_names().unwrap(), vec!["raw_data_1"]);
+        }
+    }
+
+    /// Saving results that have never been calculated should calculate them
+    /// first rather than failing.
+    #[test]
+    fn test_save_all_recalculates_stale() {
+        let _guard = crate::test_utils::lock_hdf5_test();
+        let mut batch = saveable_batch(2);
+        let dir = tempfile::tempdir().unwrap();
+        let filename = dir.path().join("out.nxs");
+
+        batch
+            .save(
+                FilterIndex::All,
+                filename.to_str().unwrap().to_string(),
+                false,
+                true,
+                None,
+            )
+            .unwrap();
+
+        assert!(filename.exists());
+        assert!(batch.stale_indices(&[0, 1]).is_empty());
+    }
 }
