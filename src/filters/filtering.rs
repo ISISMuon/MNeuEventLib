@@ -149,6 +149,7 @@ fn get_good_values(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::filters::Filters;
     // NB: recall with the binary numbers in these tests that they are 'indexed' right-to-left
     // (little-endian)
 
@@ -528,6 +529,29 @@ mod tests {
             ends,
             start_times,
             80,
+            Weights::from_raw(vec![0b0000001]),
+        )
+    }
+
+    /// Test a time filter with a negative start keeps the frames it covers,
+    /// rather than wrapping around or dropping the filter.
+    #[test]
+    fn test_get_weights_negative_start() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("negative".to_string(), -5.0, 1.5)
+            .unwrap();
+        let (starts, ends) = filters.get_time_filter_times();
+
+        // frames every second, starting at 1s
+        let start_times = Array1::from_vec((1..8).map(|s| s * 1e9 as u64).collect());
+        //                                   ...----^ filter, ending at 1.5s
+
+        weight_test_helper(
+            starts,
+            ends,
+            start_times,
+            8e9 as u64,
             Weights::from_raw(vec![0b0000001]),
         )
     }
