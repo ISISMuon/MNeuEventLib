@@ -4,6 +4,15 @@ pub const S_TO_NS: f64 = 1e9;
 
 pub const NS_TO_US: f32 = 1e-3;
 
+/// Default histogram minimum time (microseconds).
+pub const DEFAULT_HIST_MIN_TIME: u32 = 0;
+
+/// Default histogram maximum time (microseconds).
+pub const DEFAULT_HIST_MAX_TIME: u32 = 32768;
+
+/// Default number of histogram bins.
+pub const DEFAULT_HIST_N_BINS: usize = 2048;
+
 pub trait ToNanoseconds {
     fn to_ns(&self) -> u64;
 }

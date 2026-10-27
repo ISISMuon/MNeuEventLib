@@ -90,9 +90,7 @@ impl BatchData {
         let dataset = NexusData::new(filename, n_spec, chunk_size)?;
         Ok(BatchData {
             dataset: Some(dataset),
-            results: (0..n_filter_sets)
-                .map(|_| Histogram::new(0, 32768, 2048))
-                .collect(),
+            results: (0..n_filter_sets).map(|_| Histogram::new()).collect(),
             filters: (0..n_filter_sets).map(|_| Filters::new()).collect(),
             data_changed: vec![true; n_filter_sets],
         })
@@ -177,7 +175,7 @@ impl BatchData {
         for i in self.resolve_indices(&index)? {
             self.data_changed[i] = true;
             self.results[i] =
-                Histogram::new((min_time * 1e3) as u32, (max_time * 1e3) as u32, n_bins);
+                Histogram::with_bins((min_time * 1e3) as u32, (max_time * 1e3) as u32, n_bins);
         }
         Ok(())
     }
@@ -594,7 +592,7 @@ impl BatchData {
         let m = other.n_batches();
         let result_size = n * m;
 
-        let results = vec![Histogram::new(0, 32768, 2048); result_size];
+        let results = vec![Histogram::new(); result_size];
 
         let data_changed = vec![true; result_size];
 
@@ -625,7 +623,7 @@ impl BatchData {
     /// settings, to the end of this object.
     pub fn add_batch(&mut self) {
         self.filters.push(Filters::new());
-        self.results.push(Histogram::new(0, 32768, 2048));
+        self.results.push(Histogram::new());
         self.data_changed.push(true);
     }
 
@@ -857,7 +855,7 @@ impl BatchData {
     pub fn empty(n: usize) -> BatchData {
         BatchData {
             dataset: None,
-            results: vec![Histogram::new(0, 32768, 2048); n],
+            results: vec![Histogram::new(); n],
             filters: vec![Filters::new(); n],
             data_changed: vec![true; n],
         }
@@ -1042,9 +1040,7 @@ impl BatchData {
     pub fn from_dataset(dataset: NexusData, n_filter_sets: usize) -> BatchData {
         BatchData {
             dataset: Some(dataset),
-            results: (0..n_filter_sets)
-                .map(|_| Histogram::new(0, 32768, 2048))
-                .collect(),
+            results: (0..n_filter_sets).map(|_| Histogram::new()).collect(),
             filters: (0..n_filter_sets).map(|_| Filters::new()).collect(),
             data_changed: vec![true; n_filter_sets],
         }
