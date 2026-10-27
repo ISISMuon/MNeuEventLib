@@ -14,9 +14,10 @@ pub fn binary_search<T>(array: &Array1<T>, start: usize, stop: usize, target: T)
 where
     T: Ord + Clone,
 {
-    if stop - start == 1 {
+    // `stop <= start` only happens for an empty array
+    if stop <= start + 1 {
         start
-    } else if stop > start {
+    } else {
         let midpoint = start + (stop - start) / 2;
         let midpoint_value = array[midpoint].clone();
         if midpoint_value == target {
@@ -26,10 +27,6 @@ where
         } else {
             binary_search(array, midpoint, stop, target)
         }
-    } else if target < array[start] {
-        start
-    } else {
-        stop
     }
 }
 
@@ -43,19 +40,26 @@ where
 #[pyfunction]
 pub fn _get_filter_times(index: usize, data: &BatchData) -> Result<(Vec<u64>, Vec<u64>)> {
     let dataset = &data.dataset.as_ref().unwrap();
-    get_filter_times(dataset, &data.filters[index])
+    let frame_times: Array1<u64> = dataset.frame_times.read_1d()?;
+    let run_end = data.results[index].run_end(&frame_times);
+    get_filter_times(dataset, &data.filters[index], run_end)
 }
 
 /// Get the time ranges covered by all filters, non-overlapping.
-pub fn get_filter_times(data: &NexusData, filters: &Filters) -> Result<(Vec<u64>, Vec<u64>)> {
+///
+/// `run_end` is the end of the last frame, which exclude filters are inverted up to.
+pub fn get_filter_times(
+    data: &NexusData,
+    filters: &Filters,
+    run_end: u64,
+) -> Result<(Vec<u64>, Vec<u64>)> {
     let frame_times: Array1<u64> = data.frame_times.read_1d()?;
     let min_time = frame_times[0];
-    let max_time = *frame_times.iter().last().unwrap(); // frame times is always finite
 
     let (mut time_starts, mut time_ends) = filters.get_time_filter_times();
     (time_starts, time_ends) = remove_overlaps(&time_starts, &time_ends);
     if !filters.is_include() && !time_starts.is_empty() {
-        (time_starts, time_ends) = invert_intervals(&time_starts, &time_ends, min_time, max_time)
+        (time_starts, time_ends) = invert_intervals(&time_starts, &time_ends, min_time, run_end)
     }
 
     // get data for all log filters that have been filtered
@@ -250,6 +254,15 @@ mod tests {
         assert_eq!(result, 6)
     }
 
+    /// Test the binary search function doesn't panic on an empty array.
+    #[test]
+    fn test_binary_search_empty() {
+        let array = Array1::<i32>::from_vec(vec![]);
+        let result = binary_search(&array, 0, array.len(), 5);
+
+        assert_eq!(result, 0)
+    }
+
     /// Test the binary search function for a value below the range.
     #[test]
     fn test_binary_search_below_range() {
@@ -361,7 +374,7 @@ mod tests {
         assert_eq!(ends, vec![4_000_000_000]);
     }
 
-    /// Test that exclude time filters are inverted over the frame time range.
+    /// Test that exclude time filters are inverted over the run time range.
     #[test]
     fn test_get_filter_times_exclude() {
         let mock = make_mock(vec![0, 5_000_000_000, 10_000_000_000]);
@@ -375,8 +388,10 @@ mod tests {
 
         let (starts, ends) = _get_filter_times(0, &batch).unwrap();
 
+        // inverted up to the end of the last frame, not its start
+        let run_end = 10_000_000_000 + batch.results[0].max_time as u64;
         assert_eq!(starts, vec![0, 2_000_000_000]);
-        assert_eq!(ends, vec![1_000_000_000, 10_000_000_000]);
+        assert_eq!(ends, vec![1_000_000_000, run_end]);
     }
 
     /// Test that the times a log filter is satisfied are included.
