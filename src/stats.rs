@@ -62,6 +62,12 @@ impl Histogram {
         }
     }
 
+    /// Estimate the end of the run, as the end of the histogram window after the last frame
+    /// starts (only frame starts are stored, not ends).
+    pub fn run_end(&self, frame_start_times: &Array1<u64>) -> u64 {
+        frame_start_times.last().unwrap() + self.max_time as u64
+    }
+
     pub fn calculate(&self, data: &NexusData, filters: &Filters) -> Result<Histogram> {
         // get period data
         let periods: Array1<u32> = data.periods.read_1d()?;
@@ -78,8 +84,7 @@ impl Histogram {
 
         let frame_start_times: Array1<u64> = data.frame_times.read_1d()?;
 
-        // estimate end of last frame
-        let run_end = frame_start_times.last().unwrap() + self.max_time as u64;
+        let run_end = self.run_end(&frame_start_times);
 
         let weights = if filters_exist {
             let time_weights = if time_starts.is_empty() {

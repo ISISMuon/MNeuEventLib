@@ -4,7 +4,7 @@ use anyhow::Result;
 use chrono::{DateTime, TimeDelta};
 use hdf5::types::VarLenUnicode;
 use hdf5::{File, Group};
-use ndarray::arr0;
+use ndarray::{arr0, Array1};
 
 use crate::consts::{FRAME_PERIOD_S, S_TO_NS};
 use crate::data::save::sample_logs::get_all_sample_logs;
@@ -77,7 +77,8 @@ impl WiMDAFile {
 
         let periods = Periods::new(results);
 
-        let selog = get_all_sample_logs(dataset, filters)?;
+        let frame_start_times: Array1<u64> = dataset.frame_times.read_1d()?;
+        let selog = get_all_sample_logs(dataset, filters, results.run_end(&frame_start_times))?;
 
         Ok(WiMDAFile {
             IDF_version: (),

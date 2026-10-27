@@ -215,13 +215,16 @@ impl SampleLog {
     }
 
     /// Given a list of filter starts and ends, return the sample log with filter applied.
+    ///
+    /// `run_end` is the end of the last frame; filters are trimmed so they stop before it.
     pub fn apply_filters(
         &self,
         start_times: &[u64],
         end_times: &[u64],
+        run_end: u64,
         include: bool,
     ) -> SampleLog {
-        bind! {self, apply_filters(start_times, end_times, include)}
+        bind! {self, apply_filters(start_times, end_times, run_end, include)}
     }
 }
 
@@ -300,7 +303,13 @@ where
     T: Clone,
 {
     /// Internal implementation of SampleLog.apply_filters.
-    fn apply_filters(&self, start_times: &[u64], end_times: &[u64], include: bool) -> ValueLog<T> {
+    fn apply_filters(
+        &self,
+        start_times: &[u64],
+        end_times: &[u64],
+        run_end: u64,
+        include: bool,
+    ) -> ValueLog<T> {
         // Sort filters to make overlaps easier to handle: if the start_times and end_times are sorted,
         // we will never get a scenario where one interval lies completely inside another:
         //
@@ -317,10 +326,15 @@ where
         // (-----)
         //   [~~~~~]
         //   s2    e1
+        //
+        // The run covers the half-open time range [.., run_end), so filters starting after it
+        // are dropped and filters running past it are trimmed to it.
         let mut ranges: Vec<(u64, u64)> = start_times
             .iter()
             .copied()
             .zip(end_times.iter().copied())
+            .filter(|&(start, _)| start < run_end)
+            .map(|(start, end)| (start, end.min(run_end - 1)))
             .collect();
         ranges.sort_unstable();
 
@@ -503,7 +517,7 @@ mod tests {
             (3., "IDLE"),
         ]));
 
-        let filtered = log.apply_filters(&[1.0.to_ns()], &[2.0.to_ns()], true);
+        let filtered = log.apply_filters(&[1.0.to_ns()], &[2.0.to_ns()], 4.0.to_ns(), true);
 
         match filtered {
             SampleLog::Str(log) => {
@@ -622,7 +636,7 @@ mod tests {
         //     ^--^        ^--------^     include
         let filter_starts = vec![0.15.to_ns(), 0.55.to_ns()];
         let filter_ends = vec![0.22.to_ns(), 0.83.to_ns()];
-        let new_log = log.apply_filters(&filter_starts, &filter_ends, true);
+        let new_log = log.apply_filters(&filter_starts, &filter_ends, 1.0.to_ns(), true);
 
         let expected_vals = Array1::<f64>::from_vec(vec![2., 6., 7., 8.]);
         assert_eq!(new_log.value, expected_vals)
@@ -638,7 +652,7 @@ mod tests {
         //     ^--^        ^--------^     exclude
         let filter_starts = vec![0.15.to_ns(), 0.55.to_ns()];
         let filter_ends = vec![0.22.to_ns(), 0.83.to_ns()];
-        let new_log = log.apply_filters(&filter_starts, &filter_ends, false);
+        let new_log = log.apply_filters(&filter_starts, &filter_ends, 1.0.to_ns(), false);
 
         let expected_vals = Array1::<f64>::from_vec(vec![0., 1., 3., 4., 5., 9.]);
         assert_eq!(new_log.value, expected_vals)
@@ -655,7 +669,7 @@ mod tests {
         //        ^--------^
         let filter_starts = vec![0.06.to_ns(), 0.22.to_ns(), 0.71.to_ns()];
         let filter_ends = vec![0.35.to_ns(), 0.56.to_ns(), 0.89.to_ns()];
-        let new_log = log.apply_filters(&filter_starts, &filter_ends, false);
+        let new_log = log.apply_filters(&filter_starts, &filter_ends, 1.0.to_ns(), false);
 
         let expected_vals = Array1::<f64>::from_vec(vec![0., 6., 7., 9.]);
         assert_eq!(new_log.value, expected_vals)
@@ -672,7 +686,7 @@ mod tests {
         //        ^--------^
         let filter_starts = vec![0.06.to_ns(), 0.22.to_ns(), 0.71.to_ns()];
         let filter_ends = vec![0.35.to_ns(), 0.56.to_ns(), 0.89.to_ns()];
-        let new_log = log.apply_filters(&filter_starts, &filter_ends, true);
+        let new_log = log.apply_filters(&filter_starts, &filter_ends, 1.0.to_ns(), true);
 
         let expected_vals = Array1::<f64>::from_vec(vec![1., 2., 3., 4., 5., 8.]);
         assert_eq!(new_log.value, expected_vals)
@@ -686,7 +700,7 @@ mod tests {
 
         let filter_starts = vec![0.55.to_ns(), 0.15.to_ns()];
         let filter_ends = vec![0.83.to_ns(), 0.22.to_ns()];
-        let new_log = log.apply_filters(&filter_starts, &filter_ends, true);
+        let new_log = log.apply_filters(&filter_starts, &filter_ends, 1.0.to_ns(), true);
 
         let expected_vals = Array1::<f64>::from_vec(vec![2., 6., 7., 8.]);
         assert_eq!(new_log.value, expected_vals)
@@ -702,7 +716,7 @@ mod tests {
         // ^----------------^          exclude
         let filter_starts = vec![0];
         let filter_ends = vec![0.61.to_ns()];
-        let new_log = log.apply_filters(&filter_starts, &filter_ends, false);
+        let new_log = log.apply_filters(&filter_starts, &filter_ends, 1.0.to_ns(), false);
 
         let expected_vals = Array1::<f64>::from_vec(vec![7., 8., 9.]);
         assert_eq!(new_log.value, expected_vals)
@@ -717,9 +731,55 @@ mod tests {
         //              ^------------... exclude
         let filter_starts = vec![0.45.to_ns()];
         let filter_ends = vec![u64::MAX];
-        let new_log = log.apply_filters(&filter_starts, &filter_ends, false);
+        let new_log = log.apply_filters(&filter_starts, &filter_ends, 1.0.to_ns(), false);
 
         let expected_vals = Array1::<f64>::from_vec(vec![0., 1., 2., 3., 4.]);
         assert_eq!(new_log.value, expected_vals)
+    }
+
+    /// Test an include filter running past the end of the run keeps nothing after it.
+    #[test]
+    fn test_apply_filters_include_past_run_end() {
+        let log = sample_log();
+
+        // filter [0.45, inf], run ends at 0.75
+        // 0  1  2  3  4  5  6  7 | 8  9  values
+        //              ^---------|--...  include
+        let filter_starts = vec![0.45.to_ns()];
+        let filter_ends = vec![u64::MAX];
+        let new_log = log.apply_filters(&filter_starts, &filter_ends, 0.75.to_ns(), true);
+
+        let expected_vals = Array1::<f64>::from_vec(vec![5., 6., 7.]);
+        assert_eq!(new_log.value, expected_vals)
+    }
+
+    /// Test a value logged exactly at the run end is outside the run.
+    #[test]
+    fn test_apply_filters_include_at_run_end() {
+        let log = sample_log();
+
+        // filter [0.45, 0.85], run ends at 0.7
+        let filter_starts = vec![0.45.to_ns()];
+        let filter_ends = vec![0.85.to_ns()];
+        let new_log = log.apply_filters(&filter_starts, &filter_ends, 0.7.to_ns(), true);
+
+        let expected_vals = Array1::<f64>::from_vec(vec![5., 6.]);
+        assert_eq!(new_log.value, expected_vals)
+    }
+
+    /// Test a filter starting after the end of the run is dropped.
+    #[test]
+    fn test_apply_filters_after_run_end() {
+        let log = sample_log();
+
+        // filter [0.75, 0.85], run ends at 0.5
+        let filter_starts = vec![0.75.to_ns()];
+        let filter_ends = vec![0.85.to_ns()];
+
+        let new_log = log.apply_filters(&filter_starts, &filter_ends, 0.5.to_ns(), true);
+        assert!(new_log.value.is_empty());
+
+        let new_log = log.apply_filters(&filter_starts, &filter_ends, 0.5.to_ns(), false);
+        assert_eq!(new_log.value, log.value)
     }
 }

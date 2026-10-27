@@ -73,8 +73,15 @@ where
     }
 }
 
-pub fn get_all_sample_logs(event_data: &NexusData, filters: &Filters) -> Result<Vec<SampleLog>> {
-    let (filter_starts, filter_ends) = get_filter_times(event_data, filters)?;
+/// Get all sample logs, with filters applied.
+///
+/// `run_end` is the end of the last frame; see `Histogram::run_end`.
+pub fn get_all_sample_logs(
+    event_data: &NexusData,
+    filters: &Filters,
+    run_end: u64,
+) -> Result<Vec<SampleLog>> {
+    let (filter_starts, filter_ends) = get_filter_times(event_data, filters, run_end)?;
 
     Ok(event_data
         .sample_log_names
@@ -86,7 +93,7 @@ pub fn get_all_sample_logs(event_data: &NexusData, filters: &Filters) -> Result<
                     true => Some(sample_log),
                     // get_filter_times has already folded exclude filters into
                     // the include ranges it returns
-                    false => Some(sample_log.apply_filters(&filter_starts, &filter_ends, true)),
+                    false => Some(sample_log.apply_filters(&filter_starts, &filter_ends, run_end, true)),
                 }
                 Err(error) => {
                     // if sample log is unsupported, ignore in output
@@ -116,6 +123,18 @@ mod tests {
         let mut data = BatchData::new(TEST_FILE.to_string(), N_SPEC, 1, 1048576).unwrap();
         data.calculate().unwrap();
         data
+    }
+
+    /// The run end of the first filter set's results.
+    fn run_end(data: &BatchData) -> u64 {
+        let frame_start_times: Array1<u64> = data
+            .dataset
+            .as_ref()
+            .unwrap()
+            .frame_times
+            .read_1d()
+            .unwrap();
+        data.results[0].run_end(&frame_start_times)
     }
 
     /// A sample ValueLog<f32> for testing save_to_group (H5Type-compatible, no narrowing needed).
@@ -231,8 +250,9 @@ mod tests {
     fn test_get_all_sample_logs_returns_all_logs_unfiltered() {
         let _guard = crate::test_utils::lock_hdf5_test();
         let data = calculated_data();
+        let run_end = run_end(&data);
         let dataset = &data.dataset.unwrap();
-        let logs = get_all_sample_logs(dataset, &data.filters[0]).unwrap();
+        let logs = get_all_sample_logs(dataset, &data.filters[0], run_end).unwrap();
 
         assert_eq!(logs.len(), dataset.sample_log_names.len());
     }
@@ -244,14 +264,15 @@ mod tests {
     fn test_get_all_sample_logs_applies_time_filters() {
         let _guard = crate::test_utils::lock_hdf5_test();
         let mut data = calculated_data();
+        let run_end = run_end(&data);
         let unfiltered_logs =
-            get_all_sample_logs(data.dataset.as_ref().unwrap(), &data.filters[0]).unwrap();
+            get_all_sample_logs(data.dataset.as_ref().unwrap(), &data.filters[0], run_end).unwrap();
         // Add a time filter matching the pattern used in other tests in the repo.
         data.add_time_filter(FilterIndex::Index(0), "test_filter".to_string(), 0.0, 1.0)
             .unwrap();
         data.calculate().unwrap();
 
-        let logs = get_all_sample_logs(data.dataset.as_ref().unwrap(), &data.filters[0]);
+        let logs = get_all_sample_logs(data.dataset.as_ref().unwrap(), &data.filters[0], run_end);
         assert!(logs.is_ok());
         // sanity check: filtering shouldn't change the number of logs, only their contents
         let filtered_logs = logs.unwrap();
