@@ -712,7 +712,13 @@ impl BatchData {
         self.recalculate_stale(&indices)?;
 
         if let Some(dataset) = &self.dataset {
-            let shapes = self.get_shape_data()?;
+            // autofill requires period shape data
+            // otherwise just define this as a blank hashmap as it is unused
+            let shapes = if autofill {
+                self.get_shape_data()?
+            } else {
+                HashMap::new()
+            };
 
             // all batches in one NeXus v3 file; every other case writes one
             // file per batch
