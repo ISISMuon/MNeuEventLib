@@ -684,7 +684,13 @@ impl BatchData {
             filename.clone()
         };
 
-        let shapes = self.get_shape_data()?;
+        // autofill requires period shape data
+        // otherwise just define this as a blank hashmap as it is unused
+        let shapes = if autofill {
+            self.get_shape_data()?
+        } else {
+            HashMap::new()
+        };
 
         match index {
             FilterIndex::Index(i) => {
