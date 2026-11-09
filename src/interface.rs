@@ -325,7 +325,7 @@ impl Data {
     #[pyo3(signature = (filename, autofill=true, ref_file=None))]
     fn save(&self, filename: String, autofill: bool, ref_file: Option<String>) -> Result<()> {
         self.inner
-            .save(FilterIndex::Index(0), filename, autofill, ref_file)
+            .save(FilterIndex::Index(0), filename, autofill, true, ref_file)
     }
 
     /// Get the calculated histogram.
