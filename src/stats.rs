@@ -6,7 +6,9 @@ use anyhow::{Error, Result};
 use ndarray::{s, Array1, Array3};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
-use crate::consts::ToMicroseconds;
+use crate::consts::{
+    ToMicroseconds, DEFAULT_HIST_MAX_TIME, DEFAULT_HIST_MIN_TIME, DEFAULT_HIST_N_BINS,
+};
 use crate::data::{FrameData, NexusData};
 use crate::filters::{get_log_weights, get_weights, Filters, Weights};
 
@@ -46,8 +48,24 @@ impl Accumulator {
     }
 }
 
+impl Default for Histogram {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Histogram {
-    pub fn new(min_time: u32, max_time: u32, n_bins: usize) -> Histogram {
+    /// Create an empty histogram with the default binning.
+    pub fn new() -> Histogram {
+        Histogram::with_bins(
+            DEFAULT_HIST_MIN_TIME,
+            DEFAULT_HIST_MAX_TIME,
+            DEFAULT_HIST_N_BINS,
+        )
+    }
+
+    /// Create an empty histogram with custom binning.
+    pub fn with_bins(min_time: u32, max_time: u32, n_bins: usize) -> Histogram {
         // note min_time and max_time are given as microseconds
         Histogram {
             min_time,
@@ -251,7 +269,7 @@ pub fn calculate_histograms(
         })
         .unwrap_or_else(|| Accumulator::zeros(n_periods, dataset.n_spec, n_bins));
 
-    let mut histogram = Histogram::new(min_time, max_time, n_bins);
+    let mut histogram = Histogram::with_bins(min_time, max_time, n_bins);
     histogram.hist = result.hist;
     histogram.n = result.n;
     histogram
@@ -335,15 +353,24 @@ mod tests {
         acc
     }
 
-    /// Test Histogram::new creates correct empty histogram.
+    /// Test Histogram::with_bins creates correct empty histogram.
     #[test]
-    fn test_histogram_new() {
-        let hist = Histogram::new(500, 2500, 4);
+    fn test_histogram_with_bins() {
+        let hist = Histogram::with_bins(500, 2500, 4);
         assert_eq!(hist.min_time, 500);
         assert_eq!(hist.max_time, 2500);
         assert_eq!(hist.n_bins, 4);
         assert_eq!(hist.n, 0);
         assert_eq!(hist.hist.dim(), (0, 0, 0));
+    }
+
+    /// Test Histogram::new uses the default binning.
+    #[test]
+    fn test_histogram_new() {
+        let hist = Histogram::new();
+        assert_eq!(hist.min_time, DEFAULT_HIST_MIN_TIME);
+        assert_eq!(hist.max_time, DEFAULT_HIST_MAX_TIME);
+        assert_eq!(hist.n_bins, DEFAULT_HIST_N_BINS);
     }
 
     /// Test a histogram with no filters is correctly constructed.
@@ -668,7 +695,7 @@ mod tests {
     /// i.e. hist has shape [0, 0, 0].
     #[test]
     fn test_repr_uncalculated() {
-        let hist = Histogram::new(500, 2500, 10);
+        let hist = Histogram::with_bins(500, 2500, 10);
         let repr = hist.__repr__();
 
         assert!(repr.contains("time range 0.5μs - 2.5μs"));
@@ -680,7 +707,7 @@ mod tests {
     /// the singular "period" (no trailing "s").
     #[test]
     fn test_repr_calculated_single_period() {
-        let mut hist = Histogram::new(0, 3000, 3);
+        let mut hist = Histogram::with_bins(0, 3000, 3);
         hist.hist = Array3::zeros((1, 4, 3));
         hist.n = 20;
         let repr = hist.__repr__();
@@ -696,7 +723,7 @@ mod tests {
     /// the plural "periods".
     #[test]
     fn test_repr_calculated_multiple_periods() {
-        let mut hist = Histogram::new(0, 3000, 3);
+        let mut hist = Histogram::with_bins(0, 3000, 3);
         hist.hist = Array3::zeros((2, 4, 3));
         hist.n = 50;
         let repr = hist.__repr__();
