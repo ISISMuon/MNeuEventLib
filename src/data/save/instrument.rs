@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn test_instrument_good_bins_explicit_values() {
         // min_time=0, max_time=10, n_bins=10 -> width = 1
-        let data = crate::stats::Histogram::new(0, 10000, 10);
+        let data = crate::stats::Histogram::with_bins(0, 10000, 10);
 
         let instrument = Instrument::new(&data, 64);
         let counts = &instrument.detector_1.counts;
@@ -225,7 +225,7 @@ mod tests {
     /// picoseconds (width * 1e6), truncated to an integer.
     #[test]
     fn test_instrument_resolution_calculation() {
-        let data = crate::stats::Histogram::new(0, 10000, 10);
+        let data = crate::stats::Histogram::with_bins(0, 10000, 10);
 
         let instrument = Instrument::new(&data, 64);
 
