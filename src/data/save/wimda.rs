@@ -4,9 +4,9 @@ use anyhow::Result;
 use chrono::{DateTime, TimeDelta};
 use hdf5::types::VarLenUnicode;
 use hdf5::{File, Group};
-use ndarray::arr0;
+use ndarray::{arr0, Array1};
 
-use crate::consts::S_TO_NS;
+use crate::consts::{FRAME_PERIOD_S, S_TO_NS};
 use crate::data::save::sample_logs::get_all_sample_logs;
 use crate::data::save::utils::*;
 use crate::data::save::{Instrument, Periods};
@@ -68,7 +68,7 @@ impl WiMDAFile {
         let discarded_good_frames = unfiltered_frames - raw_frames;
         let discarded_raw_frames = unfiltered_frames - good_frames;
 
-        let good_duration = good_frames as f32 * 0.025;
+        let good_duration = good_frames as f32 * FRAME_PERIOD_S;
         let end_time = results.end_time;
         let start_time = results.start_time;
         let duration = (end_time - start_time) as f32 / S_TO_NS as f32;
@@ -77,7 +77,8 @@ impl WiMDAFile {
 
         let periods = Periods::new(results);
 
-        let selog = get_all_sample_logs(dataset, filters)?;
+        let frame_start_times: Array1<u64> = dataset.frame_times.read_1d()?;
+        let selog = get_all_sample_logs(dataset, filters, results.run_end(&frame_start_times))?;
 
         Ok(WiMDAFile {
             IDF_version: (),
