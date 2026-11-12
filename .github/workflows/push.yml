@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-latest, macos-13]
         build: [stable, nightly]
         include:
           - build: stable
@@ -62,7 +62,6 @@ jobs:
         uses: conda-incubator/setup-miniconda@v4
         with:
           miniconda-version: "latest"
-          mamba-version: "*"
           channels: ${{ matrix.mantid_channel }},conda-forge
           channel-priority: flexible
           conda-remove-defaults: true
