@@ -168,7 +168,7 @@ impl BatchData {
         }
         for i in self.resolve_indices(&index)? {
             self.results[i] =
-                Histogram::new((min_time * 1e3) as u32, (max_time * 1e3) as u32, n_bins);
+                Histogram::new();
             self.mark_changed(i);
         }
         Ok(())
