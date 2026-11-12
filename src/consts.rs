@@ -4,6 +4,8 @@ pub const S_TO_NS: f64 = 1e9;
 
 pub const NS_TO_US: f32 = 1e-3;
 
+/// estimate of frame length (based on ISIS TS1 pulse)
+pub const FRAME_PERIOD_S: f32 = 0.025;
 /// Default histogram minimum time (microseconds).
 pub const DEFAULT_HIST_MIN_TIME: u32 = 0;
 
