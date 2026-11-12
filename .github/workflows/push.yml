@@ -69,6 +69,14 @@ jobs:
           activate-environment: mantid-env
           auto-activate-base: false
 
+      - name: Configure conda network settings
+        shell: bash -el {0}
+        run: |
+          conda config --set remote_connect_timeout_secs 30
+          conda config --set remote_read_timeout_secs 120
+          conda config --set remote_max_retries 5
+          conda config --set remote_backoff_factor 3
+
       - name: Install Mantid and test deps
         shell: bash -el {0}
         env:
