@@ -167,8 +167,7 @@ impl BatchData {
             return Err(Error::msg("max_time must be greater than min_time."));
         }
         for i in self.resolve_indices(&index)? {
-            self.results[i] =
-                Histogram::new();
+            self.results[i] = Histogram::new();
             self.mark_changed(i);
         }
         Ok(())
