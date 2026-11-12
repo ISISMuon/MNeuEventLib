@@ -98,7 +98,7 @@ jobs:
       - name: Verify test deps installed
         shell: bash -el {0}
         run: |
-          mamba list -n mantid-env pytest
+          conda list -n mantid-env pytest
           conda activate mantid-env
           python -c "import pytest; print(pytest.__version__)"
 
