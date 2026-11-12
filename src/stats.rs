@@ -82,7 +82,7 @@ impl Histogram {
 
     /// Empty the calculated result, keeping the histogram settings.
     pub fn reset(&mut self) {
-        *self = Histogram::new();
+        *self = Histogram::with_bins(self.min_time, self.max_time, self.n_bins);
     }
     /// Estimate the end of the run, as the end of the histogram window after the last frame
     /// starts (only frame starts are stored, not ends).
