@@ -81,7 +81,7 @@ jobs:
         env:
           MSYS_NO_PATHCONV: 1
           CONDA_OVERRIDE_OSX: "14"
-        run: mamba install -y -n mantid-env mantid pytest pip
+        run: conda install -y -n mantid-env mantid pytest pip
       
       - name: Show resolved python version
         shell: bash -el {0}
