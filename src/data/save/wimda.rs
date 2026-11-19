@@ -430,9 +430,8 @@ mod tests {
         let _guard = crate::test_utils::lock_hdf5_test();
         let mut data = BatchData::new(TEST_FILE.to_string(), 64, 3, 1048576).unwrap();
         // give each batch distinct filters so we can tell the entries apart
-        for i in 0..3 {
-            data.filters[i]
-                .add_time_filter(format!("f{i}"), i as f64, i as f64 + 1.0)
+        for (i, item) in data.filters.iter_mut().enumerate().take(3) {
+            item.add_time_filter(format!("f{i}"), i as f64, i as f64 + 1.0)
                 .unwrap();
         }
         data.calculate().unwrap();
