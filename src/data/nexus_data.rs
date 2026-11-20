@@ -20,7 +20,7 @@ pub struct NexusData {
     pub filename: String,
     pub specs: Dataset,
     pub times: Dataset,
-    pub amps: Dataset,
+    pub ampl: Dataset,
     pub frames: Dataset,
     pub frame_times: Dataset,
     pub periods: Dataset,
@@ -110,15 +110,15 @@ impl NexusData {
     /// detector: int, optional
     ///     The detector to create an amplitude histogram for.
     ///     If not provided, all detectors are used.
-    #[pyo3(name = "get_amp_histogram", signature = (max_height=None, n_bins=10, detector=None))]
-    fn get_amp_histogram_py<'py>(
+    #[pyo3(name = "get_ampl_histogram", signature = (max_height=None, n_bins=10, detector=None))]
+    fn get_ampl_histogram_py<'py>(
         &self,
         py: Python<'py>,
         max_height: Option<f64>,
         n_bins: usize,
         detector: Option<usize>,
     ) -> Result<(Bound<'py, PyArray1<usize>>, f64)> {
-        let (results, max) = self.get_amp_histogram(max_height, n_bins, detector)?;
+        let (results, max) = self.get_ampl_histogram(max_height, n_bins, detector)?;
         Ok((results.to_pyarray(py), max))
     }
 
@@ -160,7 +160,7 @@ impl NexusData {
     ///
     /// If `detector` is given, only events recorded by that detector are counted.
     #[inline(always)]
-    fn get_amp_histogram(
+    fn get_ampl_histogram(
         &self,
         max_height: Option<f64>,
         n_bins: usize,
@@ -178,26 +178,26 @@ impl NexusData {
         let max = match max_height {
             Some(height) if height.is_finite() => height,
             Some(_) => return Err(Error::msg("max_height must be finite.")),
-            None => self.get_dataset_max(&self.amps)?,
+            None => self.get_dataset_max(&self.ampl)?,
         };
         if n_bins == 0 {
             return Err(Error::msg("n_bins must be greater than 0."));
         }
         let width = max / n_bins as f64;
-        let n_amps = self.amps.size();
+        let n_ampl = self.ampl.size();
 
         // parallel iterate over chunks
         let results = Array1::from_iter(
-            (0..n_amps)
+            (0..n_ampl)
                 .into_par_iter()
                 .step_by(self.chunk_size)
-                // get the amps for each chunk, and the spectrum numbers
+                // get the amplitudes for each chunk, and the spectrum numbers
                 // if we need them to pick out a single detector
                 .map(|start| -> (Array1<f64>, Option<Array1<u32>>) {
-                    let end = min(start + self.chunk_size, n_amps);
+                    let end = min(start + self.chunk_size, n_ampl);
                     let array_slice = s![start..end];
-                    let amps = self
-                        .amps
+                    let chunk = self
+                        .ampl
                         .read_slice_1d(array_slice)
                         .expect("Failed to read amplitude data.");
                     let specs = detector.map(|_| {
@@ -205,12 +205,12 @@ impl NexusData {
                             .read_slice_1d(array_slice)
                             .expect("Failed to read spectrum data.")
                     });
-                    (amps, specs)
+                    (chunk, specs)
                 })
-                // bin amps for each chunk
-                .map(|(amps, specs)| {
+                // bin amplitudes for each chunk
+                .map(|(chunk, specs)| {
                     let mut array = Array1::zeros(n_bins);
-                    for (i, amp) in amps.into_iter().enumerate() {
+                    for (i, ampl) in chunk.into_iter().enumerate() {
                         // skip events recorded by any other detector
                         if let (Some(specs), Some(detector)) = (&specs, detector) {
                             if specs[i] as usize != detector {
@@ -218,13 +218,13 @@ impl NexusData {
                             }
                         }
                         // anything over the max is put in the last bin
-                        if amp >= max {
+                        if ampl >= max {
                             array[n_bins - 1] += 1
                         } else {
                             // it is technically impossible for the bin to be larger
                             // than n_bins - 1, but floating point error may bump
-                            // the largest amp to above this in some cases
-                            let bin = ((amp / width).floor() as usize).min(n_bins - 1);
+                            // the largest ampl to above this in some cases
+                            let bin = ((ampl / width).floor() as usize).min(n_bins - 1);
                             array[bin] += 1
                         }
                     }
@@ -289,7 +289,7 @@ fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<NexusD
 
     let specs = events.dataset("event_id")?;
     let times = events.dataset("event_time_offset")?;
-    let amps = events.dataset("pulse_height")?;
+    let ampl = events.dataset("pulse_height")?;
 
     let frames = events.dataset("event_index")?;
     let frame_times = events.dataset("event_time_zero")?;
@@ -306,7 +306,7 @@ fn load_data(filename: &Path, n_spec: usize, chunk_size: usize) -> Result<NexusD
         filename: filename.to_str().unwrap().to_string(),
         specs,
         times,
-        amps,
+        ampl,
         frames,
         frame_times,
         periods,
@@ -440,13 +440,13 @@ mod tests {
     /// Test that an amplitude histogram is successfully created for some data.
     /// This test uses a fixed maximum.
     #[test]
-    fn test_make_amp_histogram_fixed_max() {
+    fn test_make_ampl_histogram_fixed_max() {
         let data = MockData::new().unwrap();
-        let amps = Array1::from_vec(vec![0.8, 1.5, 1.2, 3.3, 2., 3.8, 6.1]);
-        data.add_dataset("pulse_height", amps).unwrap();
+        let ampl = Array1::from_vec(vec![0.8, 1.5, 1.2, 3.3, 2., 3.8, 6.1]);
+        data.add_dataset("pulse_height", ampl).unwrap();
         let nexus_data = data.create(64, 5).unwrap();
 
-        let result = nexus_data.get_amp_histogram(Some(10.), 10, None);
+        let result = nexus_data.get_ampl_histogram(Some(10.), 10, None);
         assert!(result.is_ok());
         let (hist, max) = result.unwrap();
         assert_eq!(max, 10.);
@@ -456,13 +456,13 @@ mod tests {
     /// Test that an amplitude histogram is successfully created for some data.
     /// This test uses a calculated maximum.
     #[test]
-    fn test_make_amp_histogram_calculate_max() {
+    fn test_make_ampl_histogram_calculate_max() {
         let data = MockData::new().unwrap();
-        let amps = Array1::from_vec(vec![0.8, 1.5, 1.2, 3.3, 2., 3.8, 6.1]);
-        data.add_dataset("pulse_height", amps).unwrap();
+        let ampl = Array1::from_vec(vec![0.8, 1.5, 1.2, 3.3, 2., 3.8, 6.1]);
+        data.add_dataset("pulse_height", ampl).unwrap();
         let nexus_data = data.create(64, 5).unwrap();
 
-        let result = nexus_data.get_amp_histogram(None, 10, None);
+        let result = nexus_data.get_ampl_histogram(None, 10, None);
         assert!(result.is_ok());
         let (hist, max) = result.unwrap();
         assert_eq!(max, 6.1);
@@ -474,7 +474,7 @@ mod tests {
     /// Test that an amplitude histogram can be made for a single detector,
     /// counting only the events recorded by that detector.
     #[test]
-    fn test_make_amp_histogram_single_detector() {
+    fn test_make_ampl_histogram_single_detector() {
         let data = MockData::new().unwrap();
         let amps = Array1::from_vec(vec![0.8, 1.5, 1.2, 3.3, 2., 3.8, 6.1]);
         let specs: Array1<u32> = Array1::from_vec(vec![0, 1, 0, 1, 0, 1, 0]);
@@ -484,14 +484,14 @@ mod tests {
 
         // detector 1 recorded the amplitudes 1.5, 3.3 and 3.8
         let (hist, max) = nexus_data
-            .get_amp_histogram(Some(10.), 10, Some(1))
+            .get_ampl_histogram(Some(10.), 10, Some(1))
             .unwrap();
         assert_eq!(max, 10.);
         assert_eq!(hist, Array1::from_vec(vec![0, 1, 0, 2, 0, 0, 0, 0, 0, 0]));
 
         // detector 0 recorded the amplitudes 0.8, 1.2, 2. and 6.1
         let (hist, _) = nexus_data
-            .get_amp_histogram(Some(10.), 10, Some(0))
+            .get_ampl_histogram(Some(10.), 10, Some(0))
             .unwrap();
         assert_eq!(hist, Array1::from_vec(vec![1, 1, 1, 0, 0, 0, 1, 0, 0, 0]))
     }
@@ -499,7 +499,7 @@ mod tests {
     /// Test a detector that recorded no events gives an empty histogram
     /// rather than an error.
     #[test]
-    fn test_make_amp_histogram_detector_no_events() {
+    fn test_make_ampl_histogram_detector_no_events() {
         let data = MockData::new().unwrap();
         let amps = Array1::from_vec(vec![0.8, 1.5, 1.2]);
         let specs: Array1<u32> = Array1::from_vec(vec![0, 1, 0]);
@@ -508,7 +508,7 @@ mod tests {
         let nexus_data = data.create(64, 5).unwrap();
 
         let (hist, _) = nexus_data
-            .get_amp_histogram(Some(10.), 10, Some(2))
+            .get_ampl_histogram(Some(10.), 10, Some(2))
             .unwrap();
         assert_eq!(hist, Array1::<usize>::zeros(10))
     }
