@@ -236,7 +236,7 @@ def test_mantid_workflow_Load_batch_multi():
 
     result = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI103.nxs')
-    data.save('All', hist_file, autofill=True)
+    data.save('All', hist_file, autofill=True, nexus_v3=False)
     del data
     del result
     gc.collect()  # force Rust drop to release file handle (Windows WinError 32)
@@ -268,7 +268,7 @@ def test_mantid_workflow_LoadMuonNexusv2_batch_multi():
 
     result = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI203.nxs')
-    data.save('All', hist_file, autofill=True)
+    data.save('All', hist_file, autofill=True, nexus_v3=False)
     del result
     del data
     gc.collect()  # force Rust drop to release file handle (Windows WinError 32)
@@ -301,7 +301,7 @@ def test_mantid_workflow_Load_batch_single():
 
     result= data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI303.nxs')
-    data.save('All', hist_file, autofill=True)
+    data.save('All', hist_file, autofill=True, nexus_v3=False)
     del data
     del result
     gc.collect()  # force Rust drop to release file handle (Windows WinError 32)
@@ -337,7 +337,7 @@ def test_mantid_workflow_LoadMuonNexusv2_batch_single():
 
     result = data.calculate()
     hist_file = os.path.join(dir_path, f'HIFI403.nxs')
-    data.save('All', hist_file, autofill=True)
+    data.save('All', hist_file, autofill=True, nexus_v3=False)
     del data
     del result
     gc.collect()  # force Rust drop to release file handle (Windows WinError 32)
