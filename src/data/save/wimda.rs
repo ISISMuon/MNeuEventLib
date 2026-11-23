@@ -1,9 +1,9 @@
 use std::str::FromStr;
 
 use anyhow::Result;
-use chrono::{DateTime, TimeDelta};
 use hdf5::types::VarLenUnicode;
 use hdf5::{File, Group};
+use jiff::{SignedDuration, ZonedDateTime};
 use ndarray::{arr0, Array1};
 
 use crate::consts::{FRAME_PERIOD_S, S_TO_NS};
@@ -144,31 +144,21 @@ impl Save for WiMDAFile {
         let start_time_string: VarLenUnicode =
             event_data.dataset("start_time")?.read()?.into_scalar();
         let unfiltered_start_time =
-            DateTime::parse_from_str(start_time_string.as_ref(), "%Y-%m-%dT%H:%M:%S%z")?;
+            ZonedDateTime::strptime("%Y-%m-%dT%H:%M:%S%z", start_time_string.as_str())?;
 
-        // for some weird reason Chrono doesn't let you create a timedelta with more
-        // than 1 second worth of nanoseconds, so we convert to seconds and nanoseconds
         let start_time = unfiltered_start_time
-            + TimeDelta::new(
-                (self.start_time / 1_000_000_000) as i64,
-                (self.start_time % 1_000_000_000) as u32,
-            )
-            .unwrap();
-        let end_time = unfiltered_start_time
-            + TimeDelta::new(
-                (self.end_time / 1_000_000_000) as i64,
-                (self.end_time % 1_000_000_000) as u32,
-            )
-            .unwrap();
+            .checked_add(SignedDuration::from_nanos(self.start_time as i64))?;
+        let end_time =
+            unfiltered_start_time.checked_add(SignedDuration::from_nanos(self.end_time as i64))?;
 
         add_str_scalar::<20>(
             hist_data,
-            &start_time.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            &start_time.strftime("%Y-%m-%dT%H:%M:%S").to_string(),
             "start_time",
         )?;
         add_str_scalar::<20>(
             hist_data,
-            &end_time.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            &end_time.strftime("%Y-%m-%dT%H:%M:%S").to_string(),
             "end_time",
         )?;
 
