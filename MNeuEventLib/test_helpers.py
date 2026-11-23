@@ -6,7 +6,12 @@ import shutil
 def replace(f, key, values, dtype):
     """
     A simple helper method to replace
-    a dataset (without attributes)
+    a dataset (without attributes).
+    :param f: the HDF5 group or file containing the dataset.
+    :param key: the name of the dataset to replace.
+    :param values: the new data values to write to the dataset.
+    :param dtype: the data type for the new dataset.
+    :returns: None
     """
     del f[key]
     f.create_dataset(key, data=values, dtype=dtype)
@@ -21,6 +26,7 @@ def make_single_period_data(multi_period,
     to the multi-period data.
     :param single_period: the file path
     to write the single period data to
+    :returns: None
     """
     shutil.copy(multi_period,
                 single_period)

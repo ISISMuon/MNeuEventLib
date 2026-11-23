@@ -136,7 +136,7 @@ impl Save for WiMDAFile {
             self.discarded_good_frames,
             "discarded_good_frames",
         )?;
-        let duration = add_scalar(hist_data, self.duration, "duration")?;
+        let duration = add_scalar(hist_data, self.duration as i64, "duration")?;
         add_str_attr::<7>(&duration, "second", "units")?;
 
         let start_time_string: VarLenUnicode =

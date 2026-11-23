@@ -51,13 +51,13 @@ struct Detector1 {
     /// The minimum time for each bin of the histogram in microseconds.
     raw_time: Array1<f32>,
     /// The time centres for each bin in microseconds.
-    corrected_time: Array1<f32>,
+    //corrected_time: Array1<f32>,
     /// The width of the bins in picoseconds.
-    resolution: i32,
+    resolution: f32,
     /// The index for each detector.
     spectrum_index: Array1<i32>,
     /// The time which is used as 'zero' for the offset in all other times.
-    time_zero: u32,
+    time_zero: f32,
     /// The index of the periods for each period of the histogram.
     period_index: Array1<u32>,
 }
@@ -95,9 +95,9 @@ impl Detector1 {
             hist.max_time.to_micros(),
             hist.n_bins + 1,
         );
-        let corrected_time = raw_time.clone().map(|t| t + width / 2.);
+        //let corrected_time = raw_time.clone().map(|t| t + width / 2.);
 
-        let resolution = (width * 1e6) as i32;
+        let resolution = width * 1e6;
 
         let spectrum_index = Array1::from_vec((1..=n_spec as i32).collect());
 
@@ -107,10 +107,10 @@ impl Detector1 {
         Detector1 {
             counts,
             raw_time,
-            corrected_time,
+            //corrected_time,
             resolution,
             spectrum_index,
-            time_zero: 0,
+            time_zero: 0.0,
             period_index,
         }
     }
@@ -132,14 +132,17 @@ impl Save for Detector1 {
         add_attr(&bins, 1, "axis")?;
         add_attr(&bins, 1, "primary")?;
 
-        let centres = add_array(group, &self.corrected_time, "corrected_time")?;
+        // Use slicing to compute midpoints of length `n_bins`:
+        let corrected_time = ((&self.raw_time.slice(ndarray::s![..-1])
+         + &self.raw_time.slice(ndarray::s![1..])) / 2.0) - self.time_zero;
+        let centres = add_array(group, &corrected_time, "corrected_time")?;
         add_attr(&centres, 1, "axis")?;
         add_str_attr::<4>(&centres, "time", "long_name")?;
         add_str_attr::<12>(&centres, "micro.second", "units")?;
 
         // min_time and max_time are in microseconds so we convert to picoseconds
         let res = add_scalar(group, self.resolution, "resolution")?;
-        add_str_attr::<11>(&res, "picoseconds", "units")?;
+        add_str_attr::<11>(&res, "pico.second", "units")?;
 
         let spec = add_array(group, &self.spectrum_index, "spectrum_index")?;
         add_str_attr::<16>(&spec, "spectrum number", "long_name")?;
@@ -148,7 +151,7 @@ impl Save for Detector1 {
         add_str_attr::<12>(&t0, "micro.second", "units")?;
 
         let periods = add_array(group, &self.period_index, "period_index")?;
-        add_str_attr::<15>(&periods, "period index", "long_name")?;
+        add_str_attr::<16>(&periods, "period number", "long_name")?;
 
         Ok(())
     }
@@ -236,7 +239,7 @@ mod tests {
         let instrument = Instrument::new(&data, 64);
 
         let width = (10.0f32 - 0.0f32) / 10.0f32; // = 1.0
-        let expected_resolution = (width * 1e6) as i32;
+        let expected_resolution = (width * 1e6) as f32;
         assert_eq!(instrument.detector_1.resolution, expected_resolution);
     }
 

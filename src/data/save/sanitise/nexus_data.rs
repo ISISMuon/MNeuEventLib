@@ -87,11 +87,17 @@ fn set_defaults(
 ) -> Result<()> {
     if name.contains("dataset_") {
         let target_dataset_name = name.replace("dataset_", "");
+        let template_group = source_parent.group(name)?;
         if dest.dataset(&target_dataset_name).is_err() {
             /* we know this is a group that defines a period
             dependent dataset */
             // println!("create default {}", name);
-            create_default_dataset(&source_parent.group(name)?, dest, name, shapes)?;
+            create_default_dataset(&template_group, dest, name, shapes)?;
+        } else {
+            let dst_ds = dest.dataset(&target_dataset_name)?;
+            for att_name in template_group.attr_names()? {
+                copy_attr(&template_group, &dst_ds, &att_name)?;
+            }
         }
         Ok(())
     } else if source_parent.dataset(name).is_ok() && dest.dataset(name).is_ok() {
@@ -528,6 +534,7 @@ mod tests {
         let dtype_str = VarLenUnicode::from_str("int32").unwrap();
         add_array(&default_grp, &arr0(dtype_str), "dtype").unwrap();
         add_array(&default_grp, &arr0(10i32), "default").unwrap();
+        add_str_attr::<10>(&default_grp, "good", "frame_type").unwrap();
 
         let vals = Array1::from_vec(vec![1i32, 3i32, 6i32]);
         add_array(&dest_parent, &vals, "rate").unwrap();
@@ -540,6 +547,10 @@ mod tests {
         let created_ds = dest_parent.dataset("rate").unwrap();
         let vals: Array1<i32> = created_ds.read_1d().unwrap();
         assert_eq!(vals.to_vec(), vec![1, 3, 6]);
+
+        let frame_type_attr = created_ds.attr("frame_type").unwrap();
+        let val: hdf5::types::FixedAscii<10> = frame_type_attr.read_scalar().unwrap();
+        assert_eq!(val.as_str(), "good");
     }
 
     #[test]
