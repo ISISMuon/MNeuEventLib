@@ -2447,7 +2447,7 @@ mod tests {
         let _ = batch.__repr__();
     }
 
-        /// Removing a batch at an out-of-range index should error.
+    /// Removing a batch at an out-of-range index should error.
     #[test]
     fn test_remove_batch_out_of_range() {
         let mut batch = make_batch(2);
