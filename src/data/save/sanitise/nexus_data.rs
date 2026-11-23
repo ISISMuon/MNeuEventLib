@@ -808,8 +808,13 @@ mod tests {
         )
         .unwrap();
         data.calculate().unwrap();
-        data.save(crate::batch::FilterIndex::Index(0), out_path_str, true, None)
-            .unwrap();
+        data.save(
+            crate::batch::FilterIndex::Index(0),
+            out_path_str,
+            true,
+            None,
+        )
+        .unwrap();
 
         let saved_file = File::open(&out_path).unwrap();
         let mut dataset_groups = Vec::new();
