@@ -85,11 +85,19 @@ fn set_defaults(
     name: &str,
     shapes: &HashMap<String, usize>,
 ) -> Result<()> {
-    if name.contains("dataset_") && dest.dataset(name.replace("dataset_", "").as_str()).is_err() {
-        /* we know this is a group that defines a period
-        dependent dataset */
-        // println!("create default {}", name);
-        create_default_dataset(&source_parent.group(name)?, dest, name, shapes)?;
+    if name.contains("dataset_") {
+        let target_dataset_name = name.replace("dataset_", "");
+        let template_group = source_parent.group(name)?;
+        if dest.dataset(&target_dataset_name).is_err() {
+            /* we know this is a group that defines a period
+            dependent dataset */
+            create_default_dataset(&template_group, dest, name, shapes)?;
+        } else {
+            let dst_ds = dest.dataset(&target_dataset_name)?;
+            for att_name in template_group.attr_names()? {
+                copy_attr(&template_group, &dst_ds, &att_name)?;
+            }
+        }
         Ok(())
     } else if source_parent.dataset(name).is_ok() && dest.dataset(name).is_ok() {
         // if dataset exists in both files
@@ -771,5 +779,54 @@ mod tests {
     fn test_get_default_ref_file_path_provided_missing() {
         let res = get_default_ref_file_path(Some("non_existent_ref_12345.nxs".to_string()));
         assert!(res.is_err());
+    }
+
+    fn collect_dataset_prefixed_groups(group: &Group, current_path: &str, found: &mut Vec<String>) {
+        for member in group.member_names().unwrap() {
+            let member_path = format!("{current_path}/{member}");
+            if let Ok(sub_group) = group.group(&member) {
+                if member.starts_with("dataset_") {
+                    found.push(member_path.clone());
+                }
+                collect_dataset_prefixed_groups(&sub_group, &member_path, found);
+            }
+        }
+    }
+
+    #[test]
+    fn test_save_autofill_has_no_dataset_prefix_groups() {
+        let _guard = crate::test_utils::lock_hdf5_test();
+        let dir = tempdir().unwrap();
+        let out_path = dir.path().join("autofill_out.nxs");
+        let out_path_str = out_path.to_str().unwrap().to_string();
+
+        let mut data = crate::BatchData::new(
+            "./tests/test_data/HIFI00195790.nxs".to_string(),
+            64,
+            1,
+            1048576,
+        )
+        .unwrap();
+        data.calculate().unwrap();
+        data.save(crate::batch::FilterIndex::Index(0), out_path_str, true, None)
+            .unwrap();
+
+        let saved_file = File::open(&out_path).unwrap();
+        let mut dataset_groups = Vec::new();
+        for top_name in saved_file.member_names().unwrap() {
+            if let Ok(top_group) = saved_file.group(&top_name) {
+                let top_path = format!("/{top_name}");
+                if top_name.starts_with("dataset_") {
+                    dataset_groups.push(top_path.clone());
+                }
+                collect_dataset_prefixed_groups(&top_group, &top_path, &mut dataset_groups);
+            }
+        }
+
+        assert!(
+            dataset_groups.is_empty(),
+            "Saved file with autofill=true contained 'dataset_*' groups: {:?}",
+            dataset_groups
+        );
     }
 }
