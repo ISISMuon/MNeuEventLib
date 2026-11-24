@@ -708,64 +708,42 @@ mod tests {
         assert_eq!(new_target_mat.as_str(), "Carbon");
     }
 
-    #[test]
-    fn test_add_default_metadata_integration() {
-        // check that the add_default_metadata function integrates correctly,
-        // calling clean_up and set_defaults
-        let _guard = crate::test_utils::lock_hdf5_test();
-        let dir = tempdir().unwrap();
-        let ref_path = dir.path().join("ref.nxs");
-        let out_path = dir.path().join("out.nxs");
+    /// Create a reference file for the add_default_metadata tests.
+    fn create_default_metadata_ref_file(ref_path: &std::path::Path) {
+        let ref_file = File::create(ref_path).unwrap();
+        let ref_raw = ref_file.create_group("raw_data_1").unwrap();
 
-        // Create reference file
-        {
-            let ref_file = File::create(&ref_path).unwrap();
-            let ref_raw = ref_file.create_group("raw_data_1").unwrap();
+        let def_grp = ref_raw.create_group("dataset_beam_counts").unwrap();
+        let shape_str = VarLenUnicode::from_str("nperiods").unwrap();
+        add_array(&def_grp, &arr0(shape_str), "shape").unwrap();
+        let dtype_str = VarLenUnicode::from_str("int32").unwrap();
+        add_array(&def_grp, &arr0(dtype_str), "dtype").unwrap();
+        add_array(&def_grp, &arr0(55i32), "default").unwrap();
 
-            let def_grp = ref_raw.create_group("dataset_beam_counts").unwrap();
-            let shape_str = VarLenUnicode::from_str("nperiods").unwrap();
-            add_array(&def_grp, &arr0(shape_str), "shape").unwrap();
-            let dtype_str = VarLenUnicode::from_str("int32").unwrap();
-            add_array(&def_grp, &arr0(dtype_str), "dtype").unwrap();
-            add_array(&def_grp, &arr0(55i32), "default").unwrap();
+        let ref_inst = ref_raw.create_group("instrument_ref").unwrap();
+        let inst_data = Array1::from_vec(vec![1.23f32]);
+        add_array(&ref_inst, &inst_data, "setting").unwrap();
+    }
 
-            let ref_inst = ref_raw.create_group("instrument_ref").unwrap();
-            let inst_data = Array1::from_vec(vec![1.23f32]);
-            add_array(&ref_inst, &inst_data, "setting").unwrap();
-        }
+    /// Populate a raw_data group in an output file for the add_default_metadata tests.
+    fn create_default_metadata_raw_group(out_file: &File, group_name: &str) {
+        let out_raw = out_file.create_group(group_name).unwrap();
 
-        // Create output file
-        {
-            let out_file = File::create(&out_path).unwrap();
-            let out_raw = out_file.create_group("raw_data_1").unwrap();
+        let name_str = VarLenUnicode::from_str("name").unwrap();
+        add_array(&out_raw, &arr0(name_str), "name").unwrap();
 
-            let name_str = VarLenUnicode::from_str("name").unwrap();
-            add_array(&out_raw, &arr0(name_str), "name").unwrap();
+        let title_str = VarLenUnicode::from_str("").unwrap();
+        add_array(&out_raw, &arr0(title_str), "title").unwrap();
 
-            let title_str = VarLenUnicode::from_str("").unwrap();
-            add_array(&out_raw, &arr0(title_str), "title").unwrap();
+        let sample = out_raw.create_group("sample").unwrap();
+        let thickness_data = Array1::from_vec(vec![9.0f32]);
+        add_array(&sample, &thickness_data, "thickness").unwrap();
 
-            let sample = out_raw.create_group("sample").unwrap();
-            let thickness_data = Array1::from_vec(vec![9.0f32]);
-            add_array(&sample, &thickness_data, "thickness").unwrap();
+        let _source = out_raw.create_group("instrument/source").unwrap();
+    }
 
-            let _source = out_raw.create_group("instrument/source").unwrap();
-        }
-
-        let mut shapes = HashMap::new();
-        shapes.insert("nperiods".to_string(), 2);
-
-        add_default_metadata_v2(
-            out_path.to_str().unwrap(),
-            ref_path.to_str().unwrap(),
-            &shapes,
-        )
-        .unwrap();
-
-        // Verify output file
-        let out_file = File::open(&out_path).unwrap();
-        let out_raw = out_file.group("raw_data_1").unwrap();
-
+    /// Check that default metadata has been correctly added to a raw_data group.
+    fn verify_default_metadata_raw_group(out_raw: &Group) {
         // Check cleaned values
         let name_val: FixedAscii<4> = out_raw.dataset("name").unwrap().read_1d().unwrap()[0];
         assert_eq!(name_val.as_str(), "HIFI");
@@ -781,6 +759,72 @@ mod tests {
             .read_1d()
             .unwrap();
         assert_eq!(inst_setting.to_vec(), vec![1.23]);
+    }
+
+    #[test]
+    fn test_add_default_metadata_v2() {
+        // check that add_default_metadata_v2 integrates correctly with the raw_data_1 group,
+        // calling clean_up and set_defaults
+        let _guard = crate::test_utils::lock_hdf5_test();
+        let dir = tempdir().unwrap();
+        let ref_path = dir.path().join("ref.nxs");
+        let out_path = dir.path().join("out.nxs");
+
+        create_default_metadata_ref_file(&ref_path);
+        {
+            let out_file = File::create(&out_path).unwrap();
+            create_default_metadata_raw_group(&out_file, "raw_data_1");
+        }
+
+        let mut shapes = HashMap::new();
+        shapes.insert("nperiods".to_string(), 2);
+
+        add_default_metadata_v2(
+            out_path.to_str().unwrap(),
+            ref_path.to_str().unwrap(),
+            &shapes,
+        )
+        .unwrap();
+
+        let out_file = File::open(&out_path).unwrap();
+        verify_default_metadata_raw_group(&out_file.group("raw_data_1").unwrap());
+    }
+
+    #[test]
+    fn test_add_default_metadata_v3() {
+        // check that add_default_metadata_v3 adds default metadata to every raw_data_* group,
+        // and leaves other top-level groups untouched
+        let _guard = crate::test_utils::lock_hdf5_test();
+        let dir = tempdir().unwrap();
+        let ref_path = dir.path().join("ref.nxs");
+        let out_path = dir.path().join("out.nxs");
+
+        create_default_metadata_ref_file(&ref_path);
+        {
+            let out_file = File::create(&out_path).unwrap();
+            create_default_metadata_raw_group(&out_file, "raw_data_1");
+            create_default_metadata_raw_group(&out_file, "raw_data_2");
+            create_default_metadata_raw_group(&out_file, "other_group");
+        }
+
+        let mut shapes = HashMap::new();
+        shapes.insert("nperiods".to_string(), 2);
+
+        add_default_metadata_v3(
+            out_path.to_str().unwrap(),
+            ref_path.to_str().unwrap(),
+            &shapes,
+        )
+        .unwrap();
+
+        let out_file = File::open(&out_path).unwrap();
+        verify_default_metadata_raw_group(&out_file.group("raw_data_1").unwrap());
+        verify_default_metadata_raw_group(&out_file.group("raw_data_2").unwrap());
+
+        // Groups not prefixed with raw_data_ should not be modified
+        let other = out_file.group("other_group").unwrap();
+        assert!(other.dataset("beam_counts").is_err());
+        assert!(other.group("instrument_ref").is_err());
     }
 
     #[test]

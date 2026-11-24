@@ -690,7 +690,7 @@ impl BatchData {
     ///     Contains "correct" data that should be copied to the output file.
     ///     This is only needed if the reference file needed is not the standard
     ///     muon nexus v2 file. If None, uses the standard embedded default muon Nexus reference file.
-    #[pyo3(signature = (index, filename, autofill=true, nexus_v3=true, ref_file=None))]
+    #[pyo3(signature = (index, filename, autofill=true, nexus_v3=false, ref_file=None))]
     pub fn save(
         &mut self,
         index: FilterIndex,
