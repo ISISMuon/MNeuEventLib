@@ -795,7 +795,7 @@ mod tests {
 
     #[test]
     fn test_save_autofill_has_no_dataset_prefix_groups() {
-        // Make sure that autofill never copies the 
+        // Make sure that autofill never copies the
         // groups that define the period dependent datasets.
         // This fixes issue 160
         let _guard = crate::test_utils::lock_hdf5_test();
