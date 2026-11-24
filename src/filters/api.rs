@@ -169,7 +169,7 @@ impl Filters {
                 continue;
             }
             if key >= &n_spec {
-                return Err(Error::msg(format!("Attempted to set amplitude filter for detector {key}, but instrument only has {n_spec} detectors.")));
+                return Err(Error::msg(format!("Attempted to set amplitude filter for detector {key}, but detector indices go from 0 to {}", n_spec - 1)));
             }
             array[*key] = *value;
         }
