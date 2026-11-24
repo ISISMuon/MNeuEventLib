@@ -2,11 +2,16 @@ use ndarray::Array1;
 
 use crate::utils::binary_search;
 
-/// A struct which keeps track of the current frame
-/// and the number of values in each frame.
+/// Tracks frame boundaries and the starting event index for each frame in the dataset.
+#[derive(Clone, Debug)]
 pub struct FrameData {
+    /// Frame numbers corresponding to each entry in `start_index`.
+    #[allow(dead_code)]
     pub frame_number: Vec<usize>,
+    /// Global event indices where each frame begins.
     pub start_index: Array1<usize>,
+    /// Total number of events represented across all frames.
+    #[allow(dead_code)]
     pub array_len: usize,
 }
 
@@ -21,16 +26,18 @@ impl FrameData {
         }
     }
 
-    /// Return the lower and upper frame indices containing events in [lower, upper).
+    /// Fast, zero-allocation binary search lookup returning `(lower_frame, upper_frame)`
+    /// containing all events in the half-open event index range `[lower_event, upper_event)`.
     #[inline]
-    pub fn frame_range(&self, lower: usize, upper: usize) -> (usize, usize) {
+    pub fn frame_range(&self, lower_event: usize, upper_event: usize) -> (usize, usize) {
         let n_frames = self.start_index.len();
-        let lower_index = binary_search::<usize>(&self.start_index, 0, n_frames, lower);
-        let upper_index = binary_search::<usize>(&self.start_index, 0, n_frames, upper);
-        (lower_index, upper_index)
+        let lower_frame_index = binary_search::<usize>(&self.start_index, 0, n_frames, lower_event);
+        let upper_frame_index = binary_search::<usize>(&self.start_index, 0, n_frames, upper_event);
+        (lower_frame_index, upper_frame_index)
     }
 
     /// Take a slice of frame data between lower and upper event numbers.
+    #[allow(dead_code)]
     pub fn slice(&self, lower: usize, upper: usize) -> FrameData {
         let (lower_index, upper_index) = self.frame_range(lower, upper);
 

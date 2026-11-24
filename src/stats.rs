@@ -208,17 +208,25 @@ pub fn get_experiment_times(weights: Weights, frame_start_times: Array1<u64>) ->
     }
 }
 
+/// In-memory chunk of raw event arrays passed through the pipelined reader channel.
 struct ChunkData {
+    /// Event Time of Flight (in nanoseconds).
     times: Array1<u32>,
+    /// Detector spectrum IDs.
     specs: Array1<u32>,
+    /// Pulse height amplitude values.
     amps: Array1<f64>,
-    start: usize,
-    len: usize,
-    lower_frame: usize,
-    upper_frame: usize,
+    /// Global start index of this chunk within the dataset.
+    start_event_index: usize,
+    /// Number of events in this chunk.
+    chunk_length: usize,
+    /// Lowest frame index containing events belonging to this chunk.
+    lower_frame_index: usize,
+    /// Highest frame index containing events belonging to this chunk.
+    upper_frame_index: usize,
 }
 
-/// Calculate histograms and output the result.
+/// Calculate histograms and output the result using a pipelined reader and lock-free parallel workers.
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 pub fn calculate_histograms(
@@ -232,9 +240,10 @@ pub fn calculate_histograms(
     weights: &Weights,
     frame_data: FrameData,
 ) -> Histogram {
-    let width: f32 = (max_time - min_time) as f32 / n_bins as f32;
-    let inv_width: f32 = 1.0f32 / width;
-    let has_amp_filter = min_amps.iter().any(|&a| a > 0.0);
+    // Precompute reciprocal of bin width to replace inner loop floating-point divisions with fast multiplications
+    let bin_width: f32 = (max_time - min_time) as f32 / n_bins as f32;
+    let inv_bin_width: f32 = 1.0f32 / bin_width;
+    let has_amp_filter = min_amps.iter().any(|&threshold| threshold > 0.0);
 
     let frame_data_ref = &frame_data;
     let frame_starts = &frame_data.start_index;
@@ -242,82 +251,84 @@ pub fn calculate_histograms(
     let min_amps_ref = &min_amps;
     let n_spec = dataset.n_spec;
 
-    let n_chunks = if dataset.chunk_size > 0 {
+    let total_chunks = if dataset.chunk_size > 0 {
         (dataset.n_events + dataset.chunk_size - 1) / dataset.chunk_size
     } else {
         1
     };
-    let num_workers = rayon::current_num_threads().clamp(1, n_chunks.max(1));
+    let num_workers = rayon::current_num_threads().clamp(1, total_chunks.max(1));
 
-    let (tx, rx) = std::sync::mpsc::sync_channel::<ChunkData>(4);
-    let rx = std::sync::Arc::new(std::sync::Mutex::new(rx));
+    // Bounded channel to decouple sequential HDF5 I/O from parallel CPU histogramming
+    let (chunk_sender, chunk_receiver) = std::sync::mpsc::sync_channel::<ChunkData>(4);
+    let shared_receiver = std::sync::Arc::new(std::sync::Mutex::new(chunk_receiver));
 
-    let result = std::thread::scope(|s| {
-        // Dedicated sequential HDF5 I/O reader thread to eliminate mutex contention
-        s.spawn(move || {
-            for start in (0..dataset.n_events).step_by(dataset.chunk_size) {
-                let end = min(start + dataset.chunk_size, dataset.n_events);
-                let array_slice = s![start..end];
+    let final_accumulator = std::thread::scope(|scope| {
+        // Dedicated sequential HDF5 reader thread: eliminates HDF5 C global mutex contention
+        scope.spawn(move || {
+            for start_index in (0..dataset.n_events).step_by(dataset.chunk_size) {
+                let end_index = min(start_index + dataset.chunk_size, dataset.n_events);
+                let array_slice = s![start_index..end_index];
                 let amps: Array1<f64> = dataset
                     .amps
                     .read_slice_1d(array_slice)
-                    .expect("failed to read amplitudes.");
+                    .expect("Failed to read amplitudes from dataset.");
                 let times: Array1<u32> = dataset
                     .times
                     .read_slice_1d(array_slice)
-                    .expect("Failed to read times.");
+                    .expect("Failed to read times from dataset.");
                 let specs: Array1<u32> = dataset
                     .specs
                     .read_slice_1d(array_slice)
-                    .expect("Failed to read specs.");
+                    .expect("Failed to read specs from dataset.");
 
-                let (lower_frame, upper_frame) = frame_data_ref.frame_range(start, end);
+                let (lower_frame_index, upper_frame_index) =
+                    frame_data_ref.frame_range(start_index, end_index);
 
                 let chunk = ChunkData {
                     times,
                     specs,
                     amps,
-                    start,
-                    len: end - start,
-                    lower_frame,
-                    upper_frame,
+                    start_event_index: start_index,
+                    chunk_length: end_index - start_index,
+                    lower_frame_index,
+                    upper_frame_index,
                 };
 
-                if tx.send(chunk).is_err() {
+                if chunk_sender.send(chunk).is_err() {
                     break;
                 }
             }
         });
 
-        // Parallel worker threads processing chunks from queue
-        let mut handles = Vec::with_capacity(num_workers);
+        // Worker threads pull pre-read chunk buffers asynchronously and accumulate thread-locally
+        let mut worker_handles = Vec::with_capacity(num_workers);
         for _ in 0..num_workers {
-            let rx = std::sync::Arc::clone(&rx);
-            let handle = s.spawn(move || {
-                let mut acc = Accumulator::zeros(n_periods, n_spec, n_bins);
+            let thread_receiver = std::sync::Arc::clone(&shared_receiver);
+            let handle = scope.spawn(move || {
+                let mut local_accumulator = Accumulator::zeros(n_periods, n_spec, n_bins);
                 loop {
-                    let chunk = {
-                        let lock = rx.lock().unwrap();
-                        lock.recv().ok()
+                    let next_chunk = {
+                        let locked_receiver = thread_receiver.lock().unwrap();
+                        locked_receiver.recv().ok()
                     };
-                    match chunk {
-                        Some(c) => {
+                    match next_chunk {
+                        Some(chunk) => {
                             make_histogram(
-                                &mut acc,
-                                &c.times,
-                                &c.specs,
-                                &c.amps,
+                                &mut local_accumulator,
+                                &chunk.times,
+                                &chunk.specs,
+                                &chunk.amps,
                                 periods_ref,
                                 min_amps_ref,
                                 weights,
                                 frame_starts,
-                                c.lower_frame,
-                                c.upper_frame,
-                                c.start,
-                                c.len,
+                                chunk.lower_frame_index,
+                                chunk.upper_frame_index,
+                                chunk.start_event_index,
+                                chunk.chunk_length,
                                 min_time,
                                 max_time,
-                                inv_width,
+                                inv_bin_width,
                                 n_bins,
                                 n_spec,
                                 has_amp_filter,
@@ -326,26 +337,27 @@ pub fn calculate_histograms(
                         None => break,
                     }
                 }
-                acc
+                local_accumulator
             });
-            handles.push(handle);
+            worker_handles.push(handle);
         }
 
-        let mut total_acc = Accumulator::zeros(n_periods, n_spec, n_bins);
-        for h in handles {
-            let acc = h.join().unwrap();
-            total_acc.merge(&acc);
+        // Merge thread-local accumulators at completion
+        let mut combined_accumulator = Accumulator::zeros(n_periods, n_spec, n_bins);
+        for handle in worker_handles {
+            let worker_acc = handle.join().unwrap();
+            combined_accumulator.merge(&worker_acc);
         }
-        total_acc
+        combined_accumulator
     });
 
     let mut histogram = Histogram::with_bins(min_time, max_time, n_bins);
-    histogram.hist = result.hist;
-    histogram.n = result.n;
+    histogram.hist = final_accumulator.hist;
+    histogram.n = final_accumulator.n;
     histogram
 }
 
-/// Make a histogram for a set of data into `acc`.
+/// Make a histogram for a set of data into `acc` using direct linear slice indexing.
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 fn make_histogram(
@@ -363,11 +375,12 @@ fn make_histogram(
     chunk_len: usize,
     min_time: u32,
     max_time: u32,
-    inv_width: f32,
+    inv_bin_width: f32,
     n_bins: usize,
     n_spec: usize,
     has_amp_filter: bool,
 ) {
+    // Extract raw contiguous slices to enable linear 1D indexing and auto-vectorization
     let times_slice = times.as_slice().unwrap();
     let specs_slice = specs.as_slice().unwrap();
     let amps_slice = amps.as_slice().unwrap();
@@ -377,9 +390,10 @@ fn make_histogram(
     let hist_slice = acc.hist.as_slice_mut().unwrap();
 
     let stride_period = n_spec * n_bins;
-    let mut total_n = 0;
+    let mut total_events_accepted = 0;
 
     if has_amp_filter {
+        // Fast path for active amplitude filter
         for frame in lower_frame..=upper_frame {
             if !weights[frame] {
                 continue;
@@ -396,23 +410,27 @@ fn make_histogram(
                 frame_starts_slice[frame + 1] - chunk_start
             };
 
-            let period = periods_slice[frame] as usize;
-            let period_offset = period * stride_period;
+            let period_idx = periods_slice[frame] as usize;
+            let period_offset = period_idx * stride_period;
 
-            for k in frame_start_event..frame_end_event {
-                let t = times_slice[k];
-                let amp = amps_slice[k];
-                let spec = specs_slice[k] as usize;
+            for event_idx in frame_start_event..frame_end_event {
+                let event_time = times_slice[event_idx];
+                let pulse_amp = amps_slice[event_idx];
+                let spec_idx = specs_slice[event_idx] as usize;
 
-                if t >= min_time && t < max_time && amp > min_amps_slice[spec] {
-                    let bin = ((t - min_time) as f32 * inv_width) as usize;
-                    let bin = min(bin, n_bins - 1);
-                    hist_slice[period_offset + spec * n_bins + bin] += 1;
-                    total_n += 1;
+                if event_time >= min_time
+                    && event_time < max_time
+                    && pulse_amp > min_amps_slice[spec_idx]
+                {
+                    let bin_idx = ((event_time - min_time) as f32 * inv_bin_width) as usize;
+                    let bin_idx = min(bin_idx, n_bins - 1);
+                    hist_slice[period_offset + spec_idx * n_bins + bin_idx] += 1;
+                    total_events_accepted += 1;
                 }
             }
         }
     } else {
+        // Fast path when no detector has an amplitude threshold (skips per-detector threshold lookup)
         for frame in lower_frame..=upper_frame {
             if !weights[frame] {
                 continue;
@@ -429,25 +447,25 @@ fn make_histogram(
                 frame_starts_slice[frame + 1] - chunk_start
             };
 
-            let period = periods_slice[frame] as usize;
-            let period_offset = period * stride_period;
+            let period_idx = periods_slice[frame] as usize;
+            let period_offset = period_idx * stride_period;
 
-            for k in frame_start_event..frame_end_event {
-                let t = times_slice[k];
-                let amp = amps_slice[k];
-                let spec = specs_slice[k] as usize;
+            for event_idx in frame_start_event..frame_end_event {
+                let event_time = times_slice[event_idx];
+                let pulse_amp = amps_slice[event_idx];
+                let spec_idx = specs_slice[event_idx] as usize;
 
-                if t >= min_time && t < max_time && amp > 0.0 {
-                    let bin = ((t - min_time) as f32 * inv_width) as usize;
-                    let bin = min(bin, n_bins - 1);
-                    hist_slice[period_offset + spec * n_bins + bin] += 1;
-                    total_n += 1;
+                if event_time >= min_time && event_time < max_time && pulse_amp > 0.0 {
+                    let bin_idx = ((event_time - min_time) as f32 * inv_bin_width) as usize;
+                    let bin_idx = min(bin_idx, n_bins - 1);
+                    hist_slice[period_offset + spec_idx * n_bins + bin_idx] += 1;
+                    total_events_accepted += 1;
                 }
             }
         }
     }
 
-    acc.n += total_n;
+    acc.n += total_events_accepted;
 }
 
 #[cfg(test)]
