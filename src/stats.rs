@@ -315,17 +315,11 @@ pub fn calculate_histograms(
                         Some(chunk) => {
                             make_histogram(
                                 &mut local_accumulator,
-                                &chunk.times,
-                                &chunk.specs,
-                                &chunk.amps,
+                                &chunk,
                                 periods_ref,
                                 min_amps_ref,
                                 weights,
                                 frame_starts,
-                                chunk.lower_frame_index,
-                                chunk.upper_frame_index,
-                                chunk.start_event_index,
-                                chunk.chunk_length,
                                 min_time,
                                 max_time,
                                 inv_bin_width,
@@ -357,22 +351,15 @@ pub fn calculate_histograms(
     histogram
 }
 
-/// Make a histogram for a set of data into `acc` using direct linear slice indexing.
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 fn make_histogram(
     acc: &mut Accumulator,
-    times: &Array1<u32>,
-    specs: &Array1<u32>,
-    amps: &Array1<f64>,
+    chunk: &ChunkData,
     periods: &Array1<u32>,
     min_amps: &Array1<f64>,
     weights: &Weights,
     frame_starts: &Array1<usize>,
-    lower_frame: usize,
-    upper_frame: usize,
-    chunk_start: usize,
-    chunk_len: usize,
     min_time: u32,
     max_time: u32,
     inv_bin_width: f32,
@@ -381,13 +368,18 @@ fn make_histogram(
     has_amp_filter: bool,
 ) {
     // Extract raw contiguous slices to enable linear 1D indexing and auto-vectorization
-    let times_slice = times.as_slice().unwrap();
-    let specs_slice = specs.as_slice().unwrap();
-    let amps_slice = amps.as_slice().unwrap();
+    let times_slice = chunk.times.as_slice().unwrap();
+    let specs_slice = chunk.specs.as_slice().unwrap();
+    let amps_slice = chunk.amps.as_slice().unwrap();
     let periods_slice = periods.as_slice().unwrap();
     let min_amps_slice = min_amps.as_slice().unwrap();
     let frame_starts_slice = frame_starts.as_slice().unwrap();
     let hist_slice = acc.hist.as_slice_mut().unwrap();
+
+    let lower_frame = chunk.lower_frame_index;
+    let upper_frame = chunk.upper_frame_index;
+    let chunk_start = chunk.start_event_index;
+    let chunk_len = chunk.chunk_length;
 
     let stride_period = n_spec * n_bins;
     let mut total_events_accepted = 0;
@@ -498,19 +490,22 @@ mod tests {
         } else {
             frame_data.frame_range(0, n_events)
         };
+        let chunk = ChunkData {
+            times,
+            specs,
+            amps,
+            start_event_index: 0,
+            chunk_length: n_events,
+            lower_frame_index: lower_frame,
+            upper_frame_index: upper_frame,
+        };
         make_histogram(
             &mut acc,
-            &times,
-            &specs,
-            &amps,
+            &chunk,
             periods,
             min_amps,
             weights,
             &frame_data.start_index,
-            lower_frame,
-            upper_frame,
-            0,
-            n_events,
             min_time,
             max_time,
             inv_width,
@@ -784,19 +779,22 @@ mod tests {
             let t_slice = times.slice(s![start..end]).to_owned();
             let s_slice = specs.slice(s![start..end]).to_owned();
             let a_slice = amps.slice(s![start..end]).to_owned();
+            let chunk = ChunkData {
+                times: t_slice,
+                specs: s_slice,
+                amps: a_slice,
+                start_event_index: start,
+                chunk_length: end - start,
+                lower_frame_index: lower_frame,
+                upper_frame_index: upper_frame,
+            };
             make_histogram(
                 &mut split,
-                &t_slice,
-                &s_slice,
-                &a_slice,
+                &chunk,
                 &periods,
                 &min_amps,
                 &weights,
                 &frame_data.start_index,
-                lower_frame,
-                upper_frame,
-                start,
-                end - start,
                 0,
                 3000,
                 inv_width,
