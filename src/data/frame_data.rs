@@ -10,9 +10,6 @@ pub struct FrameData {
     pub frame_number: Vec<usize>,
     /// Global event indices where each frame begins.
     pub start_index: Array1<usize>,
-    /// Total number of events represented across all frames.
-    #[allow(dead_code)]
-    pub array_len: usize,
 }
 
 impl FrameData {
@@ -34,30 +31,7 @@ impl FrameData {
         let lower_frame_index = binary_search::<usize>(&self.start_index, 0, n_frames, lower_event);
         let upper_frame_index = binary_search::<usize>(&self.start_index, 0, n_frames, upper_event);
         (lower_frame_index, upper_frame_index)
-    }
-
-    /// Take a slice of frame data between lower and upper event numbers.
-    #[allow(dead_code)]
-    pub fn slice(&self, lower: usize, upper: usize) -> FrameData {
-        let (lower_index, upper_index) = self.frame_range(lower, upper);
-
-        // shift the start indices to match the slice
-        let new_starts: Array1<usize> = (lower_index..=upper_index)
-            .map(|i| {
-                if i == lower_index {
-                    0
-                } else {
-                    self.start_index[i] - lower
-                }
-            })
-            .collect();
-
-        FrameData {
-            frame_number: (lower_index..=upper_index).collect(),
-            start_index: new_starts,
-            array_len: upper - lower,
-        }
-    }
+    }    
 }
 
 /// FrameData routines for tests.
