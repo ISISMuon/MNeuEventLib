@@ -17,6 +17,7 @@ object which would have been loaded from a
 events data file.
 """
 
+import sys
 import h5py
 
 """
@@ -138,19 +139,25 @@ def read(obj, new_obj, key):
             set_attributes(obj, tmp)
 
 
-with h5py.File('HIFI00207745.nxs', 'r') as file:
-    with h5py.File('REF_file.nxs', 'w') as new_file:
-        # do top level manually
-        for key in file.keys():
-            new_obj = new_file.require_group(key)
-            set_attributes(file[key], new_obj)
-            for tmp in file[key].keys():
-                if tmp in ['selog']:
-                    print('skip')
-                else:
-                    read(file[key][tmp], new_obj, tmp)
-                if tmp == 'detector_1':
-                    new_obj[tmp].attrs['NX_class'] = 'NXdata'
-# clean up
-print('done')
- 
+def make_default(example_filename='HIFI00207745.nxs', ref_filename='REF_file.nxs'):
+    """Generate a reference NeXus file from an example histogram NeXus file."""
+    with h5py.File(example_filename, 'r') as file:
+        with h5py.File(ref_filename, 'w') as new_file:
+            # do top level manually
+            for key in file.keys():
+                new_obj = new_file.require_group(key)
+                set_attributes(file[key], new_obj)
+                for tmp in file[key].keys():
+                    if tmp in ['selog']:
+                        print('skip')
+                    else:
+                        read(file[key][tmp], new_obj, tmp)
+                    if tmp == 'detector_1':
+                        new_obj[tmp].attrs['NX_class'] = 'NXdata'
+    print('done')
+
+
+if __name__ == '__main__':
+    example = sys.argv[1] if len(sys.argv) > 1 else 'HIFI00207745.nxs'
+    ref = sys.argv[2] if len(sys.argv) > 2 else 'REF_file.nxs'
+    make_default(example, ref)

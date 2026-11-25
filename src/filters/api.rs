@@ -1,5 +1,5 @@
 /// The user-facing API for the filter objects.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 
 use anyhow::{Error, Result};
@@ -7,7 +7,7 @@ use ndarray::Array1;
 use serde::{Deserialize, Serialize};
 use tabled::{builder::Builder, Table, Tabled};
 
-use crate::consts::S_TO_NS;
+use crate::consts::ToNanoseconds;
 use crate::data::SampleLog;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -16,28 +16,62 @@ enum FilterType {
     Exclude,
 }
 
+/// Filter overwrite behaviours.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+enum OverwriteType {
+    Strict,
+    Relaxed,
+    Free,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Tabled)]
 pub struct Filter {
-    name: String,
     start: f64,
     end: f64,
 }
 
-// LogFilter bounds are Options because serialisation doesn't support infinity or -infinity;
-// we use None to represent those
+/// The condition a sample log filter tests.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum LogPredicate {
+    // Range bounds are Options because serialisation doesn't support infinity or
+    // -infinity; we use None to represent those
+    Range {
+        lower: Option<f64>,
+        upper: Option<f64>,
+    },
+    /// Matches case-insensitively; only valid for logs holding text.
+    Equals(String),
+}
+
+impl LogPredicate {
+    /// A human-readable description of the condition, for the filter table.
+    fn describe(&self) -> String {
+        match self {
+            LogPredicate::Range { lower, upper } => format!(
+                "{} to {}",
+                lower.unwrap_or(-f64::INFINITY),
+                upper.unwrap_or(f64::INFINITY)
+            ),
+            LogPredicate::Equals(value) => format!("== {value:?}"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LogFilter {
-    name: String,
     log: String,
-    lower: Option<f64>,
-    upper: Option<f64>,
+    pub predicate: LogPredicate,
 }
+
+/// The start and end times matched by the filters on each log, keyed by log name.
+pub type LogFilterTimes = HashMap<String, (Vec<u64>, Vec<u64>)>;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Filters {
     time_filter_type: FilterType,
-    time_filters: Vec<Filter>,
-    sample_log_filters: Vec<LogFilter>,
+    overwrite_type: OverwriteType,
+    time_filters: HashMap<String, Filter>,
+    pub sample_log_filters: HashMap<String, LogFilter>,
     amplitudes: HashMap<usize, f64>,
 }
 
@@ -45,14 +79,33 @@ impl Filters {
     pub fn new() -> Filters {
         Filters {
             time_filter_type: FilterType::Include,
-            time_filters: Vec::<Filter>::new(),
-            sample_log_filters: Vec::<LogFilter>::new(),
+            time_filters: HashMap::<String, Filter>::new(),
+            sample_log_filters: HashMap::<String, LogFilter>::new(),
             amplitudes: HashMap::<usize, f64>::new(),
+            overwrite_type: OverwriteType::Relaxed,
         }
     }
 
+    /// Merge another set of filters into this one. Filters in `other` whose
+    /// names clash with existing ones are handled by the overwrite behaviour.
+    pub fn extend(&mut self, other: Filters) -> Result<()> {
+        for (name, filter) in other.time_filters {
+            if self.time_filters.contains_key(&name) {
+                self.handle_overwrite(&name)?;
+            }
+            self.time_filters.insert(name, filter);
+        }
+        for (name, filter) in other.sample_log_filters {
+            if self.sample_log_filters.contains_key(&name) {
+                self.handle_overwrite(&name)?;
+            }
+            self.sample_log_filters.insert(name, filter);
+        }
+        Ok(())
+    }
+
     /// Get the start and end points of each time filter.
-    pub fn get_time_filter_times(&self) -> (Vec<usize>, Vec<usize>) {
+    pub fn get_time_filter_times(&self) -> (Vec<u64>, Vec<u64>) {
         // note this just gets the intervals for each filter; whether
         // they're include or exclude filters is handled by get_weights
         if self.time_filters.is_empty() {
@@ -60,40 +113,37 @@ impl Filters {
         }
         (
             self.time_filters
-                .iter()
-                .map(|f| (f.start * S_TO_NS) as usize)
+                .values()
+                .map(|f| f.start.to_ns())
                 .collect(),
-            self.time_filters
-                .iter()
-                .map(|f| (f.end * S_TO_NS) as usize)
-                .collect(),
+            self.time_filters.values().map(|f| f.end.to_ns()).collect(),
         )
     }
 
-    /// Get the start and end times for each log filter.
-    pub fn get_log_filter_times(
-        &self,
-        logs: HashMap<String, SampleLog>,
-    ) -> (Vec<usize>, Vec<usize>) {
-        // get the value log for each required sample log
-        // the zip/unzip is to convert it from
-        // Vec<(usize, usize)> to (Vec<usize>, Vec<usize>)
-        self.sample_log_filters
-            .iter()
-            .flat_map(|f| {
-                let (s, e) = logs[&f.log].to_time_ranges(
-                    f.lower.unwrap_or(-f64::INFINITY),
-                    f.upper.unwrap_or(f64::INFINITY),
-                );
-                s.into_iter().zip(e)
-            })
-            .unzip()
+    /// Get the start and end points of each log filter, for each log
+    pub fn get_log_filter_times(&self, logs: HashMap<String, SampleLog>) -> Result<LogFilterTimes> {
+        let mut results = LogFilterTimes::new();
+        for (name, filter) in &self.sample_log_filters {
+            let log = logs.get(&filter.log).ok_or_else(|| {
+                Error::msg(format!(
+                    "Filter {} refers to sample log {}, which does not exist.",
+                    name, filter.log,
+                ))
+            })?;
+            let (s, e) = log.to_time_ranges(&filter.predicate)?;
+            // filters on the same log are unioned here; different logs are
+            // intersected later, in get_log_weights
+            let (starts, ends) = results.entry(filter.log.clone()).or_default();
+            starts.extend(s);
+            ends.extend(e);
+        }
+        Ok(results)
     }
 
     // Get the relevant log for each log filter.
-    pub fn get_required_log_names(&self) -> Vec<String> {
+    pub fn get_required_log_names(&self) -> HashSet<String> {
         self.sample_log_filters
-            .iter()
+            .values()
             .map(|f| f.log.clone())
             .collect()
     }
@@ -141,34 +191,90 @@ impl Filters {
         }
     }
 
+    /// Set the filter overwrite type.
+    pub fn set_overwrite_type(&mut self, overwrite_type: &str) -> Result<()> {
+        match overwrite_type.to_lowercase().as_str() {
+            "strict" => {
+                self.overwrite_type = OverwriteType::Strict;
+                Ok(())
+            }
+            "relaxed" => {
+                self.overwrite_type = OverwriteType::Relaxed;
+                Ok(())
+            }
+            "free" => {
+                self.overwrite_type = OverwriteType::Free;
+                Ok(())
+            }
+            _ => Err(Error::msg(
+                "Overwrite type must be 'strict', 'relaxed', or 'free'",
+            )),
+        }
+    }
+
+    /// Handle an overwrite attempt.
+    pub fn handle_overwrite(&self, name: &str) -> Result<()> {
+        match self.overwrite_type {
+            OverwriteType::Strict => Err(Error::msg(
+                "Name already exists! Use `print(filters)` to see a list of all filters.",
+            )),
+            OverwriteType::Relaxed => {
+                println!(
+                    "Warning: overwriting filter {name}. 
+                To suppress this warning, call set_overwrite_type('free'). 
+                To turn this warning into an error, call set_overwrite_type('strict')."
+                );
+                Ok(())
+            }
+            OverwriteType::Free => Ok(()),
+        }
+    }
+
     /// Add a time filter.
     pub fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> Result<()> {
+        validate_time_bounds(start, end)?;
+
         // check name isn't already in use
-        if self.time_filters.iter().any(|f| f.name == name) {
-            return Err(Error::msg(
-                "Name already exists! Use `Filters.report()` to see a list of all filters.",
-            ));
+        if self
+            .time_filters
+            .keys()
+            .any(|filter_name| *filter_name == name)
+        {
+            self.handle_overwrite(&name)?;
         }
-        if !start.is_finite() || !end.is_finite() {
-            return Err(Error::msg("start and end must be finite."));
-        }
-        if start < 0.0 || end < 0.0 {
-            return Err(Error::msg("start and end must be non-negative."));
-        }
-        if end <= start {
-            return Err(Error::msg("end must be greater than start."));
-        }
-        self.time_filters.push(Filter { name, start, end });
+
+        self.time_filters.insert(name, Filter { start, end });
+        Ok(())
+    }
+
+    /// Edit an existing time filter.
+    ///
+    /// A bound given as `None` is left as it is; note this is unlike
+    /// the bounds of a log filter, where `None` means 'unbounded'.
+    pub fn edit_time_filter(
+        &mut self,
+        name: String,
+        start: Option<f64>,
+        end: Option<f64>,
+    ) -> Result<()> {
+        let filter = self.time_filters.get_mut(&name).ok_or(Error::msg(
+            "No such name in time filters. Use `print(filters)` to see a list of all filters.",
+        ))?;
+
+        let start = start.unwrap_or(filter.start);
+        let end = end.unwrap_or(filter.end);
+        validate_time_bounds(start, end)?;
+
+        *filter = Filter { start, end };
         Ok(())
     }
 
     pub fn remove_time_filter(&mut self, name: String) -> Result<()> {
-        match self.time_filters.iter().position(|f| f.name == name) {
-            Some(i) => {
-                self.time_filters.swap_remove(i);
-                Ok(())
-            }
-            None => Err(Error::msg("No such name in time filters. Use `Filters.report()` to see a list of all filters.")),
+        match self.time_filters.remove(&name) {
+            Some(_) => Ok(()),
+            None => Err(Error::msg(
+                "No such name in time filters. Use `print(filters)` to see a list of all filters.",
+            )),
         }
     }
 
@@ -180,25 +286,114 @@ impl Filters {
         lower: Option<f64>,
         upper: Option<f64>,
     ) -> Result<()> {
-        if self.sample_log_filters.iter().any(|f| f.name == name) {
-            return Err(Error::msg("Name already exists!"));
+        validate_log_bounds(lower, upper)?;
+
+        self.add_log_predicate(name, log, LogPredicate::Range { lower, upper })
+    }
+
+    /// Add a log filter matching a string log against a specific value.
+    pub fn add_string_log_filter(
+        &mut self,
+        name: String,
+        log: String,
+        value: String,
+    ) -> Result<()> {
+        self.add_log_predicate(name, log, LogPredicate::Equals(value))
+    }
+
+    fn add_log_predicate(
+        &mut self,
+        name: String,
+        log: String,
+        predicate: LogPredicate,
+    ) -> Result<()> {
+        // check name isn't already in use
+        if self
+            .sample_log_filters
+            .keys()
+            .any(|filter_name| *filter_name == name)
+        {
+            self.handle_overwrite(&name)?;
         }
-        self.sample_log_filters.push(LogFilter {
-            name,
-            log,
-            lower,
-            upper,
-        });
+
+        self.sample_log_filters
+            .insert(name, LogFilter { log, predicate });
+        Ok(())
+    }
+
+    /// Edit an existing log filter.
+    ///
+    /// A field given as `None` is left as it is; note this means an
+    /// existing bound cannot be made unbounded by editing it, as `None`
+    /// here does not mean 'unbounded'.
+    pub fn edit_log_filter(
+        &mut self,
+        name: String,
+        log: Option<String>,
+        lower: Option<f64>,
+        upper: Option<f64>,
+    ) -> Result<()> {
+        let filter = self.sample_log_filters.get_mut(&name).ok_or(Error::msg(
+            "No such name in log filters. Use `print(filters)` to see a list of all filters.",
+        ))?;
+
+        let log = log.unwrap_or(filter.log.clone());
+        let predicate = match &filter.predicate {
+            LogPredicate::Range {
+                lower: old_lower,
+                upper: old_upper,
+            } => {
+                let lower = lower.or(*old_lower);
+                let upper = upper.or(*old_upper);
+                validate_log_bounds(lower, upper)?;
+                LogPredicate::Range { lower, upper }
+            }
+            LogPredicate::Equals(value) => {
+                if lower.is_some() || upper.is_some() {
+                    return Err(Error::msg(format!(
+                        "Log filter {name} matches a string value, so it has no bounds to edit. Use edit_string_log_filter to change the value it matches."
+                    )));
+                }
+                LogPredicate::Equals(value.clone())
+            }
+        };
+
+        *filter = LogFilter { log, predicate };
+        Ok(())
+    }
+
+    /// Edit an existing string log filter.
+    ///
+    /// A field given as `None` is left as it is.
+    pub fn edit_string_log_filter(
+        &mut self,
+        name: String,
+        log: Option<String>,
+        value: Option<String>,
+    ) -> Result<()> {
+        let filter = self.sample_log_filters.get_mut(&name).ok_or(Error::msg(
+            "No such name in log filters. Use `print(filters)` to see a list of all filters.",
+        ))?;
+
+        let LogPredicate::Equals(old_value) = &filter.predicate else {
+            return Err(Error::msg(format!(
+                "Log filter {name} matches a range of values, not a string value. Use edit_log_filter to change its bounds."
+            )));
+        };
+
+        let log = log.unwrap_or(filter.log.clone());
+        let predicate = LogPredicate::Equals(value.unwrap_or(old_value.clone()));
+
+        *filter = LogFilter { log, predicate };
         Ok(())
     }
 
     pub fn remove_log_filter(&mut self, name: String) -> Result<()> {
-        match self.sample_log_filters.iter().position(|f| f.name == name) {
-            Some(i) => {
-                self.sample_log_filters.swap_remove(i);
-                Ok(())
-            }
-            None => Err(Error::msg("No such name in log filters.")),
+        match self.sample_log_filters.remove(&name) {
+            Some(_) => Ok(()),
+            None => Err(Error::msg(
+                "No such name in log filters. Use `print(filters)` to see a list of all filters.",
+            )),
         }
     }
 
@@ -224,6 +419,7 @@ impl Filters {
     pub fn save(&self, filename: String) -> Result<()> {
         let file = File::create(&filename)?;
         serde_json::to_writer_pretty(file, &self)?;
+        println!("Saved filters to {filename}");
         Ok(())
     }
 
@@ -235,43 +431,95 @@ impl Filters {
 
     /// Create a string describing the filter data.
     pub fn __repr__(&self) -> String {
-        let times_table = Table::new(&self.time_filters);
+        let no_times = self.time_filters.is_empty();
+        let no_logs = self.sample_log_filters.is_empty();
+        let no_amps = self.amplitudes.is_empty();
 
-        let mut log_builder = Builder::new();
-        log_builder.push_record(["name", "log", "min", "max"]);
-        for filter in &self.sample_log_filters {
-            log_builder.push_record([
-                &filter.name,
-                &filter.log,
-                &filter.lower.unwrap_or(-f64::INFINITY).to_string(),
-                &filter.upper.unwrap_or(f64::INFINITY).to_string(),
-            ]);
+        if no_times && no_logs && no_amps {
+            return "No filters applied\n\n".to_string();
         }
-        let log_table = log_builder.build();
 
-        let mut amps_builder = Builder::new();
-        amps_builder.push_record(["detector", "amplitude"]);
-        for (detector, amp) in self.amplitudes.iter() {
-            if detector == &usize::MAX {
-                amps_builder.push_record(["baseline", &amp.to_string()]);
-            } else {
-                amps_builder.push_record([detector.to_string(), amp.to_string()]);
-            }
-        }
-        let amps_table = amps_builder.build();
-        let time_type = match self.time_filter_type {
-            FilterType::Include => "include",
-            FilterType::Exclude => "exclude",
+        let overwrite_string = if self.overwrite_type == OverwriteType::Free {
+            "Overwrite type set to 'free'\n\n"
+        } else {
+            ""
         };
-        format!("Time filter type: {time_type}\n\nTime filters:\n{times_table}\n\nLog filters:\n{log_table}\n\nAmplitude filters:\n{amps_table}")
+
+        let time_string = if no_times {
+            "".to_string()
+        } else {
+            let times_table = Table::new(&self.time_filters);
+            let time_type = match self.time_filter_type {
+                FilterType::Include => "include",
+                FilterType::Exclude => "exclude",
+            };
+            format!("Time filter type: {time_type}\n\nTime filters:\n{times_table}\n\n")
+        };
+
+        let log_string = if no_logs {
+            "".to_string()
+        } else {
+            let mut log_builder = Builder::new();
+            log_builder.push_record(["name", "log", "condition"]);
+            for (name, filter) in &self.sample_log_filters {
+                log_builder.push_record([name, &filter.log, &filter.predicate.describe()]);
+            }
+            let log_table = log_builder.build();
+            format!("Sample log filters:\n{log_table}\n\n")
+        };
+
+        let amps_string = if no_amps {
+            "".to_string()
+        } else {
+            let mut amps_builder = Builder::new();
+            amps_builder.push_record(["detector", "amplitude"]);
+            for (detector, amp) in self.amplitudes.iter() {
+                if detector == &usize::MAX {
+                    amps_builder.push_record(["baseline", &amp.to_string()]);
+                } else {
+                    amps_builder.push_record([detector.to_string(), amp.to_string()]);
+                }
+            }
+            let amps_table = amps_builder.build();
+            format!("Amplitude filters:\n{amps_table}\n\n")
+        };
+
+        format!("{overwrite_string}{time_string}{log_string}{amps_string}")
     }
+}
+
+impl Default for Filters {
+    fn default() -> Self {
+        Filters::new()
+    }
+}
+
+/// Check the bounds of a time filter are valid.
+fn validate_time_bounds(start: f64, end: f64) -> Result<()> {
+    if !start.is_finite() || !end.is_finite() {
+        return Err(Error::msg("start and end must be finite."));
+    }
+    if end <= start {
+        return Err(Error::msg("end must be greater than start."));
+    }
+    Ok(())
+}
+
+/// Check the bounds of a log filter are valid; `None` is an unbounded side.
+fn validate_log_bounds(lower: Option<f64>, upper: Option<f64>) -> Result<()> {
+    if upper.is_some() && lower.is_some() && upper <= lower {
+        return Err(Error::msg("upper must be greater than lower."));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::env::temp_dir;
+    use std::str::FromStr;
 
+    use hdf5::types::VarLenUnicode;
     use ndarray::Array1;
 
     use crate::data::ValueLog;
@@ -279,33 +527,29 @@ mod tests {
     /// Test converting a Filters object to starts and ends.
     #[test]
     fn test_convert_filters() {
+        let mut time_filters = HashMap::<String, Filter>::new();
+        time_filters.insert("a".to_string(), Filter { start: 1., end: 2. });
+        time_filters.insert("b".to_string(), Filter { start: 3., end: 4. });
+        time_filters.insert("c".to_string(), Filter { start: 5., end: 6. });
+
         let filters = Filters {
             time_filter_type: FilterType::Include,
-            time_filters: vec![
-                Filter {
-                    name: "a".to_string(),
-                    start: 1.,
-                    end: 2.,
-                },
-                Filter {
-                    name: "b".to_string(),
-                    start: 3.,
-                    end: 4.,
-                },
-                Filter {
-                    name: "c".to_string(),
-                    start: 5.,
-                    end: 6.,
-                },
-            ],
-            sample_log_filters: Vec::<LogFilter>::new(),
+            time_filters,
+            sample_log_filters: HashMap::<String, LogFilter>::new(),
             amplitudes: HashMap::new(),
+            overwrite_type: OverwriteType::Free,
         };
 
         let (starts, ends) = filters.get_time_filter_times();
+        let ranges: HashSet<(u64, u64)> = starts.into_iter().zip(ends).collect();
+        let expected_ranges: HashSet<(u64, u64)> = [
+            (1e9 as u64, 2e9 as u64),
+            (3e9 as u64, 4e9 as u64),
+            (5e9 as u64, 6e9 as u64),
+        ]
+        .into();
 
-        assert_eq!(starts, vec![1e9 as usize, 3e9 as usize, 5e9 as usize]);
-        assert_eq!(ends, vec![2e9 as usize, 4e9 as usize, 6e9 as usize]);
+        assert_eq!(ranges, expected_ranges);
     }
 
     /// Test filters objects are initialised correctly.
@@ -321,39 +565,54 @@ mod tests {
     /// Test get_required_log_names returns the log name for each log filter.
     #[test]
     fn test_get_log_names() {
-        let filters = Filters {
-            time_filter_type: FilterType::Include,
-            time_filters: Vec::<Filter>::new(),
-            sample_log_filters: vec![
-                LogFilter {
-                    name: "a".to_string(),
-                    log: "temp".to_string(),
+        let mut sample_log_filters = HashMap::<String, LogFilter>::new();
+        sample_log_filters.insert(
+            "a".to_string(),
+            LogFilter {
+                log: "temp".to_string(),
+                predicate: LogPredicate::Range {
                     lower: Some(1.),
                     upper: Some(2.),
                 },
-                LogFilter {
-                    name: "b".to_string(),
-                    log: "pulse_width".to_string(),
+            },
+        );
+        sample_log_filters.insert(
+            "b".to_string(),
+            LogFilter {
+                log: "pulse width".to_string(),
+                predicate: LogPredicate::Range {
                     lower: Some(3.),
                     upper: Some(4.),
                 },
-                LogFilter {
-                    name: "c".to_string(),
-                    log: "pressure".to_string(),
+            },
+        );
+        sample_log_filters.insert(
+            "c".to_string(),
+            LogFilter {
+                log: "pressure".to_string(),
+                predicate: LogPredicate::Range {
                     lower: Some(5.),
                     upper: Some(6.),
                 },
-            ],
+            },
+        );
+
+        let filters = Filters {
+            time_filter_type: FilterType::Include,
+            time_filters: HashMap::<String, Filter>::new(),
+            sample_log_filters,
             amplitudes: HashMap::new(),
+            overwrite_type: OverwriteType::Free,
         };
         let logs = filters.get_required_log_names();
         assert_eq!(
             logs,
-            vec![
+            [
                 "temp".to_string(),
-                "pulse_width".to_string(),
+                "pulse width".to_string(),
                 "pressure".to_string()
             ]
+            .into()
         )
     }
 
@@ -362,30 +621,44 @@ mod tests {
     fn test_log_filter_to_times() {
         // note we test individual time ranges in data::sample_logs, so we only need to test
         // that this routine correctly maps over log names (and multiple bands for one log)
-        let filters = Filters {
-            time_filter_type: FilterType::Include,
-            time_filters: Vec::<Filter>::new(),
-            sample_log_filters: vec![
-                LogFilter {
-                    name: "a".to_string(),
-                    log: "simple".to_string(),
+        let mut sample_log_filters = HashMap::<String, LogFilter>::new();
+        sample_log_filters.insert(
+            "a".to_string(),
+            LogFilter {
+                log: "simple".to_string(),
+                predicate: LogPredicate::Range {
                     lower: Some(2.),
                     upper: Some(3.),
                 },
-                LogFilter {
-                    name: "b".to_string(),
-                    log: "simple".to_string(),
+            },
+        );
+        sample_log_filters.insert(
+            "b".to_string(),
+            LogFilter {
+                log: "simple".to_string(),
+                predicate: LogPredicate::Range {
                     lower: Some(0.),
                     upper: Some(1.),
                 },
-                LogFilter {
-                    name: "c".to_string(),
-                    log: "complex".to_string(),
+            },
+        );
+        sample_log_filters.insert(
+            "c".to_string(),
+            LogFilter {
+                log: "complex".to_string(),
+                predicate: LogPredicate::Range {
                     lower: Some(2.),
                     upper: Some(8.),
                 },
-            ],
+            },
+        );
+
+        let filters = Filters {
+            time_filter_type: FilterType::Include,
+            time_filters: HashMap::<String, Filter>::new(),
+            sample_log_filters,
             amplitudes: HashMap::new(),
+            overwrite_type: OverwriteType::Free,
         };
 
         // logs from data::sample_logs tests
@@ -410,11 +683,21 @@ mod tests {
         logs.insert("simple".to_string(), SampleLog::F64(simple_log));
         logs.insert("complex".to_string(), SampleLog::F64(complex_log));
 
-        let (starts, ends) = filters.get_log_filter_times(logs);
-        let expected_starts = vec![2e9 as usize, 0, 1e9 as usize, 4e9 as usize];
-        let expected_ends = vec![3e9 as usize, 1e9 as usize, 2e9 as usize, 5e9 as usize];
-        assert_eq!(starts, expected_starts);
-        assert_eq!(ends, expected_ends);
+        let log_times = filters.get_log_filter_times(logs).unwrap();
+
+        let (simple_starts, simple_ends) = log_times["simple"].clone();
+        let simple_ranges: HashSet<(u64, u64)> =
+            simple_starts.into_iter().zip(simple_ends).collect();
+        let expected_simple_ranges: HashSet<(u64, u64)> =
+            [(2e9 as u64, 3e9 as u64), (0, 1e9 as u64)].into();
+        assert_eq!(simple_ranges, expected_simple_ranges);
+
+        let (complex_starts, complex_ends) = log_times["complex"].clone();
+        let complex_ranges: HashSet<(u64, u64)> =
+            complex_starts.into_iter().zip(complex_ends).collect();
+        let expected_complex_ranges: HashSet<(u64, u64)> =
+            [(1e9 as u64, 2e9 as u64), (4e9 as u64, 5e9 as u64)].into();
+        assert_eq!(complex_ranges, expected_complex_ranges);
     }
 
     /// Test log_filter_times correctly gets the times from the log filters for an unbounded
@@ -423,24 +706,35 @@ mod tests {
     fn test_log_filter_to_times_unbounded() {
         // note we test individual time ranges in data::sample_logs, so we only need to test
         // that this routine correctly maps over log names (and multiple bands for one log)
-        let filters = Filters {
-            time_filter_type: FilterType::Include,
-            time_filters: Vec::<Filter>::new(),
-            sample_log_filters: vec![
-                LogFilter {
-                    name: "a".to_string(),
-                    log: "simple".to_string(),
+
+        let mut sample_log_filters = HashMap::<String, LogFilter>::new();
+        sample_log_filters.insert(
+            "a".to_string(),
+            LogFilter {
+                log: "simple".to_string(),
+                predicate: LogPredicate::Range {
                     lower: Some(2.),
                     upper: None,
                 },
-                LogFilter {
-                    name: "b".to_string(),
-                    log: "simple".to_string(),
+            },
+        );
+        sample_log_filters.insert(
+            "b".to_string(),
+            LogFilter {
+                log: "simple".to_string(),
+                predicate: LogPredicate::Range {
                     lower: None,
                     upper: Some(3.),
                 },
-            ],
+            },
+        );
+
+        let filters = Filters {
+            time_filter_type: FilterType::Include,
+            time_filters: HashMap::<String, Filter>::new(),
+            sample_log_filters,
             amplitudes: HashMap::new(),
+            overwrite_type: OverwriteType::Free,
         };
 
         // logs from data::sample_logs tests
@@ -455,11 +749,13 @@ mod tests {
         let mut logs = HashMap::<String, SampleLog>::new();
         logs.insert("simple".to_string(), SampleLog::F64(simple_log));
 
-        let (starts, ends) = filters.get_log_filter_times(logs);
-        let expected_starts = vec![2e9 as usize, 0];
-        let expected_ends = vec![4e9 as usize, 3e9 as usize];
-        assert_eq!(starts, expected_starts);
-        assert_eq!(ends, expected_ends);
+        let (starts, ends) = filters.get_log_filter_times(logs).unwrap()["simple"].clone();
+
+        let ranges: HashSet<(u64, u64)> = starts.into_iter().zip(ends).collect();
+        let expected_ranges: HashSet<(u64, u64)> =
+            [(2e9 as u64, 4e9 as u64), (0, 3e9 as u64)].into();
+
+        assert_eq!(ranges, expected_ranges);
     }
 
     /// Test time filter type can correctly be set.
@@ -492,6 +788,32 @@ mod tests {
         assert!(result.is_err());
     }
 
+    /// Test valid time bounds are accepted.
+    #[test]
+    fn test_validate_time_bounds() {
+        assert!(validate_time_bounds(1., 2.).is_ok());
+        // a start of zero is allowed
+        assert!(validate_time_bounds(0., 1.).is_ok());
+    }
+
+    /// Test time bounds which are not strictly increasing are rejected.
+    #[test]
+    fn test_validate_time_bounds_not_increasing() {
+        // end before start
+        assert!(validate_time_bounds(2., 1.).is_err());
+        // end equal to start
+        assert!(validate_time_bounds(1., 1.).is_err());
+    }
+
+    /// Test non-finite time bounds are rejected.
+    #[test]
+    fn test_validate_time_bounds_non_finite() {
+        assert!(validate_time_bounds(f64::NEG_INFINITY, 1.).is_err());
+        assert!(validate_time_bounds(0., f64::INFINITY).is_err());
+        assert!(validate_time_bounds(f64::NAN, 1.).is_err());
+        assert!(validate_time_bounds(0., f64::NAN).is_err());
+    }
+
     /// Test adding a time filter.
     #[test]
     fn test_add_single_time_filter() {
@@ -500,14 +822,10 @@ mod tests {
             .add_time_filter("filter1".to_string(), 1.0, 2.0)
             .unwrap();
 
-        assert_eq!(
-            filters.time_filters,
-            vec![Filter {
-                name: "filter1".to_string(),
-                start: 1.,
-                end: 2.
-            }]
-        );
+        let mut expected = HashMap::<String, Filter>::new();
+        expected.insert("filter1".to_string(), Filter { start: 1., end: 2. });
+
+        assert_eq!(filters.time_filters, expected);
     }
 
     /// Test adding multiple time filters.
@@ -524,38 +842,44 @@ mod tests {
             .add_time_filter("filter3".to_string(), 5.0, 6.0)
             .unwrap();
 
-        assert_eq!(
-            filters.time_filters,
-            vec![
-                Filter {
-                    name: "filter1".to_string(),
-                    start: 1.,
-                    end: 2.
-                },
-                Filter {
-                    name: "filter2".to_string(),
-                    start: 3.,
-                    end: 4.
-                },
-                Filter {
-                    name: "filter3".to_string(),
-                    start: 5.,
-                    end: 6.
-                },
-            ]
-        );
+        let mut expected = HashMap::<String, Filter>::new();
+        expected.insert("filter1".to_string(), Filter { start: 1., end: 2. });
+        expected.insert("filter2".to_string(), Filter { start: 3., end: 4. });
+        expected.insert("filter3".to_string(), Filter { start: 5., end: 6. });
+
+        assert_eq!(filters.time_filters, expected);
     }
 
-    /// Test an error is given when a time filter is given a duplicate name.
+    /// Test an error is given when a time filter is given a duplicate name in strict mode.
     #[test]
-    fn test_add_time_filter_duplicate_name() {
+    fn test_add_time_filter_duplicate_name_strict() {
         let mut filters = Filters::new();
+        filters.set_overwrite_type("strict").unwrap();
         filters
             .add_time_filter("filter1".to_string(), 1.0, 2.0)
             .unwrap();
 
         let result = filters.add_time_filter("filter1".to_string(), 3.0, 4.0);
         assert!(result.is_err());
+    }
+
+    /// Test no error is given when a time filter is given a duplicate name in relaxed/free mode.
+    #[test]
+    fn test_add_time_filter_duplicate_name_otherwise() {
+        let mut expected = HashMap::<String, Filter>::new();
+        expected.insert("filter1".to_string(), Filter { start: 3., end: 4. });
+
+        for overwrite_type in ["free".to_string(), "relaxed".to_string()] {
+            let mut filters = Filters::new();
+            filters.set_overwrite_type(&overwrite_type).unwrap();
+            filters
+                .add_time_filter("filter1".to_string(), 1.0, 2.0)
+                .unwrap();
+
+            let result = filters.add_time_filter("filter1".to_string(), 3.0, 4.0);
+            assert!(result.is_ok());
+            assert_eq!(filters.time_filters, expected)
+        }
     }
 
     /// Test time filters can be removed correctly.
@@ -571,14 +895,10 @@ mod tests {
 
         filters.remove_time_filter("filter1".to_string()).unwrap();
 
-        assert_eq!(
-            filters.time_filters,
-            vec![Filter {
-                name: "filter2".to_string(),
-                start: 3.,
-                end: 4.
-            }]
-        )
+        let mut expected = HashMap::<String, Filter>::new();
+        expected.insert("filter2".to_string(), Filter { start: 3., end: 4. });
+
+        assert_eq!(filters.time_filters, expected)
     }
 
     /// Test removing a time filter that doesn't exist throws an error.
@@ -589,6 +909,153 @@ mod tests {
         assert!(result.is_err());
     }
 
+    /// Test editing both bounds of a time filter.
+    #[test]
+    fn test_edit_time_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+        filters
+            .edit_time_filter("filter1".to_string(), Some(3.0), Some(4.0))
+            .unwrap();
+
+        let mut expected = HashMap::<String, Filter>::new();
+        expected.insert("filter1".to_string(), Filter { start: 3., end: 4. });
+
+        assert_eq!(filters.time_filters, expected)
+    }
+
+    /// Test editing one bound of a time filter leaves the other unchanged.
+    #[test]
+    fn test_edit_time_filter_single_bound() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        filters
+            .edit_time_filter("filter1".to_string(), Some(1.5), None)
+            .unwrap();
+        assert_eq!(
+            filters.time_filters["filter1"],
+            Filter {
+                start: 1.5,
+                end: 2.
+            }
+        );
+
+        filters
+            .edit_time_filter("filter1".to_string(), None, Some(5.0))
+            .unwrap();
+        assert_eq!(
+            filters.time_filters["filter1"],
+            Filter {
+                start: 1.5,
+                end: 5.
+            }
+        );
+    }
+
+    /// Test editing a time filter only changes the named filter.
+    #[test]
+    fn test_edit_time_filter_leaves_others_alone() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+        filters
+            .add_time_filter("filter2".to_string(), 3.0, 4.0)
+            .unwrap();
+
+        filters
+            .edit_time_filter("filter1".to_string(), Some(0.5), Some(0.75))
+            .unwrap();
+
+        let mut expected = HashMap::<String, Filter>::new();
+        expected.insert(
+            "filter1".to_string(),
+            Filter {
+                start: 0.5,
+                end: 0.75,
+            },
+        );
+        expected.insert("filter2".to_string(), Filter { start: 3., end: 4. });
+
+        assert_eq!(filters.time_filters, expected)
+    }
+
+    /// Test editing a time filter that doesn't exist throws an error.
+    #[test]
+    fn test_edit_time_filter_nonexistent() {
+        let mut filters = Filters::new();
+        let result = filters.edit_time_filter("nonexistent".to_string(), Some(1.0), Some(2.0));
+        assert!(result.is_err());
+    }
+
+    /// Test editing a time filter to invalid bounds throws an error
+    /// and leaves the filter as it was.
+    #[test]
+    fn test_edit_time_filter_invalid_bounds() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        // end before start
+        let result = filters.edit_time_filter("filter1".to_string(), Some(5.0), None);
+        assert!(result.is_err());
+        // non-finite end
+        let result = filters.edit_time_filter("filter1".to_string(), None, Some(f64::INFINITY));
+        assert!(result.is_err());
+
+        assert_eq!(
+            filters.time_filters["filter1"],
+            Filter { start: 1., end: 2. }
+        );
+    }
+
+    /// Test editing a time filter is allowed in strict overwrite mode;
+    /// editing an existing filter is not an overwrite.
+    #[test]
+    fn test_edit_time_filter_strict_overwrite() {
+        let mut filters = Filters::new();
+        filters.set_overwrite_type("strict").unwrap();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        let result = filters.edit_time_filter("filter1".to_string(), Some(3.0), Some(4.0));
+        assert!(result.is_ok());
+    }
+
+    /// Test valid log bounds are accepted.
+    #[test]
+    fn test_validate_log_bounds() {
+        assert!(validate_log_bounds(Some(1.), Some(2.)).is_ok());
+        // unlike time bounds, log bounds may be negative or infinite
+        assert!(validate_log_bounds(Some(-2.), Some(-1.)).is_ok());
+        assert!(validate_log_bounds(Some(f64::NEG_INFINITY), Some(f64::INFINITY)).is_ok());
+    }
+
+    /// Test an unbounded side of a log filter is accepted.
+    #[test]
+    fn test_validate_log_bounds_unbounded() {
+        assert!(validate_log_bounds(Some(1.), None).is_ok());
+        assert!(validate_log_bounds(None, Some(1.)).is_ok());
+        assert!(validate_log_bounds(None, None).is_ok());
+    }
+
+    /// Test log bounds which are not strictly increasing are rejected.
+    #[test]
+    fn test_validate_log_bounds_not_increasing() {
+        // upper below lower
+        assert!(validate_log_bounds(Some(2.), Some(1.)).is_err());
+        assert!(validate_log_bounds(Some(-1.), Some(-2.)).is_err());
+        // upper equal to lower
+        assert!(validate_log_bounds(Some(1.), Some(1.)).is_err());
+    }
+
     /// Test adding a single log filter.
     #[test]
     fn test_add_log_filter() {
@@ -596,15 +1063,141 @@ mod tests {
         filters
             .add_log_filter("name".to_string(), "temp".to_string(), Some(0.), Some(1.))
             .unwrap();
-        assert_eq!(
-            filters.sample_log_filters,
-            vec![LogFilter {
-                name: "name".to_string(),
+
+        let mut expected = HashMap::<String, LogFilter>::new();
+        expected.insert(
+            "name".to_string(),
+            LogFilter {
                 log: "temp".to_string(),
-                lower: Some(0.),
-                upper: Some(1.)
-            }]
-        )
+                predicate: LogPredicate::Range {
+                    lower: Some(0.),
+                    upper: Some(1.),
+                },
+            },
+        );
+
+        assert_eq!(filters.sample_log_filters, expected)
+    }
+
+    /// Test adding a string log filter is stored correctly.
+    #[test]
+    fn test_add_string_log_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_string_log_filter(
+                "name".to_string(),
+                "status".to_string(),
+                "RUNNING".to_string(),
+            )
+            .unwrap();
+
+        let mut expected = HashMap::<String, LogFilter>::new();
+        expected.insert(
+            "name".to_string(),
+            LogFilter {
+                log: "status".to_string(),
+                predicate: LogPredicate::Equals("RUNNING".to_string()),
+            },
+        );
+
+        assert_eq!(filters.sample_log_filters, expected)
+    }
+
+    /// Test `__repr__` shows the value a string log filter matches on.
+    #[test]
+    fn test_repr_string_log_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_string_log_filter(
+                "logfilter".to_string(),
+                "status".to_string(),
+                "RUNNING".to_string(),
+            )
+            .unwrap();
+
+        let repr = filters.__repr__();
+        assert!(repr.contains("logfilter"));
+        assert!(repr.contains("status"));
+        assert!(repr.contains("RUNNING"));
+    }
+
+    /// Test a filter naming a log that is not in the data gives an error.
+    #[test]
+    fn test_log_filter_to_times_missing_log() {
+        let mut sample_log_filters = HashMap::<String, LogFilter>::new();
+        sample_log_filters.insert(
+            "a".to_string(),
+            LogFilter {
+                log: "nonexistent".to_string(),
+                predicate: LogPredicate::Range {
+                    lower: Some(1.),
+                    upper: Some(2.),
+                },
+            },
+        );
+
+        let filters = Filters {
+            time_filter_type: FilterType::Include,
+            time_filters: HashMap::<String, Filter>::new(),
+            sample_log_filters,
+            amplitudes: HashMap::new(),
+            overwrite_type: OverwriteType::Free,
+        };
+
+        let error = filters
+            .get_log_filter_times(HashMap::<String, SampleLog>::new())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("nonexistent"), "{error}");
+    }
+
+    /// Test a numeric log filter on a string log gives an error.
+    #[test]
+    fn test_numeric_log_filter_on_string_log_errors() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter("a".to_string(), "status".to_string(), Some(1.), Some(2.))
+            .unwrap();
+
+        let mut logs = HashMap::<String, SampleLog>::new();
+        logs.insert(
+            "status".to_string(),
+            SampleLog::Str(ValueLog::<VarLenUnicode> {
+                name: "status".to_string(),
+                time: Array1::<f64>::from_vec(vec![0., 1.]),
+                value: Array1::from_vec(vec![
+                    VarLenUnicode::from_str("IDLE").unwrap(),
+                    VarLenUnicode::from_str("RUNNING").unwrap(),
+                ]),
+                unit: "".to_string(),
+            }),
+        );
+
+        let error = filters.get_log_filter_times(logs).unwrap_err().to_string();
+        assert!(error.contains("holds text"), "{error}");
+    }
+
+    /// Test a string log filter on a numeric log gives an error.
+    #[test]
+    fn test_string_log_filter_on_numeric_log_errors() {
+        let mut filters = Filters::new();
+        filters
+            .add_string_log_filter("a".to_string(), "temp".to_string(), "RUNNING".to_string())
+            .unwrap();
+
+        let mut logs = HashMap::<String, SampleLog>::new();
+        logs.insert(
+            "temp".to_string(),
+            SampleLog::F64(ValueLog::<f64> {
+                name: "temp".to_string(),
+                time: Array1::<f64>::linspace(0., 4., 5),
+                value: Array1::<f64>::linspace(0., 4., 5),
+                unit: "".to_string(),
+            }),
+        );
+
+        let error = filters.get_log_filter_times(logs).unwrap_err().to_string();
+        assert!(error.contains("holds numbers"), "{error}");
     }
 
     /// Test adding multiple log filters.
@@ -620,35 +1213,47 @@ mod tests {
         filters
             .add_log_filter_below("name3".to_string(), "temp".to_string(), 8.)
             .unwrap();
-        assert_eq!(
-            filters.sample_log_filters,
-            vec![
-                LogFilter {
-                    name: "name".to_string(),
-                    log: "temp".to_string(),
+
+        let mut expected = HashMap::<String, LogFilter>::new();
+        expected.insert(
+            "name".to_string(),
+            LogFilter {
+                log: "temp".to_string(),
+                predicate: LogPredicate::Range {
                     lower: Some(0.),
-                    upper: Some(1.)
+                    upper: Some(1.),
                 },
-                LogFilter {
-                    name: "name2".to_string(),
-                    log: "p".to_string(),
+            },
+        );
+        expected.insert(
+            "name2".to_string(),
+            LogFilter {
+                log: "p".to_string(),
+                predicate: LogPredicate::Range {
                     lower: Some(5.),
-                    upper: None
+                    upper: None,
                 },
-                LogFilter {
-                    name: "name3".to_string(),
-                    log: "temp".to_string(),
+            },
+        );
+        expected.insert(
+            "name3".to_string(),
+            LogFilter {
+                log: "temp".to_string(),
+                predicate: LogPredicate::Range {
                     lower: None,
-                    upper: Some(8.)
-                }
-            ]
-        )
+                    upper: Some(8.),
+                },
+            },
+        );
+
+        assert_eq!(filters.sample_log_filters, expected)
     }
 
-    /// Test an error is given when a log filter is given a duplicate name.
+    /// Test an error is given when a log filter is given a duplicate name in strict mode.
     #[test]
-    fn test_add_log_filter_duplicate_name() {
+    fn test_add_log_filter_duplicate_name_strict() {
         let mut filters = Filters::new();
+        filters.set_overwrite_type("strict").unwrap();
         filters
             .add_log_filter(
                 "filter1".to_string(),
@@ -665,6 +1270,44 @@ mod tests {
             Some(4.0),
         );
         assert!(result.is_err());
+    }
+
+    /// Test no error is given when a log filter is given a duplicate name in relaxed/free mode.
+    #[test]
+    fn test_add_log_filter_duplicate_name_otherwise() {
+        for overwrite_type in ["free", "relaxed"] {
+            let mut expected = HashMap::<String, LogFilter>::new();
+            expected.insert(
+                "filter1".to_string(),
+                LogFilter {
+                    log: "temp".to_string(),
+                    predicate: LogPredicate::Range {
+                        lower: Some(3.),
+                        upper: Some(4.),
+                    },
+                },
+            );
+
+            let mut filters = Filters::new();
+            filters.set_overwrite_type(overwrite_type).unwrap();
+            filters
+                .add_log_filter(
+                    "filter1".to_string(),
+                    "temp".to_string(),
+                    Some(1.0),
+                    Some(2.0),
+                )
+                .unwrap();
+
+            let result = filters.add_log_filter(
+                "filter1".to_string(),
+                "temp".to_string(),
+                Some(3.0),
+                Some(4.0),
+            );
+            assert!(result.is_ok());
+            assert_eq!(filters.sample_log_filters, expected)
+        }
     }
 
     /// Test time filters can be removed correctly.
@@ -690,15 +1333,19 @@ mod tests {
 
         filters.remove_log_filter("filter1".to_string()).unwrap();
 
-        assert_eq!(
-            filters.sample_log_filters,
-            vec![LogFilter {
-                name: "filter2".to_string(),
+        let mut expected = HashMap::<String, LogFilter>::new();
+        expected.insert(
+            "filter2".to_string(),
+            LogFilter {
                 log: "pw".to_string(),
-                lower: Some(3.),
-                upper: Some(4.)
-            }]
-        )
+                predicate: LogPredicate::Range {
+                    lower: Some(3.),
+                    upper: Some(4.),
+                },
+            },
+        );
+
+        assert_eq!(filters.sample_log_filters, expected)
     }
 
     /// Test removing a time filter that doesn't exist throws an error.
@@ -707,6 +1354,436 @@ mod tests {
         let mut filters = Filters::new();
         let result = filters.remove_log_filter("nonexistent".to_string());
         assert!(result.is_err());
+    }
+
+    /// Test extending a filter set adds the other's time and log filters.
+    #[test]
+    fn test_extend() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+        filters
+            .add_log_filter("log1".to_string(), "temp".to_string(), Some(0.), Some(1.))
+            .unwrap();
+
+        let mut other = Filters::new();
+        other
+            .add_time_filter("filter2".to_string(), 3.0, 4.0)
+            .unwrap();
+        other
+            .add_log_filter("log2".to_string(), "pw".to_string(), Some(2.), Some(3.))
+            .unwrap();
+
+        filters.extend(other).unwrap();
+
+        assert_eq!(
+            filters.time_filters,
+            HashMap::from([
+                ("filter1".to_string(), Filter { start: 1., end: 2. }),
+                ("filter2".to_string(), Filter { start: 3., end: 4. }),
+            ])
+        );
+        assert_eq!(
+            filters.sample_log_filters,
+            HashMap::from([
+                (
+                    "log1".to_string(),
+                    LogFilter {
+                        log: "temp".to_string(),
+                        predicate: LogPredicate::Range {
+                            lower: Some(0.),
+                            upper: Some(1.)
+                        }
+                    }
+                ),
+                (
+                    "log2".to_string(),
+                    LogFilter {
+                        log: "pw".to_string(),
+                        predicate: LogPredicate::Range {
+                            lower: Some(2.),
+                            upper: Some(3.)
+                        }
+                    }
+                ),
+            ])
+        );
+    }
+
+    /// Test extending with a clashing name overwrites the existing filter.
+    #[test]
+    fn test_extend_overwrites_clashing_names() {
+        let mut filters = Filters::new();
+        filters.set_overwrite_type("free").unwrap();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+        filters
+            .add_log_filter("log1".to_string(), "temp".to_string(), Some(0.), Some(1.))
+            .unwrap();
+
+        let mut other = Filters::new();
+        other
+            .add_time_filter("filter1".to_string(), 3.0, 4.0)
+            .unwrap();
+        other
+            .add_log_filter("log1".to_string(), "pw".to_string(), Some(2.), Some(3.))
+            .unwrap();
+
+        filters.extend(other).unwrap();
+
+        assert_eq!(
+            filters.time_filters,
+            HashMap::from([("filter1".to_string(), Filter { start: 3., end: 4. })])
+        );
+        assert_eq!(
+            filters.sample_log_filters,
+            HashMap::from([(
+                "log1".to_string(),
+                LogFilter {
+                    log: "pw".to_string(),
+                    predicate: LogPredicate::Range {
+                        lower: Some(2.),
+                        upper: Some(3.)
+                    }
+                }
+            )])
+        );
+    }
+
+    /// Test extending with a clashing name errors under strict overwriting.
+    #[test]
+    fn test_extend_clashing_names_strict() {
+        let mut filters = Filters::new();
+        filters.set_overwrite_type("strict").unwrap();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+
+        let mut other = Filters::new();
+        other
+            .add_time_filter("filter1".to_string(), 3.0, 4.0)
+            .unwrap();
+
+        assert!(filters.extend(other).is_err());
+    }
+
+    /// Test extending by an empty filter set leaves the filters unchanged.
+    #[test]
+    fn test_extend_empty() {
+        let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+        filters
+            .add_log_filter("log1".to_string(), "temp".to_string(), Some(0.), Some(1.))
+            .unwrap();
+        let expected = filters.clone();
+
+        filters.extend(Filters::new()).unwrap();
+
+        assert_eq!(filters, expected);
+    }
+
+    /// Test extending an empty filter set takes on the other's filters.
+    #[test]
+    fn test_extend_into_empty() {
+        let mut other = Filters::new();
+        other
+            .add_time_filter("filter1".to_string(), 1.0, 2.0)
+            .unwrap();
+        other
+            .add_log_filter("log1".to_string(), "temp".to_string(), Some(0.), Some(1.))
+            .unwrap();
+
+        let mut filters = Filters::new();
+        filters.extend(other.clone()).unwrap();
+
+        assert_eq!(filters.time_filters, other.time_filters);
+        assert_eq!(filters.sample_log_filters, other.sample_log_filters);
+    }
+
+    /// Test editing every field of a log filter.
+    #[test]
+    fn test_edit_log_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter(
+                "filter1".to_string(),
+                "temp".to_string(),
+                Some(1.0),
+                Some(2.0),
+            )
+            .unwrap();
+        filters
+            .edit_log_filter(
+                "filter1".to_string(),
+                Some("pw".to_string()),
+                Some(3.0),
+                Some(4.0),
+            )
+            .unwrap();
+
+        let mut expected = HashMap::<String, LogFilter>::new();
+        expected.insert(
+            "filter1".to_string(),
+            LogFilter {
+                log: "pw".to_string(),
+                predicate: LogPredicate::Range {
+                    lower: Some(3.),
+                    upper: Some(4.),
+                },
+            },
+        );
+
+        assert_eq!(filters.sample_log_filters, expected)
+    }
+
+    /// Test fields of a log filter given as None are left unchanged.
+    #[test]
+    fn test_edit_log_filter_partial() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter(
+                "filter1".to_string(),
+                "temp".to_string(),
+                Some(1.0),
+                Some(2.0),
+            )
+            .unwrap();
+
+        filters
+            .edit_log_filter("filter1".to_string(), None, None, Some(5.0))
+            .unwrap();
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "temp".to_string(),
+                predicate: LogPredicate::Range {
+                    lower: Some(1.),
+                    upper: Some(5.),
+                },
+            }
+        );
+
+        filters
+            .edit_log_filter("filter1".to_string(), Some("pw".to_string()), None, None)
+            .unwrap();
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "pw".to_string(),
+                predicate: LogPredicate::Range {
+                    lower: Some(1.),
+                    upper: Some(5.),
+                },
+            }
+        );
+    }
+
+    /// Test editing a log filter leaves an unbounded side unbounded.
+    #[test]
+    fn test_edit_log_filter_unbounded() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter_above("filter1".to_string(), "temp".to_string(), 1.0)
+            .unwrap();
+
+        filters
+            .edit_log_filter("filter1".to_string(), None, Some(2.0), None)
+            .unwrap();
+
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "temp".to_string(),
+                predicate: LogPredicate::Range {
+                    lower: Some(2.),
+                    upper: None,
+                },
+            }
+        );
+    }
+
+    /// Test editing a log filter that doesn't exist throws an error.
+    #[test]
+    fn test_edit_log_filter_nonexistent() {
+        let mut filters = Filters::new();
+        let result = filters.edit_log_filter("nonexistent".to_string(), None, Some(1.0), Some(2.0));
+        assert!(result.is_err());
+    }
+
+    /// Test editing a log filter to invalid bounds throws an error
+    /// and leaves the filter as it was.
+    #[test]
+    fn test_edit_log_filter_invalid_bounds() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter(
+                "filter1".to_string(),
+                "temp".to_string(),
+                Some(1.0),
+                Some(2.0),
+            )
+            .unwrap();
+
+        let result = filters.edit_log_filter("filter1".to_string(), None, Some(3.0), None);
+        assert!(result.is_err());
+
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "temp".to_string(),
+                predicate: LogPredicate::Range {
+                    lower: Some(1.),
+                    upper: Some(2.),
+                },
+            }
+        );
+    }
+
+    /// Test editing a log filter is allowed in strict overwrite mode;
+    /// editing an existing filter is not an overwrite.
+    #[test]
+    fn test_edit_log_filter_strict_overwrite() {
+        let mut filters = Filters::new();
+        filters.set_overwrite_type("strict").unwrap();
+        filters
+            .add_log_filter(
+                "filter1".to_string(),
+                "temp".to_string(),
+                Some(1.0),
+                Some(2.0),
+            )
+            .unwrap();
+
+        let result = filters.edit_log_filter("filter1".to_string(), None, Some(1.5), None);
+        assert!(result.is_ok());
+    }
+
+    /// Test editing the bounds of a string log filter throws an error.
+    #[test]
+    fn test_edit_log_filter_bounds_on_string_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_string_log_filter(
+                "filter1".to_string(),
+                "status".to_string(),
+                "RUNNING".to_string(),
+            )
+            .unwrap();
+
+        let result = filters.edit_log_filter("filter1".to_string(), None, Some(1.0), None);
+        assert!(result.is_err());
+    }
+
+    /// Test editing every field of a string log filter.
+    #[test]
+    fn test_edit_string_log_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_string_log_filter(
+                "filter1".to_string(),
+                "status".to_string(),
+                "RUNNING".to_string(),
+            )
+            .unwrap();
+        filters
+            .edit_string_log_filter(
+                "filter1".to_string(),
+                Some("state".to_string()),
+                Some("PAUSED".to_string()),
+            )
+            .unwrap();
+
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "state".to_string(),
+                predicate: LogPredicate::Equals("PAUSED".to_string()),
+            }
+        );
+    }
+
+    /// Test fields of a string log filter given as None are left unchanged.
+    #[test]
+    fn test_edit_string_log_filter_partial() {
+        let mut filters = Filters::new();
+        filters
+            .add_string_log_filter(
+                "filter1".to_string(),
+                "status".to_string(),
+                "RUNNING".to_string(),
+            )
+            .unwrap();
+
+        filters
+            .edit_string_log_filter("filter1".to_string(), None, Some("PAUSED".to_string()))
+            .unwrap();
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "status".to_string(),
+                predicate: LogPredicate::Equals("PAUSED".to_string()),
+            }
+        );
+
+        filters
+            .edit_string_log_filter("filter1".to_string(), Some("state".to_string()), None)
+            .unwrap();
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "state".to_string(),
+                predicate: LogPredicate::Equals("PAUSED".to_string()),
+            }
+        );
+    }
+
+    /// Test editing a string log filter that doesn't exist throws an error.
+    #[test]
+    fn test_edit_string_log_filter_nonexistent() {
+        let mut filters = Filters::new();
+        let result = filters.edit_string_log_filter(
+            "nonexistent".to_string(),
+            None,
+            Some("RUNNING".to_string()),
+        );
+        assert!(result.is_err());
+    }
+
+    /// Test editing a range log filter as a string log filter throws an
+    /// error and leaves the filter as it was.
+    #[test]
+    fn test_edit_string_log_filter_on_range_filter() {
+        let mut filters = Filters::new();
+        filters
+            .add_log_filter(
+                "filter1".to_string(),
+                "temp".to_string(),
+                Some(1.0),
+                Some(2.0),
+            )
+            .unwrap();
+
+        let result = filters.edit_string_log_filter(
+            "filter1".to_string(),
+            Some("status".to_string()),
+            Some("RUNNING".to_string()),
+        );
+        assert!(result.is_err());
+
+        assert_eq!(
+            filters.sample_log_filters["filter1"],
+            LogFilter {
+                log: "temp".to_string(),
+                predicate: LogPredicate::Range {
+                    lower: Some(1.),
+                    upper: Some(2.),
+                },
+            }
+        );
     }
 
     /// Test setting an amplitude for a given detector works.
@@ -774,27 +1851,28 @@ mod tests {
     /// Test that saving a filter and loading it back in works.
     #[test]
     fn test_save_load() {
+        let mut time_filters = HashMap::<String, Filter>::new();
+        time_filters.insert("a".to_string(), Filter { start: 1., end: 2. });
+        time_filters.insert("b".to_string(), Filter { start: 3., end: 4. });
+
+        let mut sample_log_filters = HashMap::<String, LogFilter>::new();
+        sample_log_filters.insert(
+            "c".to_string(),
+            LogFilter {
+                log: "Temp".to_string(),
+                predicate: LogPredicate::Range {
+                    lower: Some(5.),
+                    upper: Some(6.),
+                },
+            },
+        );
+
         let mut filters = Filters {
             time_filter_type: FilterType::Include,
-            time_filters: vec![
-                Filter {
-                    name: "a".to_string(),
-                    start: 1.,
-                    end: 2.,
-                },
-                Filter {
-                    name: "b".to_string(),
-                    start: 3.,
-                    end: 4.,
-                },
-            ],
-            sample_log_filters: vec![LogFilter {
-                name: "c".to_string(),
-                log: "Temp".to_string(),
-                lower: Some(5.),
-                upper: Some(6.),
-            }],
+            time_filters,
+            sample_log_filters,
             amplitudes: HashMap::new(),
+            overwrite_type: OverwriteType::Free,
         };
         filters.amplitudes.insert(3, 5.);
 
@@ -814,27 +1892,28 @@ mod tests {
     /// Test that saving a filter and loading it back in works for an unbounded log filter.
     #[test]
     fn test_save_load_unbounded_log() {
+        let mut time_filters = HashMap::<String, Filter>::new();
+        time_filters.insert("a".to_string(), Filter { start: 1., end: 2. });
+        time_filters.insert("b".to_string(), Filter { start: 3., end: 4. });
+
+        let mut sample_log_filters = HashMap::<String, LogFilter>::new();
+        sample_log_filters.insert(
+            "c".to_string(),
+            LogFilter {
+                log: "Temp".to_string(),
+                predicate: LogPredicate::Range {
+                    lower: Some(5.),
+                    upper: None,
+                },
+            },
+        );
+
         let mut filters = Filters {
             time_filter_type: FilterType::Include,
-            time_filters: vec![
-                Filter {
-                    name: "a".to_string(),
-                    start: 1.,
-                    end: 2.,
-                },
-                Filter {
-                    name: "b".to_string(),
-                    start: 3.,
-                    end: 4.,
-                },
-            ],
-            sample_log_filters: vec![LogFilter {
-                name: "c".to_string(),
-                log: "Temp".to_string(),
-                lower: Some(5.),
-                upper: None,
-            }],
+            time_filters,
+            sample_log_filters,
             amplitudes: HashMap::new(),
+            overwrite_type: OverwriteType::Free,
         };
         filters.amplitudes.insert(3, 5.);
 
@@ -858,10 +1937,21 @@ mod tests {
         assert!(filters.is_err())
     }
 
+    /// Test `__repr__` says there are no filters when none are there.
+    #[test]
+    fn test_repr_no_filters() {
+        let filters = Filters::new();
+        let repr = filters.__repr__();
+        assert!(repr == "No filters applied\n\n");
+    }
+
     /// Test `__repr__` reports the correct time filter type.
     #[test]
     fn test_repr_time_filter_type() {
         let mut filters = Filters::new();
+        filters
+            .add_time_filter("filter1".to_string(), 1.0, 2.3)
+            .unwrap();
         let repr = filters.__repr__();
         assert!(repr.starts_with("Time filter type: include"));
         filters.set_time_type("exclude".to_string()).unwrap();
@@ -898,7 +1988,7 @@ mod tests {
             .unwrap();
 
         let repr = filters.__repr__();
-        assert!(repr.contains("Log filters:"));
+        assert!(repr.contains("Sample log filters:"));
         assert!(repr.contains("logfilter"));
         assert!(repr.contains("temp"));
         assert!(repr.contains('1'));

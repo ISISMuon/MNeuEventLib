@@ -4,9 +4,9 @@ use anyhow::Result;
 use chrono::{DateTime, TimeDelta};
 use hdf5::types::VarLenUnicode;
 use hdf5::{File, Group};
-use ndarray::arr0;
+use ndarray::{arr0, Array1};
 
-use crate::consts::S_TO_NS;
+use crate::consts::{FRAME_PERIOD_S, S_TO_NS};
 use crate::data::save::sample_logs::get_all_sample_logs;
 use crate::data::save::utils::*;
 use crate::data::save::{Instrument, Periods};
@@ -30,7 +30,7 @@ pub struct WiMDAFile {
     /// The amount of time between the first and last frame.
     duration: f32,
     /// The time of the last frame.
-    end_time: usize, // stored here in ns from time zero
+    end_time: u64, // stored here in ns from time zero
     experiment_identifier: CopyData,
     /// The number of frames which have not been filtered out or vetoed.
     good_frames: u32,
@@ -51,7 +51,7 @@ pub struct WiMDAFile {
     /// Information about sample logs recorded during the experiment.
     selog: Vec<SampleLog>,
     /// The time of the first frame.
-    start_time: usize, // stored here in seconds from time zero
+    start_time: u64, // stored here in seconds from time zero
     /// The title of the experiment.
     title: CopyData,
     /// Information about the user performing the experiment.
@@ -68,7 +68,7 @@ impl WiMDAFile {
         let discarded_good_frames = unfiltered_frames - raw_frames;
         let discarded_raw_frames = unfiltered_frames - good_frames;
 
-        let good_duration = good_frames as f32 * 0.025;
+        let good_duration = good_frames as f32 * FRAME_PERIOD_S;
         let end_time = results.end_time;
         let start_time = results.start_time;
         let duration = (end_time - start_time) as f32 / S_TO_NS as f32;
@@ -77,7 +77,8 @@ impl WiMDAFile {
 
         let periods = Periods::new(results);
 
-        let selog = get_all_sample_logs(dataset, filters)?;
+        let frame_start_times: Array1<u64> = dataset.frame_times.read_1d()?;
+        let selog = get_all_sample_logs(dataset, filters, results.run_end(&frame_start_times))?;
 
         Ok(WiMDAFile {
             IDF_version: (),
@@ -260,9 +261,10 @@ mod tests {
     #[test]
     fn test_wimda_file_new_selog_length() {
         let data = calculated_data();
-        let wimda = WiMDAFile::new(&data.dataset, &data.filters[0], &data.results[0]).unwrap();
+        let dataset = &data.dataset.unwrap();
+        let wimda = WiMDAFile::new(dataset, &data.filters[0], &data.results[0]).unwrap();
 
-        assert_eq!(wimda.selog.len(), data.dataset.sample_log_names.len());
+        assert_eq!(wimda.selog.len(), dataset.sample_log_names.len());
     }
 
     /// Saving a `WiMDAFile` should produce a valid file with the expected
@@ -271,14 +273,15 @@ mod tests {
     fn test_wimda_save_creates_expected_structure() {
         let _guard = crate::test_utils::lock_hdf5_test();
         let data = calculated_data();
-        let wimda = WiMDAFile::new(&data.dataset, &data.filters[0], &data.results[0]).unwrap();
+        let dataset = &data.dataset.unwrap();
+        let wimda = WiMDAFile::new(dataset, &data.filters[0], &data.results[0]).unwrap();
 
         let mut tmp_path = temp_dir();
         tmp_path.push("wimda_test_structure.nxs");
         let tmp_path_str = tmp_path.to_str().unwrap().to_string();
 
         wimda
-            .save_file(tmp_path_str.clone(), &data.dataset.file)
+            .save_file(tmp_path_str.clone(), &dataset.file)
             .unwrap();
 
         let output = File::open(tmp_path_str).unwrap();
@@ -310,14 +313,15 @@ mod tests {
     fn test_wimda_save_sample_name_defaults_to_unknown_when_empty() {
         let _guard = crate::test_utils::lock_hdf5_test();
         let data = calculated_data();
-        let wimda = WiMDAFile::new(&data.dataset, &data.filters[0], &data.results[0]).unwrap();
+        let dataset = &data.dataset.unwrap();
+        let wimda = WiMDAFile::new(dataset, &data.filters[0], &data.results[0]).unwrap();
 
         let mut tmp_path = temp_dir();
         tmp_path.push("wimda_test_sample_name.nxs");
         let tmp_path_str = tmp_path.to_str().unwrap().to_string();
 
         wimda
-            .save_file(tmp_path_str.clone(), &data.dataset.file)
+            .save_file(tmp_path_str.clone(), &dataset.file)
             .unwrap();
 
         let output = File::open(tmp_path_str).unwrap();
@@ -339,14 +343,15 @@ mod tests {
     fn test_wimda_save_user_1_default_when_missing() {
         let _guard = crate::test_utils::lock_hdf5_test();
         let data = calculated_data();
-        let wimda = WiMDAFile::new(&data.dataset, &data.filters[0], &data.results[0]).unwrap();
+        let dataset = &data.dataset.unwrap();
+        let wimda = WiMDAFile::new(dataset, &data.filters[0], &data.results[0]).unwrap();
 
         let mut tmp_path = temp_dir();
         tmp_path.push("wimda_test_user_1.nxs");
         let tmp_path_str = tmp_path.to_str().unwrap().to_string();
 
         wimda
-            .save_file(tmp_path_str.clone(), &data.dataset.file)
+            .save_file(tmp_path_str.clone(), &dataset.file)
             .unwrap();
 
         let output = File::open(tmp_path_str).unwrap();

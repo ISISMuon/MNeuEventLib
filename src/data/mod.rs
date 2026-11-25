@@ -5,7 +5,7 @@ pub use nexus_data::NexusData;
 mod sample_logs;
 pub use sample_logs::SampleLog;
 mod frame_data;
-pub use frame_data::FrameData;
+pub use frame_data::frame_range;
 pub mod save;
 pub use save::{SaveFile, WiMDAFile};
 

@@ -2,10 +2,8 @@ use anyhow::Result;
 use numpy::ToPyArray;
 use pyo3::prelude::{pyclass, pymethods, Bound};
 
-use crate::batch_interface::{FilterIndex, PyHist};
-use crate::{BatchData, NexusData};
-
-use std::path::PathBuf;
+use crate::batch::{BatchData, FilterIndex, PyHist};
+use crate::data::NexusData;
 
 /// The main MNeuEventLib interface.
 #[pyclass(from_py_object)]
@@ -29,7 +27,8 @@ impl Data {
 
     #[getter]
     fn dataset(&self) -> NexusData {
-        self.inner.dataset.clone()
+        // non-batch data can't exist without dataset set
+        self.inner.dataset.clone().unwrap()
     }
 
     /// Calculate the histogram for the current data and filters.
@@ -47,6 +46,11 @@ impl Data {
     /// Force histograms to be recalculated even if the data hasn't changed.
     fn invalidate_cache(&mut self) {
         self.inner.invalidate_cache()
+    }
+
+    /// Check if any data has changed since you last ran a calculation.
+    pub fn data_changed(&mut self) -> bool {
+        self.inner.data_changed()
     }
 
     /// Set histogram settings.
@@ -79,6 +83,20 @@ impl Data {
         self.inner.set_time_type(FilterIndex::Index(0), filter_type)
     }
 
+    /// Set the overwrite behaviour for filters.
+    ///
+    /// Parameters
+    /// ----------
+    /// overwrite_type: str
+    ///     The overwrite behaviour. Must be 'strict', 'relaxed', or 'free':  
+    ///     - 'strict' produces an error on attempted overwrite;
+    ///     - 'relaxed' allows overwriting and produces a warning;
+    ///     - 'free' allows overwriting with no warnings.
+    fn set_overwrite_type(&mut self, overwrite_type: String) -> Result<()> {
+        self.inner
+            .set_overwrite_type(FilterIndex::Index(0), overwrite_type)
+    }
+
     /// Add a time filter.
     ///
     /// Parameters
@@ -92,6 +110,29 @@ impl Data {
     pub fn add_time_filter(&mut self, name: String, start: f64, end: f64) -> Result<()> {
         self.inner
             .add_time_filter(FilterIndex::Index(0), name, start, end)
+    }
+
+    /// Edit an existing time filter.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: str
+    ///     The name of the time filter to edit. Must already exist.
+    /// start: float | None
+    ///     The new start point for the time filter. If None, the start
+    ///     point is left unchanged.
+    /// end: float | None
+    ///     The new end point for the time filter. If None, the end point
+    ///     is left unchanged.
+    #[pyo3(signature = (name, start=None, end=None))]
+    pub fn edit_time_filter(
+        &mut self,
+        name: String,
+        start: Option<f64>,
+        end: Option<f64>,
+    ) -> Result<()> {
+        self.inner
+            .edit_time_filter(FilterIndex::Index(0), name, start, end)
     }
 
     /// Remove a time filter.
@@ -125,6 +166,76 @@ impl Data {
     ) -> Result<()> {
         self.inner
             .add_log_filter(FilterIndex::Index(0), name, log, lower, upper)
+    }
+
+    /// Add a sample log filter matching a string log against a specific value.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: str
+    ///     The name of the log filter. Must be unique.
+    /// log: str
+    ///     The sample log in the data to which the filter applies. Must hold text.
+    /// value: str
+    ///     The value to match. Matching is case-insensitive.
+    pub fn add_string_log_filter(
+        &mut self,
+        name: String,
+        log: String,
+        value: String,
+    ) -> Result<()> {
+        self.inner
+            .add_string_log_filter(FilterIndex::Index(0), name, log, value)
+    }
+
+    /// Edit an existing sample log filter.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: str
+    ///     The name of the log filter to edit. Must already exist.
+    /// log: str | None
+    ///     The new sample log for the filter to apply to. If None, the
+    ///     sample log is left unchanged.
+    /// lower: float | None
+    ///     The new lower bound for the log filter. If None, the lower
+    ///     bound is left unchanged.
+    /// upper: float | None
+    ///     The new upper bound for the log filter. If None, the upper
+    ///     bound is left unchanged.
+    #[pyo3(signature = (name, log=None, lower=None, upper=None))]
+    pub fn edit_log_filter(
+        &mut self,
+        name: String,
+        log: Option<String>,
+        lower: Option<f64>,
+        upper: Option<f64>,
+    ) -> Result<()> {
+        self.inner
+            .edit_log_filter(FilterIndex::Index(0), name, log, lower, upper)
+    }
+
+    /// Edit an existing string sample log filter.
+    ///
+    /// Parameters
+    /// ----------
+    /// name: str
+    ///     The name of the string log filter to edit. Must already exist.
+    /// log: str | None
+    ///     The new sample log for the filter to apply to. If None, the
+    ///     sample log is left unchanged. Must hold text.
+    /// value: str | None
+    ///     The new value to match. If None, the value is left unchanged.
+    ///     Matching is case-insensitive.
+    #[pyo3(signature = (name, log=None, value=None))]
+    pub fn edit_string_log_filter(
+        &mut self,
+        name: String,
+        log: Option<String>,
+        value: Option<String>,
+    ) -> Result<()> {
+        self.inner
+            .edit_string_log_filter(FilterIndex::Index(0), name, log, value)
     }
 
     /// Remove a sample log filter.
@@ -189,7 +300,17 @@ impl Data {
         self.inner.set_amps_baseline(FilterIndex::Index(0), amp)
     }
 
+    /// Clear all filters.
+    fn clear_filters(&mut self) -> Result<()> {
+        self.inner.clear_filters(FilterIndex::Index(0))
+    }
+
     /// Save to a file.
+    ///
+    /// If the result is out of date (because the filters or histogram
+    /// settings have changed since it was last calculated, or because it has
+    /// never been calculated) it is recalculated first, and a warning is
+    /// printed to say so.
     ///
     /// Parameters
     /// ----------
@@ -201,18 +322,21 @@ impl Data {
     ///     have mistakes/problems).
     ///     This allows the file to be read by Mantid even if the event file
     ///     is incomplete.
-    /// ref_file: str
+    /// ref_file: str | None
     ///     The reference file for the saved file. (must be a Nexus file)
     ///     Contains "correct" data that should be copied to the output file.
-    ///     This is only need it the reference file needed is not the standard
-    ///     muon nexus v2 file. The ref_file is generated from tools/make_default.py.
-    #[pyo3(signature = (filename, autofill=true, ref_file = (PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("files/muon_ref.nxs")).display().to_string()))]
-    fn save(&self, filename: String, autofill: bool, ref_file: String) -> Result<()> {
+    ///     This is only needed if the reference file needed is not the standard
+    ///     muon nexus v2 file. If None, uses the standard embedded default muon Nexus reference file.
+    #[pyo3(signature = (filename, autofill=true, ref_file=None))]
+    fn save(&mut self, filename: String, autofill: bool, ref_file: Option<String>) -> Result<()> {
         self.inner
-            .save(FilterIndex::Index(0), filename, autofill, ref_file.clone())
+            .save(FilterIndex::Index(0), filename, autofill, ref_file)
     }
 
     /// Get the calculated histogram.
+    ///
+    /// This is empty if the filters or histogram settings have changed
+    /// since the last calculation, or if `calculate` has never been run.
     fn get_histogram<'py>(slf: &Bound<'py, Data>) -> PyHist<'py> {
         let py = slf.py();
         slf.borrow().inner.results[0].hist.to_pyarray(py)
@@ -223,10 +347,30 @@ impl Data {
         self.inner.results[0].n
     }
 
+    /// Save the current set of filters to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename for the saved file.
+    fn save_filters(&self, filename: String) -> Result<()> {
+        self.inner.save_filters(0, filename)
+    }
+
+    /// Load a set of filters from a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: str
+    ///     The filename for the filters.
+    fn load_filters(&mut self, filename: String) -> Result<()> {
+        self.inner.load_filters(0, filename)
+    }
+
     fn __repr__(&self) -> String {
         format!(
-            "{}\n\n{}\n\n{}",
-            self.inner.dataset.__repr__(),
+            "{}\n\n{}{}",
+            self.inner.dataset.as_ref().unwrap().__repr__(),
             self.inner.filters[0].__repr__(),
             self.inner.results[0].__repr__()
         )
