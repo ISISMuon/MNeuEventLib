@@ -444,7 +444,6 @@ fn make_histogram(
 
             for event_idx in frame_start_event..frame_end_event {
                 let event_time = times_slice[event_idx];
-                let pulse_amp = amps_slice[event_idx];
                 let spec_idx = specs_slice[event_idx] as usize;
 
                 if event_time >= min_time && event_time < max_time {
