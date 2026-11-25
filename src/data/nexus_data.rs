@@ -1,11 +1,12 @@
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::Mutex;
 
 use anyhow::{Error, Result};
 use hdf5::{Dataset, File, Group};
-use ndarray::{s, Array1};
-use numpy::{PyArray1, ToPyArray};
+use ndarray::{s, Array1, Array2};
+use numpy::{PyArray1, PyArray2, ToPyArray};
 use pyo3::prelude::{pyclass, pymethods, Bound, PyDictMethods, Python};
 use pyo3::types::PyDict;
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
@@ -29,7 +30,8 @@ pub struct NexusData {
     pub sample_log_names: Vec<String>,
     pub n_events: usize, // the total number of events
     pub n_frames: usize,
-    pub n_spec: usize,     // the number of detectors
+    #[pyo3(get)]
+    pub n_spec: usize, // the number of detectors
     pub chunk_size: usize, // the size of the data chunks
 }
 
@@ -98,7 +100,7 @@ impl NexusData {
         Ok(output)
     }
 
-    /// Get a histogram of the amplitudes and the maximum height.
+    /// Get a histogram of the amplitudes and the maximum height summed over all detectors.
     ///
     /// Parameters
     /// ----------
@@ -119,6 +121,42 @@ impl NexusData {
         detector: Option<usize>,
     ) -> Result<(Bound<'py, PyArray1<usize>>, f64)> {
         let (results, max) = self.get_amp_histogram(max_height, n_bins, detector)?;
+        Ok((results.to_pyarray(py), max))
+    }
+
+    /// Get a histogram of the amplitudes for each of several detectors,
+    /// and the maximum height.
+    ///
+    /// Every detector is histogrammed over the same bin edges, so the
+    /// results can be compared directly.
+    ///
+    /// Parameters
+    /// ----------
+    /// detectors: Sequence[int]
+    ///     The detectors to create amplitude histograms for.
+    ///     Must not be empty or contain duplicates.
+    /// max_height: float, optional
+    ///     The maximum height to use. If not provided, the maximum
+    ///     amplitude in the data is used.
+    /// n_bins: int, default 10
+    ///     The number of equal-width bins to use.
+    ///
+    /// Returns
+    /// -------
+    /// np.ndarray
+    ///     An array of shape (len(detectors), n_bins), where row i is the
+    ///     histogram for detectors[i].
+    /// float
+    ///     The maximum height used.
+    #[pyo3(name = "get_amp_histograms", signature = (detectors, max_height=None, n_bins=10))]
+    fn get_amp_histograms_py<'py>(
+        &self,
+        py: Python<'py>,
+        detectors: Vec<usize>,
+        max_height: Option<f64>,
+        n_bins: usize,
+    ) -> Result<(Bound<'py, PyArray2<usize>>, f64)> {
+        let (results, max) = self.get_amp_histograms(max_height, n_bins, &detectors)?;
         Ok((results.to_pyarray(py), max))
     }
 
@@ -166,20 +204,15 @@ impl NexusData {
         n_bins: usize,
         detector: Option<usize>,
     ) -> Result<(Array1<usize>, f64)> {
+        // a single detector is just the one-row case of get_amp_histograms
         if let Some(detector) = detector {
-            if detector >= self.n_spec {
-                return Err(Error::msg(format!(
-                    "Attempted to get amplitude histogram for detector {detector}, but instrument only has {} detectors (numbered 0 to {}).",
-                    self.n_spec,
-                    self.n_spec - 1
-                )));
-            }
+            let (hists, max) = self.get_amp_histograms(max_height, n_bins, &[detector])?;
+            return Ok((hists.row(0).to_owned(), max));
         }
-        let max = match max_height {
-            Some(height) if height.is_finite() => height,
-            Some(_) => return Err(Error::msg("max_height must be finite.")),
-            None => self.get_dataset_max(&self.amps)?,
-        };
+
+        // with no detector given we count every event, so unlike get_amp_histograms
+        // we never need to read the spectrum numbers
+        let max = self.resolve_max_height(max_height)?;
         if n_bins == 0 {
             return Err(Error::msg("n_bins must be greater than 0."));
         }
@@ -191,42 +224,18 @@ impl NexusData {
             (0..n_amps)
                 .into_par_iter()
                 .step_by(self.chunk_size)
-                // get the amps for each chunk, and the spectrum numbers
-                // if we need them to pick out a single detector
-                .map(|start| -> (Array1<f64>, Option<Array1<u32>>) {
+                // get the amps for each chunk
+                .map(|start| -> Array1<f64> {
                     let end = min(start + self.chunk_size, n_amps);
-                    let array_slice = s![start..end];
-                    let amps = self
-                        .amps
-                        .read_slice_1d(array_slice)
-                        .expect("Failed to read amplitude data.");
-                    let specs = detector.map(|_| {
-                        self.specs
-                            .read_slice_1d(array_slice)
-                            .expect("Failed to read spectrum data.")
-                    });
-                    (amps, specs)
+                    self.amps
+                        .read_slice_1d(s![start..end])
+                        .expect("Failed to read amplitude data.")
                 })
                 // bin amps for each chunk
-                .map(|(amps, specs)| {
+                .map(|amps| {
                     let mut array = Array1::zeros(n_bins);
-                    for (i, amp) in amps.into_iter().enumerate() {
-                        // skip events recorded by any other detector
-                        if let (Some(specs), Some(detector)) = (&specs, detector) {
-                            if specs[i] as usize != detector {
-                                continue;
-                            }
-                        }
-                        // anything over the max is put in the last bin
-                        if amp >= max {
-                            array[n_bins - 1] += 1
-                        } else {
-                            // it is technically impossible for the bin to be larger
-                            // than n_bins - 1, but floating point error may bump
-                            // the largest amp to above this in some cases
-                            let bin = ((amp / width).floor() as usize).min(n_bins - 1);
-                            array[bin] += 1
-                        }
+                    for amp in amps {
+                        array[amp_bin(amp, max, width, n_bins)] += 1
                     }
                     array
                 })
@@ -241,6 +250,112 @@ impl NexusData {
                 ),
         );
         Ok((results, max))
+    }
+
+    /// Get a histogram of amplitudes for each of several detectors, and the max height.
+    ///
+    /// Row `i` of the result is the histogram for `detectors[i]`. Every detector is
+    /// binned over the same edges in a single pass over the file, so the rows can be
+    /// compared directly and the cost does not grow with the number of detectors.
+    fn get_amp_histograms(
+        &self,
+        max_height: Option<f64>,
+        n_bins: usize,
+        detectors: &[usize],
+    ) -> Result<(Array2<usize>, f64)> {
+        if detectors.is_empty() {
+            return Err(Error::msg(
+                "Attempted to get amplitude histograms, but no detectors were given.",
+            ));
+        }
+        // map each detector onto its row of the output, so that binning an event is a
+        // lookup rather than a search. this also catches duplicates, which would
+        // otherwise silently give a detector two rows of the result
+        let mut rows: Vec<Option<usize>> = vec![None; self.n_spec];
+        for (row, &detector) in detectors.iter().enumerate() {
+            if detector >= self.n_spec {
+                return Err(Error::msg(format!(
+                    "Attempted to get amplitude histogram for detector {detector}, but instrument only has {} detectors (numbered 0 to {}).",
+                    self.n_spec,
+                    self.n_spec - 1
+                )));
+            }
+            if rows[detector].is_some() {
+                return Err(Error::msg(format!(
+                    "Attempted to get amplitude histograms, but detector {detector} was given more than once."
+                )));
+            }
+            rows[detector] = Some(row);
+        }
+
+        let max = self.resolve_max_height(max_height)?;
+        if n_bins == 0 {
+            return Err(Error::msg("n_bins must be greater than 0."));
+        }
+        let width = max / n_bins as f64;
+        let n_amps = self.amps.size();
+        let n_detectors = detectors.len();
+
+        // accumulate one set of histograms per worker, then combine them at the end.
+        // current_thread_index may be None (if it runs on a thread that isn't a Rayon
+        // thread somehow) so we keep a fallback slot just in case
+        let n_threads = rayon::current_num_threads() + 1;
+        let fallback_slot = n_threads - 1;
+        let accumulators: Vec<Mutex<Option<Array2<usize>>>> =
+            (0..n_threads).map(|_| Mutex::new(None)).collect();
+
+        (0..n_amps)
+            .into_par_iter()
+            .step_by(self.chunk_size)
+            .for_each(|start| {
+                let end = min(start + self.chunk_size, n_amps);
+                let array_slice = s![start..end];
+                let amps: Array1<f64> = self
+                    .amps
+                    .read_slice_1d(array_slice)
+                    .expect("Failed to read amplitude data.");
+                let specs: Array1<u32> = self
+                    .specs
+                    .read_slice_1d(array_slice)
+                    .expect("Failed to read spectrum data.");
+
+                let thread = rayon::current_thread_index().unwrap_or(fallback_slot);
+                let mut acc_mutex = accumulators[thread]
+                    .lock()
+                    .expect("accumulator thread panicked!");
+                let acc = acc_mutex.get_or_insert_with(|| Array2::zeros((n_detectors, n_bins)));
+
+                for (i, amp) in amps.into_iter().enumerate() {
+                    // skip events recorded by a detector we weren't asked about
+                    let Some(row) = rows.get(specs[i] as usize).copied().flatten() else {
+                        continue;
+                    };
+                    acc[[row, amp_bin(amp, max, width, n_bins)]] += 1
+                }
+            });
+
+        // combine the per-worker histograms
+        let results = accumulators
+            .into_iter()
+            .filter_map(|thread| thread.into_inner().expect("accumulator thread panicked!"))
+            .reduce(|mut acc, other| {
+                acc += &other;
+                acc
+            })
+            // every worker may have been left unused if the file holds no events
+            .unwrap_or_else(|| Array2::zeros((n_detectors, n_bins)));
+
+        Ok((results, max))
+    }
+
+    /// Work out the maximum height to use for an amplitude histogram.
+    #[inline(always)]
+    fn resolve_max_height(&self, max_height: Option<f64>) -> Result<f64> {
+        match max_height {
+            Some(height) if height.is_finite() => Ok(height),
+            Some(_) => Err(Error::msg("max_height must be finite.")),
+            None => self.get_dataset_max(&self.amps),
+        }
     }
 
     /// Get the maximum value of a dataset.
@@ -263,6 +378,20 @@ impl NexusData {
             })
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap())
+    }
+}
+
+/// Work out which bin of an amplitude histogram an amplitude falls in.
+#[inline(always)]
+fn amp_bin(amp: f64, max: f64, width: f64, n_bins: usize) -> usize {
+    // anything over the max is put in the last bin
+    if amp >= max {
+        n_bins - 1
+    } else {
+        // it is technically impossible for the bin to be larger
+        // than n_bins - 1, but floating point error may bump
+        // the largest amp to above this in some cases
+        ((amp / width).floor() as usize).min(n_bins - 1)
     }
 }
 
@@ -511,6 +640,72 @@ mod tests {
             .get_amp_histogram(Some(10.), 10, Some(2))
             .unwrap();
         assert_eq!(hist, Array1::<usize>::zeros(10))
+    }
+
+    /// Test that histogramming several detectors in one pass gives the same
+    /// result as histogramming each of them separately, and that the rows
+    /// come back in the order the detectors were asked for.
+    #[test]
+    fn test_make_amp_histograms_multiple_detectors() {
+        let data = MockData::new().unwrap();
+        let amps = Array1::from_vec(vec![0.8, 1.5, 1.2, 3.3, 2., 3.8, 6.1]);
+        let specs: Array1<u32> = Array1::from_vec(vec![0, 1, 0, 1, 0, 1, 0]);
+        data.add_dataset("pulse_height", amps).unwrap();
+        data.add_dataset("event_id", specs).unwrap();
+        let nexus_data = data.create(64, 5).unwrap();
+
+        // ask for detector 1 first, so that the rows are not simply in detector order
+        let (hists, max) = nexus_data
+            .get_amp_histograms(Some(10.), 10, &[1, 0])
+            .unwrap();
+        assert_eq!(max, 10.);
+        assert_eq!(hists.shape(), [2, 10]);
+
+        for (row, detector) in [1, 0].iter().enumerate() {
+            let (expected, _) = nexus_data
+                .get_amp_histogram(Some(10.), 10, Some(*detector))
+                .unwrap();
+            assert_eq!(hists.row(row).to_owned(), expected);
+        }
+    }
+
+    /// Test that asking for no detectors is an error, rather than an
+    /// empty result that would plot as a blank figure.
+    #[test]
+    fn test_make_amp_histograms_no_detectors_errors() {
+        let (data, _guard) = test_data();
+
+        let result = data.get_amp_histograms(Some(10.), 10, &[]);
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Attempted to get amplitude histograms, but no detectors were given.".to_string()
+        )
+    }
+
+    /// Test that asking for the same detector twice is an error.
+    #[test]
+    fn test_make_amp_histograms_duplicate_detector_errors() {
+        let (data, _guard) = test_data();
+
+        let result = data.get_amp_histograms(Some(10.), 10, &[0, 1, 0]);
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Attempted to get amplitude histograms, but detector 0 was given more than once."
+                .to_string()
+        )
+    }
+
+    /// Test that a detector outside the instrument is an error, and that the
+    /// message says which detector numbers are valid.
+    #[test]
+    fn test_make_amp_histograms_detector_out_of_range_errors() {
+        let (data, _guard) = test_data();
+
+        let result = data.get_amp_histograms(Some(10.), 10, &[0, 64]);
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Attempted to get amplitude histogram for detector 64, but instrument only has 64 detectors (numbered 0 to 63).".to_string()
+        )
     }
 
     /// Test that `__repr__` includes the filename.
