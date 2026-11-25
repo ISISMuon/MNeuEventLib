@@ -447,7 +447,7 @@ fn make_histogram(
                 let pulse_amp = amps_slice[event_idx];
                 let spec_idx = specs_slice[event_idx] as usize;
 
-                if event_time >= min_time && event_time < max_time && pulse_amp > 0.0 {
+                if event_time >= min_time && event_time < max_time {
                     let bin_idx = ((event_time - min_time) as f32 * inv_bin_width) as usize;
                     let bin_idx = min(bin_idx, n_bins - 1);
                     hist_slice[period_offset + spec_idx * n_bins + bin_idx] += 1;
