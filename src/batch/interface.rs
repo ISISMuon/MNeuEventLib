@@ -591,11 +591,11 @@ impl BatchData {
         let data_changed = vec![true; result_size];
 
         let mut filters = Vec::<Filters>::with_capacity(result_size);
-        for i in 0..n {
-            for j in 0..m {
+        for filter in self.filters.iter().take(n) {
+            for other_filter in other.filters.iter().take(m) {
                 // pushing in this order puts the pair (i, j) at index i * m + j
-                let mut combined = self.filters[i].clone();
-                combined.extend(other.filters[j].clone())?;
+                let mut combined = filter.clone();
+                combined.extend(other_filter.clone())?;
                 filters.push(combined);
             }
         }

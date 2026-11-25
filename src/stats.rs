@@ -252,7 +252,7 @@ pub fn calculate_histograms(
     let n_spec = dataset.n_spec;
 
     let total_chunks = if dataset.chunk_size > 0 {
-        (dataset.n_events + dataset.chunk_size - 1) / dataset.chunk_size
+        dataset.n_events.div_ceil(dataset.chunk_size)
     } else {
         1
     };
