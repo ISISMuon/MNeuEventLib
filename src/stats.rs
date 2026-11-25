@@ -7,7 +7,7 @@ use ndarray::{s, Array1, Array3};
 use crate::consts::{
     ToMicroseconds, DEFAULT_HIST_MAX_TIME, DEFAULT_HIST_MIN_TIME, DEFAULT_HIST_N_BINS,
 };
-use crate::data::{FrameData, NexusData};
+use crate::data::{frame_range, NexusData};
 use crate::filters::{get_log_weights, get_weights, Filters, Weights};
 
 #[derive(Clone)]
@@ -97,7 +97,6 @@ impl Histogram {
 
         // set up data to parse things recorded by frame rather than by event
         let start_index: Array1<usize> = data.frames.read_1d()?;
-        let frame_data = FrameData::new(start_index.clone(), data.n_events);
 
         // get data for time filters
         let (time_starts, time_ends) = filters.get_time_filter_times();
@@ -157,7 +156,7 @@ impl Histogram {
             periods,
             min_amps,
             &weights,
-            frame_data,
+            start_index,
         );
         histogram.n_frames = n_frames.clone();
         histogram.n_good_frames = n_frames;
@@ -238,15 +237,14 @@ pub fn calculate_histograms(
     periods: Array1<u32>,
     min_amps: Array1<f64>,
     weights: &Weights,
-    frame_data: FrameData,
+    start_index: Array1<usize>,
 ) -> Histogram {
     // Precompute reciprocal of bin width to replace inner loop floating-point divisions with fast multiplications
     let bin_width: f32 = (max_time - min_time) as f32 / n_bins as f32;
     let inv_bin_width: f32 = 1.0f32 / bin_width;
     let has_amp_filter = min_amps.iter().any(|&threshold| threshold > 0.0);
 
-    let frame_data_ref = &frame_data;
-    let frame_starts = &frame_data.start_index;
+    let frame_starts = &start_index;
     let periods_ref = &periods;
     let min_amps_ref = &min_amps;
     let n_spec = dataset.n_spec;
@@ -282,7 +280,7 @@ pub fn calculate_histograms(
                     .expect("Failed to read specs from dataset.");
 
                 let (lower_frame_index, upper_frame_index) =
-                    frame_data_ref.frame_range(start_index, end_index);
+                    frame_range(frame_starts, start_index, end_index);
 
                 let chunk = ChunkData {
                     times,
@@ -474,7 +472,7 @@ mod tests {
         n_periods: usize,
         min_amps: &Array1<f64>,
         weights: &Weights,
-        frame_data: FrameData,
+        start_index: &Array1<usize>,
         min_time: u32,
         max_time: u32,
         n_bins: usize,
@@ -484,10 +482,10 @@ mod tests {
         let n_events = times.len();
         let inv_width = 1.0f32 / width;
         let has_amp_filter = min_amps.iter().any(|&a| a > 0.0);
-        let (lower_frame, upper_frame) = if frame_data.start_index.is_empty() {
+        let (lower_frame, upper_frame) = if start_index.is_empty() {
             (0, 0)
         } else {
-            frame_data.frame_range(0, n_events)
+            frame_range(start_index, 0, n_events)
         };
         let chunk = ChunkData {
             times,
@@ -504,7 +502,7 @@ mod tests {
             periods,
             min_amps,
             weights,
-            &frame_data.start_index,
+            start_index,
             min_time,
             max_time,
             inv_width,
@@ -544,6 +542,7 @@ mod tests {
         let periods = Array1::zeros(6);
         let min_amps = Array1::zeros(6);
         let weights = Weights::ones(6);
+        let start_index = Array1::zeros(1);
 
         let result = histogram_one_chunk(
             times,
@@ -554,7 +553,7 @@ mod tests {
             1,
             &min_amps,
             &weights,
-            FrameData::one_frame(6),
+            &start_index,
             0,
             3000,
             3,
@@ -577,6 +576,7 @@ mod tests {
         let min_amps = Array1::zeros(6);
         // weight bytes are filtering out values 0, 3, 4
         let weights = Weights::from_raw(vec![0b100110]);
+        let start_index = Array1::from_vec((0..6).collect());
 
         let result = histogram_one_chunk(
             times,
@@ -587,7 +587,7 @@ mod tests {
             1,
             &min_amps,
             &weights,
-            FrameData::one_event_per_frame(6),
+            &start_index,
             0,
             3000,
             3,
@@ -609,6 +609,7 @@ mod tests {
         let periods = Array1::from_vec(vec![0, 0, 1, 1, 0, 1]);
         let min_amps = Array1::zeros(6);
         let weights = Weights::ones(6);
+        let start_index = Array1::from_vec((0..6).collect());
 
         let result = histogram_one_chunk(
             times,
@@ -619,7 +620,7 @@ mod tests {
             2,
             &min_amps,
             &weights,
-            FrameData::one_event_per_frame(6),
+            &start_index,
             0,
             3000,
             3,
@@ -653,6 +654,7 @@ mod tests {
         let periods = Array1::zeros(4);
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
+        let start_index = Array1::zeros(1);
 
         let result = histogram_one_chunk(
             times,
@@ -663,7 +665,7 @@ mod tests {
             1,
             &min_amps,
             &weights,
-            FrameData::one_frame(4),
+            &start_index,
             1000,
             3000,
             2,
@@ -685,6 +687,7 @@ mod tests {
         let periods = Array1::zeros(4);
         let min_amps = Array1::zeros(4);
         let weights = Weights::ones(4);
+        let start_index = Array1::zeros(1);
 
         let result = histogram_one_chunk(
             times,
@@ -695,7 +698,7 @@ mod tests {
             1,
             &min_amps,
             &weights,
-            FrameData::one_frame(4),
+            &start_index,
             0,
             2000,
             2,
@@ -717,6 +720,7 @@ mod tests {
         let periods = Array1::zeros(6);
         let min_amps = Array1::from_vec(vec![0.5, 1.5]);
         let weights = Weights::ones(6);
+        let start_index = Array1::zeros(1);
 
         let result = histogram_one_chunk(
             times,
@@ -727,7 +731,7 @@ mod tests {
             1,
             &min_amps,
             &weights,
-            FrameData::one_frame(6),
+            &start_index,
             0,
             3000,
             3,
@@ -750,7 +754,7 @@ mod tests {
         let periods = Array1::zeros(6);
         let min_amps = Array1::zeros(6);
         let weights = Weights::ones(6);
-        let frame_data = FrameData::new(Array1::from_vec((0..6).collect()), 6);
+        let start_index = Array1::from_vec((0..6).collect());
 
         // all six events in one chunk
         let single = histogram_one_chunk(
@@ -762,7 +766,7 @@ mod tests {
             1,
             &min_amps,
             &weights,
-            frame_data.slice(0, 6),
+            &start_index,
             0,
             3000,
             3,
@@ -774,7 +778,7 @@ mod tests {
         let inv_width = 1.0f32 / 1000.;
         let has_amp_filter = min_amps.iter().any(|&a| a > 0.0);
         for (start, end) in [(0, 3), (3, 6)] {
-            let (lower_frame, upper_frame) = frame_data.frame_range(start, end);
+            let (lower_frame, upper_frame) = frame_range(&start_index, start, end);
             let t_slice = times.slice(s![start..end]).to_owned();
             let s_slice = specs.slice(s![start..end]).to_owned();
             let a_slice = amps.slice(s![start..end]).to_owned();
@@ -793,7 +797,7 @@ mod tests {
                 &periods,
                 &min_amps,
                 &weights,
-                &frame_data.start_index,
+                &start_index,
                 0,
                 3000,
                 inv_width,
