@@ -1869,7 +1869,11 @@ mod tests {
         let result = filters.get_ampl(6);
         assert!(result.is_err());
 
-        assert_eq!(result.unwrap_err().to_string(), "Attempted to set amplitude filter for detector 6, but detector indices go from 0 to 5".to_string())
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Attempted to set amplitude filter for detector 6, but detector indices go from 0 to 5"
+                .to_string()
+        )
     }
 
     /// Test amplitudes are correctly converted to an array.
@@ -1909,7 +1913,11 @@ mod tests {
         let result = filters.get_ampl(6);
         assert!(result.is_err());
 
-        assert_eq!(result.unwrap_err().to_string(), "Attempted to set amplitude filter for detector 20, but instrument only has 6 detectors.".to_string())
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Attempted to set amplitude filter for detector 20, but detector indices go from 0 to 5"
+                .to_string()
+        )
     }
 
     /// Test that saving a filter and loading it back in works.
