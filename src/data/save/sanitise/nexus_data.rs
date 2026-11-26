@@ -892,6 +892,7 @@ mod tests {
             crate::batch::FilterIndex::Index(0),
             out_path_str,
             true,
+            false,
             None,
         )
         .unwrap();
