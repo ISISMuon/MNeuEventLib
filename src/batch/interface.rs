@@ -740,6 +740,7 @@ impl BatchData {
     /// settings, to the end of this object.
     pub fn add_batch(&mut self) {
         self.filters.push(Filters::new());
+        self.labels.push(None);
         self.results.push(Histogram::new());
         self.data_changed.push(true);
     }
@@ -758,6 +759,7 @@ impl BatchData {
             return Err(Error::msg("Cannot remove the only remaining batch."));
         }
         self.filters.remove(index);
+        self.labels.remove(index);
         self.results.remove(index);
         self.data_changed.remove(index);
         Ok(())
@@ -2630,6 +2632,27 @@ mod tests {
         let (starts1, _) = batch.filters[1].get_time_filter_times();
         assert_eq!(starts0, vec![0]);
         assert_eq!(starts1, vec![2e9 as u64]);
+    }
+
+    /// Labels should stay aligned with their filter sets when batches are
+    /// added and removed.
+    #[test]
+    fn test_add_remove_batch_keeps_labels_aligned() {
+        let mut batch = make_batch(2);
+        batch.set_label(1, Some("second".to_string())).unwrap();
+        batch.add_batch();
+        assert_eq!(batch.labels(), vec![None, Some("second".to_string()), None]);
+        // the new batch can be labelled
+        batch.set_label(2, Some("third".to_string())).unwrap();
+
+        batch.remove_batch(0).unwrap();
+        assert_eq!(
+            batch.labels(),
+            vec![Some("second".to_string()), Some("third".to_string())]
+        );
+        assert_eq!(batch.find_label("third"), Some(1));
+        // repr indexes the labels for every filter set
+        let _ = batch.__repr__();
     }
 
     /// Removing a batch at an out-of-range index should error.
